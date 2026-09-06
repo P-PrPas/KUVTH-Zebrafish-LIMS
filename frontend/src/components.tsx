@@ -155,3 +155,91 @@ export function ErrorMessage({ message }: { message: string }) {
     </p>
   );
 }
+
+const iconPaths: Record<string, ReactNode> = {
+  dashboard: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="2" />
+      <rect x="14" y="3" width="7" height="7" rx="2" />
+      <rect x="3" y="14" width="7" height="7" rx="2" />
+      <rect x="14" y="14" width="7" height="7" rx="2" />
+    </>
+  ),
+  due: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  batches: (
+    <>
+      <path d="M4 7h16v13H4z" />
+      <path d="M8 7V4h8v3M8 12h8M8 16h5" />
+    </>
+  ),
+  fish: (
+    <>
+      <path d="M4 12c3-5 9-6 14-2l3-3v10l-3-3c-5 4-11 3-14-2Z" />
+      <circle cx="15.5" cy="11" r=".7" />
+    </>
+  ),
+  master: (
+    <>
+      <path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" />
+    </>
+  ),
+  timing: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4h4M9 2h6" />
+    </>
+  ),
+  promotions: (
+    <>
+      <path d="M12 21V9M7 14c-3 0-4-2-4-5 3 0 5 1 6 4M17 10c3 0 4-2 4-5-3 0-5 1-6 4" />
+    </>
+  ),
+  controls: (
+    <>
+      <path d="M4 6h16M4 12h16M4 18h16" />
+      <circle cx="9" cy="6" r="2" />
+      <circle cx="15" cy="12" r="2" />
+      <circle cx="7" cy="18" r="2" />
+    </>
+  ),
+  audit: (
+    <>
+      <path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4" />
+      <path d="m4 5 2 2" />
+    </>
+  ),
+  export: (
+    <>
+      <path d="M12 3v12M7 10l5 5 5-5M5 19h14" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </>
+  ),
+};
+
+export function Icon({ name, className = "icon" }: { name: string; className?: string }) {
+  return (
+    <svg
+      className={className}
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {iconPaths[name]}
+    </svg>
+  );
+}
