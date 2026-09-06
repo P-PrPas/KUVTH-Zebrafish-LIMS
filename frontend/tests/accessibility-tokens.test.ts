@@ -13,6 +13,23 @@ function luminance(hex: string) {
 }
 
 describe("accessibility tokens", () => {
+  it("keeps brand and status text readable against their surfaces", () => {
+    const token = (name: string) => styles.match(new RegExp(`--${name}:\\s*(#[a-f\\d]{6})`, "i"))![1].slice(1);
+    for (const [foreground, background] of [
+      ["ink", "canvas"],
+      ["muted", "canvas"],
+      ["primary", "primary-soft"],
+      ["danger", "danger-soft"],
+      ["accent", "accent-soft"],
+      ["info", "info-soft"],
+      ["sidebar-text", "sidebar"],
+      ["ink", "brand-lime"],
+    ]) {
+      const values = [luminance(token(foreground)), luminance(token(background))].sort((a, b) => b - a);
+      expect((values[0] + 0.05) / (values[1] + 0.05), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(1.05 / (luminance(token("primary")) + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
   it("keeps strong UI boundaries at 3:1 contrast against white", () => {
     const color = styles.match(/--line-strong:\s*(#[a-f\d]{6})/i)?.[1];
     expect(color).toBeDefined();

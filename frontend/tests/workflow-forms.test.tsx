@@ -24,6 +24,41 @@ describe("lab workflow forms", () => {
     vi.unstubAllGlobals();
   });
 
+  it("finds experiments by code or date and restores the list when search is cleared", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        json({
+          items: [
+            { id: "batch-1", batchCode: "KU-AB-001", experimentDate: "2026-09-01" },
+            { id: "batch-2", batchCode: "KU-TU-002", experimentDate: "2026-09-02" },
+          ],
+        }),
+      ),
+    );
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () => root.render(<Batches t={text.th} />));
+    const search = element.querySelector<HTMLInputElement>('input[type="search"]')!;
+    const enter = async (value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, value);
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    await enter("  ku-ab  ");
+    expect(element.querySelectorAll(".list-row")).toHaveLength(1);
+    expect(element.querySelector(".list-row")?.textContent).toContain("KU-AB-001");
+    await enter("2026-09-02");
+    expect(element.querySelector(".list-row")?.textContent).toContain("KU-TU-002");
+    await enter("missing");
+    expect(element.querySelectorAll(".list-row")).toHaveLength(0);
+    expect(element.textContent).toContain("ไม่พบการทดลอง");
+    await enter("");
+    expect(element.querySelectorAll(".list-row")).toHaveLength(2);
+    await act(async () => root.unmount());
+  });
+
   it("exposes required batch fields and foreign-key selectors", async () => {
     vi.stubGlobal(
       "fetch",

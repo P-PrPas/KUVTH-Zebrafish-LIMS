@@ -1,6 +1,6 @@
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get } from "../api/client";
-import { ErrorMessage, Metric, ReportPanel, ReportTable } from "../components";
+import { ErrorMessage, Icon, Metric, ReportPanel, ReportTable } from "../components";
 import { analyticsFilters, type DashboardFilters, filterQuery, parseFilters, withFilters } from "../filters";
 import { type AppText, type Page, text } from "../types";
 
@@ -1967,15 +1967,59 @@ export function Dashboard({ onNavigate, t }: { onNavigate: (page: Page) => void;
   };
   return (
     <section>
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{thai ? "คำตอบจากข้อมูลการทดลอง" : "RESEARCH EVIDENCE"}</p>
+      <div className="research-banner">
+        <div className="research-banner__copy">
+          <p className="eyebrow">KUVACB / RESEARCH WORKSPACE</p>
           <h1>{thai ? "ผลการทดลอง" : "Research results"}</h1>
-          <p className="muted">
-            {thai
-              ? "ตอบคำถามสำคัญจากข้อมูลชุดเดียวกับรายงานและไฟล์ส่งออก"
-              : "Answer key research questions from the same dataset used for reports and exports."}
-          </p>
+          <p>{thai ? "จากทุกการบันทึก สู่ความก้าวหน้าของงานวิจัย" : "Every observation moves research forward."}</p>
+          <span className="research-banner__caption">
+            {thai ? "ระบบจัดการงานวิจัยปลาม้าลาย · มหาวิทยาลัยเกษตรศาสตร์" : "Zebrafish research · Kasetsart University"}
+          </span>
+        </div>
+        <img src="/brand/research-banner.jpg" width="2048" height="738" alt="" />
+      </div>
+      <div className="action-grid" aria-label={thai ? "เริ่มงานประจำวัน" : "Daily work shortcuts"}>
+        <button type="button" className="action-card action-card--checks" onClick={() => onNavigate("due")}>
+          <span className="action-icon">
+            <Icon name="due" />
+          </span>
+          <span className="action-card__copy">
+            <strong>{thai ? "เริ่มตรวจตัวอ่อน" : "Check embryos"}</strong>
+            <small>{thai ? "งานถึงเวลาและงานที่รอตรวจ" : "Due and upcoming observations"}</small>
+          </span>
+          <span className="action-card__arrow" aria-hidden="true">
+            →
+          </span>
+        </button>
+        <button type="button" className="action-card" onClick={() => onNavigate("batches")}>
+          <span className="action-icon">
+            <Icon name="batches" />
+          </span>
+          <span className="action-card__copy">
+            <strong>{thai ? "จัดการการทดลอง" : "Manage experiments"}</strong>
+            <small>{thai ? "สร้างรอบทดลองและชุดตัวอ่อน" : "Experiments and embryo lots"}</small>
+          </span>
+          <span className="action-card__arrow" aria-hidden="true">
+            →
+          </span>
+        </button>
+        <button type="button" className="action-card action-card--fish" onClick={() => onNavigate("fish")}>
+          <span className="action-icon">
+            <Icon name="fish" />
+          </span>
+          <span className="action-card__copy">
+            <strong>{thai ? "บันทึกการดูแลปลา" : "Record fish care"}</strong>
+            <small>{thai ? "ติดตามสุขภาพปลาประจำวัน" : "Daily health and follow-up"}</small>
+          </span>
+          <span className="action-card__arrow" aria-hidden="true">
+            →
+          </span>
+        </button>
+      </div>
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">{thai ? "ภาพรวมงานวิจัย" : "RESEARCH OVERVIEW"}</p>
+          <h2>{thai ? "ติดตามผลการทดลอง" : "Follow your research"}</h2>
         </div>
         <button className="button button--secondary" onClick={load} disabled={loading}>
           {loading ? t.loading : t.refresh}
@@ -2525,7 +2569,13 @@ export function Dashboard({ onNavigate, t }: { onNavigate: (page: Page) => void;
         </div>
       )}
       {data.kpi == null && !loading && (
-        <NoData message="Dashboard is empty. Create a batch and record observations to see panels." />
+        <NoData
+          message={
+            thai
+              ? "ยังไม่มีผลการทดลอง เริ่มสร้างรอบทดลองและบันทึกผลตรวจเพื่อดูข้อมูลสรุป"
+              : "Create an experiment and record observations to see results here."
+          }
+        />
       )}
     </section>
   );

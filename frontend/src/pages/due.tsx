@@ -174,7 +174,11 @@ export function Due({ t }: { t: AppText }) {
             const late = Number(item.minutesLate ?? 0);
             const pendingStages = Number(item.pendingStages ?? 0);
             return (
-              <button key={String(item.injectionLotId)} className="list-row" onClick={() => setSelected(item)}>
+              <button
+                key={String(item.injectionLotId)}
+                className={`list-row ${late > 0 ? "list-row--late" : "list-row--upcoming"}`}
+                onClick={() => setSelected(item)}
+              >
                 <span>
                   <strong>
                     {String(item.batchCode)} · Lot {String(item.lotNo)}
