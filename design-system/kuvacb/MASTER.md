@@ -44,8 +44,16 @@ Implementation source of truth: `frontend/src/styles.css`.
   keep optional sample/environment inputs in a native disclosure.
 - Preserve operator gating, native validation, error summaries, queued writes,
   audit behavior, and scientific calculation semantics.
-- Wide screens show navigation beside content. Narrow screens use the existing
-  labelled navigation and More disclosure; forms stack into one column.
+- Below 1200px, use the labelled horizontal navigation and More disclosure. From
+  1000px, the logo and navigation share one row to save vertical space. Wider
+  windows retain the sidebar.
+- At 700-1399px, give forms two columns and keep the plate beside a 300px editor.
+  Use four well columns below 1000px and six above; preserve visible well IDs and
+  full embryo codes in the selected-well editor. Below 700px, stack forms and
+  return to the existing phone plate/editor navigation.
+- Coarse pointers get 48px primary controls and press feedback. Windows no taller
+  than 600px use normal-flow checkpoint panels so sticky controls cannot overlap
+  the reduced workspace. This height rule does not detect the iPad software keyboard.
 - Tables may scroll inside their labelled region. The page itself must not overflow.
 - Honor reduced-motion preferences and reserve scroll clearance for the checkpoint
   confirmation bar. Print views omit navigation and decorative overview content.

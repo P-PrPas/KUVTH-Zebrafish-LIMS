@@ -607,7 +607,7 @@ function ObservationRound({
   };
   const selectWell = (id: string, scrollToEditor = false) => {
     setSelectedId(id);
-    if (scrollToEditor && window.matchMedia?.("(max-width: 780px)")?.matches)
+    if (scrollToEditor && window.matchMedia?.("(max-width: 699px)")?.matches)
       window.setTimeout(() => editorHeading.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
   };
   const moveWell = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {

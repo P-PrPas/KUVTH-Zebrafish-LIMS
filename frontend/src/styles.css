@@ -2878,6 +2878,7 @@ tbody tr:hover {
   outline-offset: 2px;
 }
 .checkpoint-grid {
+  overflow: visible;
   grid-template-columns: repeat(6, minmax(44px, 1fr));
 }
 button,
@@ -2903,21 +2904,7 @@ button:disabled:hover {
     grid-template-columns: repeat(12, minmax(44px, 1fr));
   }
 }
-@media (min-width: 781px) and (max-width: 1250px) {
-  .top-actions {
-    flex-wrap: wrap;
-  }
-  .checkpoint-workspace {
-    grid-template-columns: 1fr;
-  }
-  .checkpoint-editor {
-    position: static;
-  }
-  .action-grid {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 780px) {
+@media (max-width: 1199px) {
   .brand-lockup {
     display: flex;
     align-items: center;
@@ -2935,6 +2922,8 @@ button:disabled:hover {
   .tagline {
     font-size: 0.875rem;
   }
+}
+@media (max-width: 699px) {
   .research-banner {
     grid-template-columns: 1fr;
   }
@@ -2966,12 +2955,12 @@ button:disabled:hover {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1399px) {
   .app {
     grid-template-columns: 224px minmax(0, 1fr);
   }
-  .action-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .top-actions {
+    flex-wrap: wrap;
   }
   .topbar,
   .content {
@@ -2987,7 +2976,7 @@ button:disabled:hover {
   }
 }
 
-@media (max-width: 780px) {
+@media (max-width: 1199px) {
   .app {
     display: block;
   }
@@ -3136,6 +3125,8 @@ button:disabled:hover {
     grid-column: auto;
     padding: 24px 16px 72px;
   }
+}
+@media (max-width: 699px) {
   .page-heading {
     display: grid;
     gap: 18px;
@@ -3271,6 +3262,177 @@ button:disabled:hover {
   }
   .chart-legend__item {
     min-height: 44px;
+  }
+}
+
+/* Tablet workspace: keep room for the plate and a readable, touch-sized editor. */
+@media (min-width: 700px) and (max-width: 1399px) {
+  .content {
+    padding: 28px 24px 48px;
+  }
+  .topbar {
+    padding: 12px 24px;
+    gap: 12px 24px;
+  }
+  .workspace-context {
+    flex: 1 1 180px;
+  }
+  .top-actions {
+    width: auto;
+    flex: 1 1 460px;
+    gap: 12px;
+  }
+  .operator-select {
+    flex: 1;
+  }
+  .operator-select select {
+    width: 100%;
+  }
+  .connection:not(.connection--offline) {
+    font-size: 0.875rem;
+  }
+  .research-banner {
+    grid-template-columns: 1.2fr 1fr;
+  }
+  .research-banner__copy {
+    padding: 24px;
+  }
+  .research-banner h1 {
+    font-size: 2rem;
+  }
+  .action-card {
+    position: relative;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 20px;
+  }
+  .action-card__arrow {
+    position: absolute;
+    top: 24px;
+    right: 20px;
+  }
+  .checkpoint-shortcuts > .button-row {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+  .checkpoint-workspace {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 16px;
+  }
+  .checkpoint-editor {
+    top: 24px;
+  }
+  .checkpoint-section-heading {
+    display: grid;
+    gap: 8px;
+  }
+  .checkpoint-selection-note {
+    padding: 0;
+    text-align: left;
+  }
+  .checkpoint-grid {
+    grid-template-columns: repeat(4, minmax(48px, 1fr));
+    gap: 10px;
+  }
+  .checkpoint-filters {
+    grid-template-columns: 1fr;
+  }
+  .checkpoint-editor__fields label,
+  .checkpoint-filters label {
+    font-size: 1rem;
+  }
+  .well-cell {
+    min-height: 88px;
+  }
+  .well-cell > span,
+  .checkpoint-metrics small {
+    font-size: 0.875rem;
+  }
+  .checkpoint-action-bar .button {
+    min-width: 220px;
+  }
+}
+@media (min-width: 700px) and (max-width: 1199px) {
+  .sidebar {
+    padding: 16px 24px 12px;
+  }
+  .brand-lockup {
+    margin-bottom: 16px;
+  }
+  .sidebar-nav {
+    gap: 8px;
+  }
+  .nav-link,
+  .nav-disclosure--mobile > summary {
+    min-height: 64px;
+    gap: 6px;
+    padding: 8px;
+  }
+  .nav-link span,
+  .nav-disclosure--mobile > summary,
+  .nav-disclosure--mobile .nav-link span {
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+  .nav-disclosure--mobile .nav-link {
+    min-height: 48px;
+  }
+}
+@media (min-width: 1000px) and (max-width: 1199px) {
+  .sidebar {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    align-items: center;
+    gap: 24px;
+  }
+  .brand-lockup {
+    margin: 0;
+  }
+  .brand-logo {
+    width: 180px;
+  }
+  .brand-copy {
+    display: none;
+  }
+}
+@media (min-width: 1000px) and (max-width: 1399px) {
+  .checkpoint-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(150px, 0.8fr);
+  }
+  .checkpoint-grid {
+    grid-template-columns: repeat(6, minmax(48px, 1fr));
+  }
+}
+/* Short windows need normal document scrolling without overlapping sticky panels. */
+@media (max-height: 600px) and (max-width: 1399px) {
+  .checkpoint-editor,
+  .checkpoint-action-bar {
+    position: static;
+  }
+}
+@media (pointer: coarse) {
+  .button,
+  .back,
+  .tab,
+  .language,
+  .inline-action,
+  button,
+  summary,
+  input:not([type="checkbox"]):not([type="radio"]),
+  select {
+    min-height: 48px;
+  }
+  button,
+  summary {
+    touch-action: manipulation;
+  }
+  .tabs,
+  .button-row {
+    gap: 8px;
+  }
+  button:active,
+  summary:active {
+    filter: brightness(0.92);
   }
 }
 
