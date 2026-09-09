@@ -24,6 +24,7 @@ export function Batches({ t }: { t: AppText }) {
   const [items, setItems] = useState<ApiItem[]>([]);
   const [selected, setSelected] = useState<ApiItem | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const load = useCallback(() => {
     void get(withFilters("/batches", dashboardFilters))
@@ -55,6 +56,11 @@ export function Batches({ t }: { t: AppText }) {
   }, [load]);
   if (selected) return <BatchDetail batch={selected} t={t} onBack={() => setSelected(null)} />;
   const thai = t === text.th;
+  const visibleItems = items.filter((item) =>
+    `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
+      .toLocaleLowerCase()
+      .includes(search.trim().toLocaleLowerCase()),
+  );
   const addQueued = (batch: ApiItem) => {
     setItems((current) => [{ ...batch, id: `queued-${Date.now()}`, queued: true }, ...current]);
     setShowForm(false);
@@ -92,12 +98,36 @@ export function Batches({ t }: { t: AppText }) {
           {thai ? "+ รอบทดลองใหม่" : "+ New experiment"}
         </button>
       </div>
+      <div className="record-toolbar">
+        <label>
+          {thai ? "ค้นหาการทดลอง" : "Find an experiment"}
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={thai ? "รหัสการทดลอง หรือวันที่ YYYY-MM-DD" : "Experiment code or YYYY-MM-DD"}
+          />
+        </label>
+        <p className="muted" role="status">
+          {thai
+            ? `แสดง ${visibleItems.length} จาก ${items.length} การทดลอง`
+            : `${visibleItems.length} of ${items.length} experiments`}
+        </p>
+      </div>
       {message && <ErrorMessage message={message} />}
-      {items.length === 0 ? (
-        <Empty message={t.empty} />
+      {visibleItems.length === 0 ? (
+        <Empty
+          message={
+            search.trim()
+              ? thai
+                ? "ไม่พบการทดลอง ลองค้นหาด้วยรหัสหรือวันที่อื่น"
+                : "No matching experiments. Try another code or date."
+              : t.empty
+          }
+        />
       ) : (
         <div className="list">
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <button className="list-row" key={String(item.id)} onClick={() => setSelected(item)}>
               <span>
                 <strong>{String(item.batchCode)}</strong>
@@ -206,102 +236,112 @@ function BatchForm({
       <h1>{batch ? (thai ? "แก้ไขข้อมูลการทดลอง" : "Edit experiment") : thai ? "เริ่มการทดลองใหม่" : "New experiment"}</h1>
       <p className="muted">
         {thai
-          ? "ระบุวันที่ ผู้ปฏิบัติงาน สถานที่ และกลุ่มทดลอง ระบบจะสร้างรหัสให้จากข้อมูลต่อไปนี้:"
-          : "Set the date, operator, location and comparison group. Suggested code:"}{" "}
-        <code>{`${form.dayNo || "day_no"}_${form.operatorId || "operator"}_${form.treatmentGroupId || "treatment"}`}</code>
-        {thai ? " · เว้นรหัสว่างไว้เพื่อให้ระบบสร้างให้" : ". Leave it blank to let the server generate it."}
+          ? "กรอกข้อมูลรอบทดลองและผู้รับผิดชอบให้ครบ ส่วนข้อมูลตัวอย่างเพิ่มเติมสามารถกรอกภายหลังได้"
+          : "Complete the experiment details and responsible team. Optional sample details can be added later."}
       </p>
-      <div className="form-card--inline">
-        <label>
-          {thai ? "ลำดับวันทดลอง" : "Day no."}
-          <input
-            required
-            data-testid="batch-day-no"
-            type="number"
-            min="1"
-            value={form.dayNo}
-            onChange={(e) => set("dayNo", e.target.value)}
-          />
-        </label>
-        <label>
-          {thai ? "รหัสรอบทดลอง" : "Batch code"}
-          <input
-            required={Boolean(batch)}
-            data-testid="batch-code"
-            value={form.batchCode}
-            placeholder={`${form.dayNo || "day_no"}_${form.operatorId || "operator"}_${form.treatmentGroupId || "treatment"}`}
-            onChange={(e) => set("batchCode", e.target.value)}
-          />
-        </label>
-        <label>
-          {thai ? "วันที่ทดลอง" : "Experiment date"}
-          <input
-            required
-            type="date"
-            value={form.experimentDate}
-            onChange={(e) => set("experimentDate", e.target.value)}
-          />
-        </label>
-      </div>
-      <div className="form-card--inline">
-        <label>
-          {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
-          <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
-            <option value="">{thai ? "เลือกผู้ปฏิบัติงาน" : "Choose operator"}</option>
-            {(masters.operators ?? []).map((item) => (
-              <option key={String(item.id)} value={String(item.id)}>
-                {String(item.name ?? item.code ?? item.id)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {thai ? "สถานที่" : "Site"}
-          <select required value={form.siteId} onChange={(e) => set("siteId", e.target.value)}>
-            <option value="">{thai ? "เลือกสถานที่" : "Select site"}</option>
-            {(masters.sites ?? []).map((site) => (
-              <option key={String(site.id)} value={String(site.id)}>
-                {String(site.code)} — {String(site.name)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {thai ? "โพรโทคอล" : "Protocol"}
-          <select
-            required
-            disabled={Boolean(batch)}
-            value={form.protocolId}
-            onChange={(e) => set("protocolId", e.target.value)}
-          >
-            <option value="">{thai ? "เลือกโพรโทคอล" : "Select protocol"}</option>
-            {(masters.protocols ?? []).map((item) => (
-              <option key={String(item.id)} value={String(item.id)}>
-                {String(item.code ?? item.name ?? item.id)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {thai ? "กลุ่มการทดลอง" : "Treatment group"}
-          <select required value={form.treatmentGroupId} onChange={(e) => set("treatmentGroupId", e.target.value)}>
-            <option value="">{thai ? "เลือกกลุ่มการทดลอง" : "Select treatment"}</option>
-            {(masters["treatment-groups"] ?? []).map((item) => (
-              <option key={String(item.id)} value={String(item.id)}>
-                {String(item.code ?? item.name)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+      <fieldset className="form-section">
+        <legend>
+          <span aria-hidden="true">01</span>
+          {thai ? "ข้อมูลรอบทดลอง" : "Experiment details"}
+        </legend>
+        <div className="form-card--inline">
+          <label>
+            {thai ? "ลำดับวันทดลอง" : "Day no."}
+            <input
+              required
+              data-testid="batch-day-no"
+              type="number"
+              min="1"
+              value={form.dayNo}
+              onChange={(e) => set("dayNo", e.target.value)}
+            />
+          </label>
+          <label>
+            {thai ? "รหัสรอบทดลอง" : "Batch code"}
+            <input
+              required={Boolean(batch)}
+              data-testid="batch-code"
+              value={form.batchCode}
+              placeholder={thai ? "เว้นว่างเพื่อสร้างรหัสอัตโนมัติ" : "Leave blank to generate a code"}
+              onChange={(e) => set("batchCode", e.target.value)}
+            />
+          </label>
+          <label>
+            {thai ? "วันที่ทดลอง" : "Experiment date"}
+            <input
+              required
+              type="date"
+              value={form.experimentDate}
+              onChange={(e) => set("experimentDate", e.target.value)}
+            />
+          </label>
+        </div>
+      </fieldset>
+      <fieldset className="form-section">
+        <legend>
+          <span aria-hidden="true">02</span>
+          {thai ? "ผู้รับผิดชอบและแผนการทดลอง" : "Team and protocol"}
+        </legend>
+        <div className="form-card--inline">
+          <label>
+            {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
+            <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
+              <option value="">{thai ? "เลือกผู้ปฏิบัติงาน" : "Choose operator"}</option>
+              {(masters.operators ?? []).map((item) => (
+                <option key={String(item.id)} value={String(item.id)}>
+                  {String(item.name ?? item.code ?? item.id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {thai ? "สถานที่" : "Site"}
+            <select required value={form.siteId} onChange={(e) => set("siteId", e.target.value)}>
+              <option value="">{thai ? "เลือกสถานที่" : "Select site"}</option>
+              {(masters.sites ?? []).map((site) => (
+                <option key={String(site.id)} value={String(site.id)}>
+                  {String(site.code)} — {String(site.name)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {thai ? "โพรโทคอล" : "Protocol"}
+            <select
+              required
+              disabled={Boolean(batch)}
+              value={form.protocolId}
+              onChange={(e) => set("protocolId", e.target.value)}
+            >
+              <option value="">{thai ? "เลือกโพรโทคอล" : "Select protocol"}</option>
+              {(masters.protocols ?? []).map((item) => (
+                <option key={String(item.id)} value={String(item.id)}>
+                  {String(item.code ?? item.name ?? item.id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {thai ? "กลุ่มการทดลอง" : "Treatment group"}
+            <select required value={form.treatmentGroupId} onChange={(e) => set("treatmentGroupId", e.target.value)}>
+              <option value="">{thai ? "เลือกกลุ่มการทดลอง" : "Select treatment"}</option>
+              {(masters["treatment-groups"] ?? []).map((item) => (
+                <option key={String(item.id)} value={String(item.id)}>
+                  {String(item.code ?? item.name)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </fieldset>
       <details className="workflow-disclosure">
         <summary>{thai ? "ข้อมูลตัวอย่างและเงื่อนไขเพิ่มเติม (ไม่บังคับ)" : "Sample and environment details (optional)"}</summary>
         <div className="workflow-disclosure__body">
           <div className="form-card--inline">
             <label>
-              Recipient egg lot
+              {thai ? "ชุดไข่ผู้รับ" : "Recipient egg lot"}
               <select value={form.recipientEggLotId} onChange={(e) => set("recipientEggLotId", e.target.value)}>
-                <option value="">Not linked</option>
+                <option value="">{thai ? "ยังไม่เชื่อมโยง" : "Not linked"}</option>
                 {(masters["recipient-egg-lots"] ?? []).map((item) => (
                   <option key={String(item.id)} value={String(item.id)}>
                     {String(item.label ?? item.lotCode ?? item.id)}
@@ -310,9 +350,9 @@ function BatchForm({
               </select>
             </label>
             <label>
-              CSOF lot
+              {thai ? "ชุดน้ำยา CSOF" : "CSOF lot"}
               <select value={form.csofLotId} onChange={(e) => set("csofLotId", e.target.value)}>
-                <option value="">Not linked</option>
+                <option value="">{thai ? "ยังไม่เชื่อมโยง" : "Not linked"}</option>
                 {(masters["csof-lots"] ?? []).map((item) => (
                   <option key={String(item.id)} value={String(item.id)}>
                     {String(item.lotCode ?? item.code ?? item.id)}
@@ -321,13 +361,13 @@ function BatchForm({
               </select>
             </label>
             <label>
-              Clutch code
+              {thai ? "รหัสชุดไข่ (Clutch)" : "Clutch code"}
               <input value={form.clutchCode} onChange={(e) => set("clutchCode", e.target.value)} />
             </label>
           </div>
           <div className="form-card--inline">
             <label>
-              Replicate no.
+              {thai ? "ลำดับซ้ำ" : "Replicate no."}
               <input
                 type="number"
                 min="1"
@@ -336,7 +376,7 @@ function BatchForm({
               />
             </label>
             <label>
-              Incubation °C
+              {thai ? "อุณหภูมิเลี้ยง (°C)" : "Incubation °C"}
               <input
                 type="number"
                 min="0"
@@ -347,16 +387,18 @@ function BatchForm({
               />
             </label>
             <label>
-              Notes
+              {thai ? "หมายเหตุ" : "Notes"}
               <input value={form.notes} onChange={(e) => set("notes", e.target.value)} />
             </label>
           </div>
         </div>
       </details>
       {error && <ErrorMessage message={error} />}
-      <button className="button button--primary" type="submit">
-        {batch ? (thai ? "บันทึกการแก้ไข" : "Save changes") : thai ? "สร้างรอบทดลอง" : "Save batch"}
-      </button>
+      <div className="form-actions">
+        <button className="button button--primary" type="submit">
+          {batch ? (thai ? "บันทึกการแก้ไข" : "Save changes") : thai ? "สร้างรอบทดลอง" : "Save batch"}
+        </button>
+      </div>
     </form>
   );
 }

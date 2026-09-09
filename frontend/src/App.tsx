@@ -1,5 +1,6 @@
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { get, operatorId } from "./api/client";
+import { Icon } from "./components";
 import {
   discardRejected,
   drainQueue,
@@ -22,94 +23,6 @@ import { type ApiItem, type Language, type Page, text } from "./types";
 type NavItem = { page: Page; label: string; icon: string; group: "primary" | "research" | "system" };
 
 const productName = "KUVTH Zebrafish LIMS";
-
-const iconPaths: Record<string, ReactNode> = {
-  dashboard: (
-    <>
-      <rect x="3" y="3" width="7" height="7" rx="2" />
-      <rect x="14" y="3" width="7" height="7" rx="2" />
-      <rect x="3" y="14" width="7" height="7" rx="2" />
-      <rect x="14" y="14" width="7" height="7" rx="2" />
-    </>
-  ),
-  due: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </>
-  ),
-  batches: (
-    <>
-      <path d="M4 7h16v13H4z" />
-      <path d="M8 7V4h8v3M8 12h8M8 16h5" />
-    </>
-  ),
-  fish: (
-    <>
-      <path d="M4 12c3-5 9-6 14-2l3-3v10l-3-3c-5 4-11 3-14-2Z" />
-      <circle cx="15.5" cy="11" r=".7" />
-    </>
-  ),
-  master: (
-    <>
-      <path d="M4 5h16v14H4zM8 9h8M8 13h8M8 17h5" />
-    </>
-  ),
-  timing: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 8v4h4M9 2h6" />
-    </>
-  ),
-  promotions: (
-    <>
-      <path d="M12 21V9M7 14c-3 0-4-2-4-5 3 0 5 1 6 4M17 10c3 0 4-2 4-5-3 0-5 1-6 4" />
-    </>
-  ),
-  controls: (
-    <>
-      <path d="M4 6h16M4 12h16M4 18h16" />
-      <circle cx="9" cy="6" r="2" />
-      <circle cx="15" cy="12" r="2" />
-      <circle cx="7" cy="18" r="2" />
-    </>
-  ),
-  audit: (
-    <>
-      <path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4" />
-      <path d="m4 5 2 2" />
-    </>
-  ),
-  export: (
-    <>
-      <path d="M12 3v12M7 10l5 5 5-5M5 19h14" />
-    </>
-  ),
-  more: (
-    <>
-      <circle cx="5" cy="12" r="1" />
-      <circle cx="12" cy="12" r="1" />
-      <circle cx="19" cy="12" r="1" />
-    </>
-  ),
-};
-
-function Icon({ name, className = "icon" }: { name: string; className?: string }) {
-  return (
-    <svg
-      className={className}
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {iconPaths[name]}
-    </svg>
-  );
-}
 
 function pageForWrite(path: string): Page {
   if (path.startsWith("/observations/embryo")) return "due";
@@ -288,24 +201,27 @@ function App() {
         {language === "th" ? "ข้ามไปยังเนื้อหาหลัก" : "Skip to main content"}
       </a>
       <aside className="sidebar">
-        <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">
-            <Icon name="fish" />
+        <a
+          className="brand-lockup"
+          href="#dashboard"
+          aria-label={language === "th" ? "KUVACB · ผลการทดลอง" : "KUVACB · Research results"}
+        >
+          <span className="brand-logo">
+            <img src="/brand/kuvacb-logo.png" width="1095" height="351" alt="KUVACB" />
           </span>
           <span className="brand-copy">
-            <span className="brand">{productName}</span>
-            <span className="tagline">{language === "th" ? "พื้นที่บันทึกงานวิจัย SCNT" : "SCNT research workspace"}</span>
+            <span className="brand">Zebrafish LIMS</span>
+            <span className="tagline">
+              {language === "th" ? "ระบบบันทึกงานวิจัยปลาม้าลาย" : "Zebrafish research workspace"}
+            </span>
           </span>
-        </div>
+        </a>
         <nav aria-label={language === "th" ? "เมนูหลัก" : "Main navigation"} className="sidebar-nav">
           <div className="nav-group nav-group--primary">
             <p className="nav-group__label">{language === "th" ? "งานหลัก" : "Core work"}</p>
             {renderNav(navItems.filter((item) => item.group === "primary"))}
           </div>
-          <details
-            className="nav-disclosure nav-disclosure--desktop"
-            open={navItems.some((item) => item.group === "research" && item.page === page)}
-          >
+          <details className="nav-disclosure nav-disclosure--desktop" open>
             <summary>{language === "th" ? "งานต่อเนื่องและรายงาน" : "Follow-up & reports"}</summary>
             <div className="nav-group">{renderNav(navItems.filter((item) => item.group === "research"))}</div>
           </details>
@@ -325,11 +241,13 @@ function App() {
           </details>
         </nav>
         <div className="sidebar-note">
-          <span className="sidebar-note__pulse" aria-hidden="true" />
+          <Icon name="audit" />
           <span>
-            <strong>{language === "th" ? "ระบบพร้อมบันทึก" : "System ready"}</strong>
+            <strong>{language === "th" ? "ทุกบันทึกมีความหมาย" : "Every record matters"}</strong>
             <small>
-              {language === "th" ? "ข้อมูลมี audit trail และทำงานออฟไลน์ได้" : "Audit trail active · offline capable"}
+              {language === "th"
+                ? "ตรวจสอบประวัติการแก้ไข และบันทึกต่อได้เมื่อออฟไลน์"
+                : "Traceable changes. Keep recording even when offline."}
             </small>
           </span>
         </div>
@@ -337,13 +255,15 @@ function App() {
       <header className="topbar">
         <div className="workspace-context">
           <span>
-            <span className="workspace-kicker">{language === "th" ? "กำลังใช้งาน" : "Current view"}</span>
+            <span className="workspace-kicker">
+              {language === "th" ? "ธนาคารเซลล์สัตว์ มหาวิทยาลัยเกษตรศาสตร์" : "Kasetsart University · Animal Cell Bank"}
+            </span>
             <strong>{currentNav.label}</strong>
           </span>
         </div>
         <div className="top-actions">
           <label className="operator-select">
-            <span className="sr-only">{t.chooseOperator}</span>
+            <span>{t.operator}</span>
             <select
               id="operator-select"
               aria-label={t.chooseOperator}
@@ -415,7 +335,7 @@ function App() {
           </button>
         </div>
       </header>
-      <main className="content" id="main-content" tabIndex={-1}>
+      <main className="content" id="main-content" tabIndex={-1} data-page={page}>
         {writePage && !currentOperator && (
           <div className="operator-gate" role="alert">
             <strong>{t.operatorRequired}</strong>
@@ -480,6 +400,14 @@ function App() {
           {page === "audit" && <Audit t={t} />}
           {page === "export" && <Export t={t} />}
         </fieldset>
+        <footer className="workspace-footer">
+          <span>{productName}</span>
+          <span>
+            {language === "th"
+              ? "ธนาคารเซลล์สัตว์ มหาวิทยาลัยเกษตรศาสตร์"
+              : "Kasetsart University Veterinary Animal Cell Bank"}
+          </span>
+        </footer>
       </main>
     </div>
   );
