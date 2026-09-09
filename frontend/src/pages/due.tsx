@@ -174,7 +174,11 @@ export function Due({ t }: { t: AppText }) {
             const late = Number(item.minutesLate ?? 0);
             const pendingStages = Number(item.pendingStages ?? 0);
             return (
-              <button key={String(item.injectionLotId)} className="list-row" onClick={() => setSelected(item)}>
+              <button
+                key={String(item.injectionLotId)}
+                className={`list-row ${late > 0 ? "list-row--late" : "list-row--upcoming"}`}
+                onClick={() => setSelected(item)}
+              >
                 <span>
                   <strong>
                     {String(item.batchCode)} · Lot {String(item.lotNo)}
@@ -603,7 +607,7 @@ function ObservationRound({
   };
   const selectWell = (id: string, scrollToEditor = false) => {
     setSelectedId(id);
-    if (scrollToEditor && window.matchMedia?.("(max-width: 780px)")?.matches)
+    if (scrollToEditor && window.matchMedia?.("(max-width: 699px)")?.matches)
       window.setTimeout(() => editorHeading.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
   };
   const moveWell = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
