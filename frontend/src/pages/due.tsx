@@ -14,6 +14,7 @@ import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
 
 type EmbryoOutcome = "ALIVE" | "DEAD";
+type DraftOutcome = EmbryoOutcome | "";
 type ObservationDraft = { embryoId?: unknown; [key: string]: unknown };
 type ObservationResult = { id?: unknown; status?: unknown; error?: { message?: unknown }; [key: string]: unknown };
 const outcomes: EmbryoOutcome[] = ["ALIVE", "DEAD"];
@@ -285,13 +286,14 @@ function ObservationRound({
   const [stageCodes, setStageCodes] = useState<Record<string, string>>(restored.draft?.stageCodes ?? {});
   const [selectedStage, setSelectedStage] = useState(String(due.stageCode ?? ""));
   const [selectedId, setSelectedId] = useState(restored.draft?.selectedId ?? "");
-  const [embryoOutcomes, setEmbryoOutcomes] = useState<Record<string, EmbryoOutcome>>(
-    (restored.draft?.outcomes ?? {}) as Record<string, EmbryoOutcome>,
+  const [embryoOutcomes, setEmbryoOutcomes] = useState<Record<string, DraftOutcome>>(
+    (restored.draft?.outcomes ?? {}) as Record<string, DraftOutcome>,
   );
   const [embryoConditions, setEmbryoConditions] = useState<Record<string, string>>(restored.draft?.conditions ?? {});
   const [notes, setNotes] = useState<Record<string, string>>(restored.draft?.notes ?? {});
   const [correctionReason, setCorrectionReason] = useState("");
   const [confirmedAt, setConfirmedAt] = useState(restored.draft?.confirmedAt ?? "");
+  const [draftSavedAt, setDraftSavedAt] = useState(restored.draft?.savedAt ?? "");
   const [savedIds, setSavedIds] = useState<Record<string, string>>(restored.draft?.savedIds ?? {});
   const [queuedIds, setQueuedIds] = useState<Record<string, boolean>>({});
   const [lastSavedIds, setLastSavedIds] = useState<string[]>([]);
@@ -339,7 +341,7 @@ function ObservationRound({
         const loaded = [...(value.embryos ?? [])].sort(compareEmbryosByWell);
         const draft = restored.draft;
         const nextStages: Record<string, string> = {};
-        const nextOutcomes: Record<string, EmbryoOutcome> = {};
+        const nextOutcomes: Record<string, DraftOutcome> = {};
         const nextConditions: Record<string, string> = {};
         const nextNotes: Record<string, string> = {};
         const nextSaved: Record<string, string> = {};
@@ -369,9 +371,11 @@ function ObservationRound({
               ? embryo.priorOutcome === "DEAD"
                 ? "DEAD"
                 : "ALIVE"
-              : (pendingWrite?.outcome ?? draft?.outcomes[id]) === "DEAD"
+              : pendingWrite?.outcome === "DEAD" || draft?.outcomes[id] === "DEAD"
                 ? "DEAD"
-                : "ALIVE";
+                : pendingWrite?.outcome === "ALIVE" || draft?.outcomes[id] === "ALIVE"
+                  ? "ALIVE"
+                  : "";
           nextConditions[id] = String(
             alreadySaved && !keepLocal
               ? (embryo.defaultCondition ?? "NORMAL")
@@ -406,9 +410,10 @@ function ObservationRound({
     };
   }, [due.injectionLotId, due.stageCode, operator, restored, hydrationAttempt]);
 
-  useLayoutEffect(() => {
+  const persistDraft = (manual = false) => {
     if (!entry) return;
     try {
+      const savedAt = new Date().toISOString();
       saveObservationDraft(operator, {
         version: 1,
         due,
@@ -420,11 +425,17 @@ function ObservationRound({
         notes,
         savedIds,
         confirmedAt,
+        savedAt,
       });
       setDraftError(false);
+      setDraftSavedAt(savedAt);
+      if (manual) setSaveStatus(thai ? "บันทึกร่างแล้ว · ยังไม่ยืนยันผล" : "Draft saved · not confirmed");
     } catch {
       setDraftError(true);
     }
+  };
+  useLayoutEffect(() => {
+    persistDraft();
   }, [operator, due, entry, selectedId, stageCodes, embryoOutcomes, embryoConditions, notes, savedIds, confirmedAt]);
 
   const embryos = (entry?.embryos as ApiItem[] | undefined) ?? [];
@@ -435,17 +446,17 @@ function ObservationRound({
     if (isPersistentlyDead(embryo)) return false;
     const id = String(embryo.embryoId);
     return (
-      (embryoOutcomes[id] ?? "ALIVE") !== "ALIVE" ||
+      (Boolean(embryoOutcomes[id]) && embryoOutcomes[id] !== "ALIVE") ||
       (embryoConditions[id] ?? "NORMAL") !== "NORMAL" ||
       Boolean(notes[id]?.trim())
     );
   };
   const stateFor = (embryo: ApiItem): "dead" | "saved" | "queued" | "exception" | "ready" | "unreviewed" => {
     const id = String(embryo.embryoId);
-    if (isPersistentlyDead(embryo) || embryoOutcomes[id] === "DEAD") return "dead";
+    if (isPersistentlyDead(embryo)) return "dead";
     if (savedIds[id]) return "saved";
     if (queuedIds[id]) return "queued";
-    if (!stageCodes[id]) return "unreviewed";
+    if (!stageCodes[id] || !embryoOutcomes[id]) return "unreviewed";
     if (hasException(embryo)) return "exception";
     return "ready";
   };
@@ -474,13 +485,13 @@ function ObservationRound({
       (viewFilter === "exception"
         ? hasException(embryo)
         : viewFilter === "unreviewed"
-          ? !isPersistentlyDead(embryo) && !stageCodes[id] && !savedIds[id] && !queuedIds[id]
+          ? !isPersistentlyDead(embryo) && (!stageCodes[id] || !embryoOutcomes[id]) && !savedIds[id] && !queuedIds[id]
           : stateFor(embryo) === viewFilter);
     return matchesSearch && matchesFilter;
   });
   const pending = recordableEmbryos.filter((embryo) => {
     const id = String(embryo.embryoId);
-    return Boolean(stageCodes[id]) && !savedIds[id] && !queuedIds[id];
+    return Boolean(stageCodes[id] && embryoOutcomes[id]) && !savedIds[id] && !queuedIds[id];
   });
   const hasDraft = recordableEmbryos.some((embryo) => {
     const id = String(embryo.embryoId);
@@ -490,7 +501,7 @@ function ObservationRound({
       Boolean(
         stageCodes[id] ||
           notes[id]?.trim() ||
-          embryoOutcomes[id] === "DEAD" ||
+          Boolean(embryoOutcomes[id]) ||
           (embryoConditions[id] && embryoConditions[id] !== (embryo.defaultCondition ?? "NORMAL")),
       )
     );
@@ -508,10 +519,13 @@ function ObservationRound({
     const id = String(embryo.embryoId);
     return !stageCodes[id] && !savedIds[id] && !queuedIds[id];
   });
-  const selectedCount = recordableEmbryos.filter((embryo) => Boolean(stageCodes[String(embryo.embryoId)])).length;
+  const selectedCount = recordableEmbryos.filter((embryo) => {
+    const id = String(embryo.embryoId);
+    return Boolean(stageCodes[id] && embryoOutcomes[id]);
+  }).length;
   const unreviewedCount = recordableEmbryos.filter((embryo) => {
     const id = String(embryo.embryoId);
-    return !stageCodes[id] && !savedIds[id] && !queuedIds[id];
+    return (!stageCodes[id] || !embryoOutcomes[id]) && !savedIds[id] && !queuedIds[id];
   }).length;
   const exceptionCount = recordableEmbryos.filter(hasException).length;
   const savedCount = Object.keys(savedIds).length;
@@ -532,8 +546,8 @@ function ObservationRound({
       : pending.length > 0
         ? unreviewedCount
           ? thai
-            ? `ยังไม่ตรวจ ${unreviewedCount} ฟอง; เลือกระยะเพื่อรวมในการยืนยัน`
-            : `${unreviewedCount} unreviewed; select a stage to include them`
+            ? `ยังไม่ตรวจ ${unreviewedCount} ฟอง; เลือกระยะและสถานะก่อนยืนยัน`
+            : `${unreviewedCount} unreviewed; select a stage and outcome before confirming`
           : thai
             ? "พร้อมยืนยัน"
             : "Ready to confirm"
@@ -543,8 +557,8 @@ function ObservationRound({
             : `${queuedCount} queued for delivery`
           : unreviewedCount > 0
             ? thai
-              ? "เลือกระยะอย่างน้อยหนึ่งฟองก่อนยืนยัน"
-              : "Select a stage for at least one embryo before confirming"
+              ? "เลือกระยะและสถานะอย่างน้อยหนึ่งฟองก่อนยืนยัน"
+              : "Select a stage and outcome for at least one embryo before confirming"
             : thai
               ? "ยังไม่มีรายการที่พร้อมบันทึก"
               : "There are no unsaved observations to confirm";
@@ -770,6 +784,7 @@ function ObservationRound({
         notes: keep(notes),
         savedIds: {},
         confirmedAt: "",
+        savedAt: draftSavedAt,
       });
     } catch {
       setDraftError(true);
@@ -848,14 +863,28 @@ function ObservationRound({
           }
         />
       )}
-      {hasDraft && !draftError && (
-        <div className="notice checkpoint-draft-notice" role="status">
-          <strong>{thai ? "ข้อมูลร่าง · ยังไม่ยืนยันผล" : "Draft · observations not confirmed"}</strong>
-          <p>
-            {thai
-              ? "จำข้อมูลและหลุมล่าสุดไว้บนอุปกรณ์นี้แล้ว ตรวจสอบแล้วกดยืนยันผลการตรวจ"
-              : "Your entries and last selected well are remembered on this device. Review them, then confirm observations."}
-          </p>
+      {!draftError && (
+        <div className="checkpoint-draft-panel" role="status" aria-live="polite" aria-atomic="true">
+          <div>
+            <strong>{thai ? "โหมดร่าง · บันทึกอัตโนมัติ" : "Draft mode · auto-save active"}</strong>
+            <span title={draftSavedAt ? new Date(draftSavedAt).toLocaleString() : undefined}>
+              {hasDraft
+                ? thai
+                  ? "ข้อมูลยังอยู่บนอุปกรณ์นี้ ต้องกดยืนยันผลเมื่อเสร็จ"
+                  : "Entries stay on this device until you confirm the final result."
+                : thai
+                  ? "เริ่มกรอกได้ทันที ระบบจะจำข้อมูลและหลุมล่าสุด"
+                  : "Start recording; this device will remember your entries and last selected well."}
+            </span>
+          </div>
+          <button
+            className="button button--secondary"
+            type="button"
+            disabled={!entry}
+            onClick={() => persistDraft(true)}
+          >
+            {thai ? "บันทึกร่างตอนนี้" : "Save draft now"}
+          </button>
         </div>
       )}
       <p className="timing-preview">
@@ -1028,12 +1057,8 @@ function ObservationRound({
                                 .at(-1) || index + 1
                             }`}
                       </strong>
-                      {embryo.wellPosition ? (
-                        <small title={String(embryo.embryoCode ?? "")}>{String(embryo.embryoCode ?? "")}</small>
-                      ) : (
-                        <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>
-                      )}
-                      <span>
+                      {!embryo.wellPosition && <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>}
+                      <span title={stateLabel(state)}>
                         <b aria-hidden="true">
                           {state === "dead"
                             ? "×"
@@ -1046,8 +1071,8 @@ function ObservationRound({
                                   : state === "queued"
                                     ? "↺"
                                     : "•"}
-                        </b>{" "}
-                        {embryo.wellPosition ? stateLabel(state) : <span className="sr-only">{stateLabel(state)}</span>}
+                        </b>
+                        <span className="sr-only">{stateLabel(state)}</span>
                       </span>
                     </button>
                   </div>
@@ -1111,14 +1136,17 @@ function ObservationRound({
                       <select
                         id="active-outcome"
                         aria-label={`${thai ? "สถานะของหลุม" : "Outcome for well"} ${activeWell}`}
-                        value={embryoOutcomes[activeId] ?? "ALIVE"}
+                        required
+                        aria-invalid={Boolean(stageCodes[activeId]) && !embryoOutcomes[activeId]}
+                        value={embryoOutcomes[activeId] ?? ""}
                         onChange={(event) =>
                           setEmbryoOutcomes((current) => ({
                             ...current,
-                            [activeId]: event.target.value as EmbryoOutcome,
+                            [activeId]: event.target.value as DraftOutcome,
                           }))
                         }
                       >
+                        <option value="">{thai ? "เลือกสถานะที่ตรวจพบ" : "Select observed outcome"}</option>
                         {outcomes.map((outcome) => (
                           <option key={outcome} value={outcome}>
                             {outcomeLabel(outcome, thai)}

@@ -8,11 +8,15 @@ Groups have a unique, case-insensitive code, name and optional description. Inac
 
 Migration `000010_experiment_groups` adds `experiment_group`, the nullable `experiment_batch.experiment_group_id` foreign key, and an index. Both PostgreSQL and generated MySQL migrations are included. Deploy the backend migration before the new frontend. No existing observations are rewritten or deleted. Normal server startup applies pending migrations.
 
+The optional PostgreSQL and MySQL master-data seeds now include `SCNT_CLONING`. The PostgreSQL demo seed assigns all of its mock batches to that parent group and verifies the assignment, so filters and exports have representative grouped data immediately after `docker compose --profile demo up`.
+
 Rollback: deploy the previous frontend/backend first. The down migration removes group assignments and the group table, so export/back up those records before running it. Existing experiments and observations remain intact.
 
 ## Drafts on the observation page
 
-Stage, outcome, condition, notes and selected well are saved to local storage as the researcher edits. Returning to the observation page restores the same lot and well for the same operator on the same browser/device. The draft notice explicitly says the observations have **not yet been confirmed**. Confirmation sends the selected observations through the existing offline queue and audit workflow; navigating away does not submit a draft.
+Stage, outcome, condition, notes and selected well are saved to local storage as the researcher edits. The page visibly stays in **Draft mode**, shows that auto-save is active, and provides a **Save draft now** action for reassurance. Returning to the observation page restores the same lot and well for the same operator on the same browser/device. Confirmation sends the selected observations through the existing offline queue and audit workflow; navigating away does not submit a draft.
+
+Outcome begins blank for every observation that has not already been recorded. Applying a stage across wells only prepares a draft: the researcher must still choose **Alive** or **Dead** for each well before it becomes eligible for final confirmation. This prevents a bulk stage operation from silently marking embryos alive.
 
 On reopening, the page reconciles the draft against the latest checkpoint and pending queue. Already recorded observations are not offered as new submissions; queued observations stay locked until their request completes. If the checkpoint cannot be fetched, the cached draft is shown with a warning. Failed local storage writes produce a visible warning. A browser unload warning is requested for unconfirmed entries, while persistence runs on every edit so it does not rely on unload events on iPad.
 
@@ -51,7 +55,7 @@ API example (ages are illustrative, not prescribed biological cutoffs):
 ## Acceptance checks
 
 1. Create two parent groups, assign experiments and verify group filtering in experiments, results and downloads. Existing ungrouped experiments remain accessible.
-2. On an iPad-sized screen, open a lot, select a well, change stage/condition/notes, then reload. The same lot, well and draft values return without an observation POST.
+2. On an iPad-sized screen, open a lot, select a well, change stage/outcome/condition/notes, then reload. The same lot, well and draft values return without an observation POST.
 3. Confirm the draft, reload, and verify the observation is already saved. Repeat while offline: pending observations must remain locked, and rejected requests must become editable.
 4. Check unassigned wells remain grey, have short labels and retain a visible selected outline.
 5. Export with the study's milestone ages. Compare all 30 header names and their order to the reference, and verify omitted stages do not shift Day3/Day4 counts.

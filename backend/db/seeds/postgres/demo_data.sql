@@ -113,13 +113,20 @@ INSERT INTO fish_box (id,box_code,site_id,active,created_at,updated_at) VALUES
  ('53000000-0000-7000-8000-000000000001','KU-CLONE-01','10000000-0000-7000-8000-000000000001',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),
  ('53000000-0000-7000-8000-000000000002','MSU-CLONE-01','10000000-0000-7000-8000-000000000002',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);
 
+-- Keep the demo runnable on its own as well as after master_data.sql.
+INSERT INTO experiment_group (id,code,name,description,active,created_at,updated_at)
+VALUES ('25000000-0000-7000-8000-000000000001','SCNT_CLONING','SCNT cloning programme',
+ 'Parent group for related SCNT cloning experiment batches.',TRUE,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+ON CONFLICT (code_norm) DO NOTHING;
+
 INSERT INTO experiment_batch
- (id,batch_code,experiment_date,day_no,site_id,operator_id,protocol_id,timing_profile_id,treatment_group_id,recipient_egg_lot_id,csof_lot_id,clutch_code,replicate_no,incubation_temp_c,notes,created_at,updated_at)
+ (id,batch_code,experiment_date,day_no,site_id,operator_id,protocol_id,timing_profile_id,experiment_group_id,treatment_group_id,recipient_egg_lot_id,csof_lot_id,clutch_code,replicate_no,incubation_temp_c,notes,created_at,updated_at)
 SELECT CONCAT('61000000-0000-7000-8000-',LPAD(batch_no::text,12,'0')),
  CONCAT(batch_no,'_',operator_name,'_',group_code),(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Bangkok')::date-days_ago,batch_no,
  CASE site_code WHEN 'KU' THEN '10000000-0000-7000-8000-000000000001' ELSE '10000000-0000-7000-8000-000000000002' END,
  CASE operator_name WHEN 'Jan' THEN '20000000-0000-7000-8000-000000000001' ELSE '20000000-0000-7000-8000-000000000002' END,
  '01900000-0000-7000-8000-000000000001','01900000-0000-7000-8000-000000000002',
+ '25000000-0000-7000-8000-000000000001',
  CASE group_code WHEN 'Control' THEN '40000000-0000-7000-8000-000000000001' ELSE '40000000-0000-7000-8000-000000000002' END,
  CONCAT('51000000-0000-7000-8000-',LPAD(batch_no::text,12,'0')),'52000000-0000-7000-8000-000000000001',
  CONCAT('E',((batch_no-1)%8)+1),replicate_no,CASE site_code WHEN 'KU' THEN 28.5 ELSE 28.6 END,
@@ -297,6 +304,7 @@ FROM seed_mock_rows;
 DO $$
 BEGIN
  IF (SELECT COUNT(*) FROM experiment_batch WHERE id LIKE '61000000-%')<>12
+ OR (SELECT COUNT(*) FROM experiment_batch WHERE id LIKE '61000000-%' AND experiment_group_id='25000000-0000-7000-8000-000000000001')<>12
  OR (SELECT COUNT(*) FROM embryo WHERE id LIKE '63000000-%')<>(SELECT SUM(activated) FROM seed_mock_rows)
  OR (SELECT COUNT(*) FROM clone_fish WHERE id LIKE '65000000-%')<>(SELECT SUM(fry) FROM seed_mock_rows)
  OR NOT EXISTS(SELECT 1 FROM embryo WHERE embryo_code='12_June_Control_3_1')

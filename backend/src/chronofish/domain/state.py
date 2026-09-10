@@ -7,6 +7,7 @@ from .rules import default_expected_hpa, stage_code, stage_label, stage_phase, s
 
 JSON = dict[str, Any]
 DEMO_OPERATOR_ID = "00000000-0000-7000-8000-000000000001"
+DEMO_EXPERIMENT_GROUP_ID = "00000000-0000-7000-8000-000000000007"
 PROTOCOL_ID = "01900000-0000-7000-8000-000000000001"
 TIMING_PROFILE_ID = "01900000-0000-7000-8000-000000000002"
 RESOURCES = (
@@ -44,6 +45,15 @@ class State:
         state.entities["operators"][DEMO_OPERATOR_ID] = {
             "id": DEMO_OPERATOR_ID,
             "name": "Demo operator",
+            "active": True,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        state.entities["experiment-groups"][DEMO_EXPERIMENT_GROUP_ID] = {
+            "id": DEMO_EXPERIMENT_GROUP_ID,
+            "code": "SCNT_CLONING",
+            "name": "SCNT cloning programme",
+            "description": "Parent group for related SCNT cloning experiment batches.",
             "active": True,
             "createdAt": now,
             "updatedAt": now,
