@@ -25,6 +25,7 @@ ANALYTICS_FILTER_KEYS = (
     "dateTo",
     "siteId",
     "operatorId",
+    "experimentGroupId",
     "treatmentGroupId",
     "donorCellLineId",
     "strain",
@@ -119,6 +120,7 @@ class Analytics:
             "batchId": "id",
             "siteId": "siteId",
             "operatorId": "operatorId",
+            "experimentGroupId": "experimentGroupId",
             "treatmentGroupId": "treatmentGroupId",
         }
         if any(self.query.get(key) and self.query[key] != str(batch.get(field, "")) for key, field in mappings.items()):
@@ -176,7 +178,8 @@ class Analytics:
                     continue
                 donor_cell_line_id = lot.get("donorCellLineId")
             elif any(
-                self.query.get(key) for key in ("dateFrom", "dateTo", "operatorId", "treatmentGroupId", "batchId")
+                self.query.get(key)
+                for key in ("dateFrom", "dateTo", "operatorId", "experimentGroupId", "treatmentGroupId", "batchId")
             ):
                 continue
             else:

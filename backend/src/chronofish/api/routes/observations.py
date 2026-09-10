@@ -215,6 +215,7 @@ def build_observations_router(store: Store) -> APIRouter:
         siteId: str | None = None,
         operatorId: str | None = None,
         batchId: str | None = None,
+        experimentGroupId: str | None = None,
         treatmentGroupId: str | None = None,
         donorCellLineId: str | None = None,
         strain: str | None = None,
@@ -244,6 +245,8 @@ def build_observations_router(store: Store) -> APIRouter:
                 and batch.get("operatorId") != operatorId
                 or batchId
                 and batch.get("id") != batchId
+                or experimentGroupId
+                and batch.get("experimentGroupId") != experimentGroupId
                 or treatmentGroupId
                 and batch.get("treatmentGroupId") != treatmentGroupId
                 or donorCellLineId
@@ -333,6 +336,9 @@ def build_observations_router(store: Store) -> APIRouter:
                     "isDead": terminal is not None,
                     "priorOutcome": (prior or {}).get("outcome"),
                     "priorStageCode": (prior or {}).get("stageCode"),
+                    "priorObservationId": (prior or {}).get("id"),
+                    "priorObservedAt": (prior or {}).get("observedAt"),
+                    "priorNotes": (prior or {}).get("notes"),
                     "firstAbnormalStageLabel": stage_label(stage_number(str(embryo.get("firstAbnormalStageCode", ""))))
                     if embryo.get("firstAbnormalStageCode")
                     else None,

@@ -115,6 +115,7 @@ type DashboardData = {
 type DashboardMasterOptions = {
   sites: ApiItem[];
   operators: ApiItem[];
+  groups?: ApiItem[];
   treatments: ApiItem[];
   donors: ApiItem[];
   batches: ApiItem[];
@@ -167,6 +168,7 @@ export function useDashboardMasterOptions(): DashboardMasterOptions {
   return {
     sites: useMasterOptions("sites"),
     operators: useMasterOptions("operators"),
+    groups: useMasterOptions("experiment-groups?includeInactive=true"),
     treatments: useMasterOptions("treatment-groups"),
     donors: useMasterOptions("donor-cell-lines"),
     batches: useMasterOptions("batches"),
@@ -202,6 +204,7 @@ function ScopeBar({ filters, options, reportMeta, thai, onClear, onEdit }: Scope
   const labels: Record<string, string> = {
     siteId: thai ? "สถานที่" : "Site",
     operatorId: thai ? "ผู้ปฏิบัติงาน" : "Operator",
+    experimentGroupId: thai ? "กลุ่มงานทดลอง" : "Experiment group",
     treatmentGroupId: thai ? "กลุ่มทดลอง" : "Treatment",
     donorCellLineId: thai ? "เซลล์ผู้ให้" : "Donor",
     batchId: thai ? "รอบทดลอง" : "Batch",
@@ -212,6 +215,7 @@ function ScopeBar({ filters, options, reportMeta, thai, onClear, onEdit }: Scope
   const optionLists: Record<string, ApiItem[]> = {
     siteId: options.sites,
     operatorId: options.operators,
+    experimentGroupId: options.groups ?? [],
     treatmentGroupId: options.treatments,
     donorCellLineId: options.donors,
     batchId: options.batches,
@@ -290,6 +294,20 @@ export function FilterBar({
       </summary>
       <fieldset className="filter-bar">
         <legend>{thai ? "เลือกเฉพาะข้อมูลที่ต้องการวิเคราะห์" : "Choose records to analyse"}</legend>
+        <label>
+          {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+          <select
+            value={filters.experimentGroupId ?? ""}
+            onChange={(event) => update("experimentGroupId", event.target.value)}
+          >
+            <option value="">{thai ? "ทุกกลุ่มงาน" : "All experiment groups"}</option>
+            {(options.groups ?? []).map((item) => (
+              <option key={String(item.id)} value={String(item.id)}>
+                {String(item.code)} · {String(item.name)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           {thai ? "สถานที่" : "Site"}
           <select value={filters.siteId ?? ""} onChange={(event) => update("siteId", event.target.value)}>

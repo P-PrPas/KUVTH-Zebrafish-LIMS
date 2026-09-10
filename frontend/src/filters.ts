@@ -2,6 +2,7 @@ export type DashboardFilters = {
   batchId?: string;
   siteId?: string;
   operatorId?: string;
+  experimentGroupId?: string;
   treatmentGroupId?: string;
   strain?: string;
   dateFrom?: string;
@@ -18,6 +19,7 @@ const filterKeys = [
   "batchId",
   "siteId",
   "operatorId",
+  "experimentGroupId",
   "treatmentGroupId",
   "strain",
   "dateFrom",
@@ -33,6 +35,7 @@ const analyticsFilterKeys = [
   "batchId",
   "siteId",
   "operatorId",
+  "experimentGroupId",
   "treatmentGroupId",
   "strain",
   "dateFrom",

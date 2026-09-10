@@ -322,7 +322,9 @@ describe("master data form", () => {
     });
     expect(document.querySelectorAll(".admin-layout > section form").length).toBeGreaterThan(2);
     await act(async () => {
-      (document.querySelectorAll(".admin-toolbar button")[4] as HTMLButtonElement).click();
+      Array.from(document.querySelectorAll<HTMLButtonElement>(".admin-toolbar button"))
+        .find((button) => button.textContent === "กลุ่มการทดลอง")
+        ?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(document.querySelectorAll(".master-catalog select")).toHaveLength(1);

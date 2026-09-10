@@ -26,6 +26,7 @@ SRC = ROOT / "backend/db/migrations/postgres"
 DST = ROOT / "backend/db/migrations/mysql"
 TABLE_OPTS = " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
 INDEX_TABLES = {
+    "ix_batch_experiment_group": "experiment_batch",
     "ix_stage_timing_profile_stage": "stage_timing",
     "ix_embryo_lot_exit_path": "embryo",
     "ix_fish_observation_fish_date": "fish_observation",

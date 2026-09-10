@@ -113,6 +113,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/experiment-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List experiment groups */
+        get: operations["listExperimentGroups"];
+        put?: never;
+        /** Create an experiment group */
+        post: operations["createExperimentGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/treatment-groups": {
         parameters: {
             query?: never;
@@ -223,6 +241,25 @@ export interface paths {
         head?: never;
         /** Update or deactivate a CSOF lot */
         patch: operations["updateCsofLot"];
+        trace?: never;
+    };
+    "/experiment-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update or deactivate a experiment group */
+        patch: operations["updateExperimentGroup"];
         trace?: never;
     };
     "/treatment-groups/{id}": {
@@ -1054,7 +1091,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Build the 14-sheet Excel workbook
+         * Build a clean analysis table or the detailed 14-sheet workbook
          * @description Uses the same filters as the dashboard (FR-905). Every sheet is a flat
          *     table with a single header row and no merged cells (FR-902) so pandas
          *     and readxl can read it directly — which is precisely what the current
@@ -1290,6 +1327,25 @@ export interface components {
             lotCode?: string;
             active?: boolean;
         };
+        ExperimentGroup: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            name: string;
+            description?: string | null;
+            active: boolean;
+        };
+        ExperimentGroupInput: {
+            code: string;
+            name: string;
+            description?: string | null;
+        };
+        ExperimentGroupPatchInput: {
+            code?: string;
+            name?: string;
+            description?: string | null;
+            active?: boolean;
+        };
         TreatmentGroup: {
             /** Format: uuid */
             id: string;
@@ -1414,6 +1470,8 @@ export interface components {
             timingProfileId: string;
             timingProfileVersion?: number;
             /** Format: uuid */
+            experimentGroupId?: string | null;
+            /** Format: uuid */
             treatmentGroupId: string;
             /** Format: uuid */
             recipientEggLotId?: string | null;
@@ -1438,6 +1496,8 @@ export interface components {
             operatorId: string;
             /** Format: uuid */
             protocolId: string;
+            /** Format: uuid */
+            experimentGroupId?: string | null;
             /** Format: uuid */
             treatmentGroupId: string;
             /** Format: uuid */
@@ -1604,6 +1664,11 @@ export interface components {
                 isDead: boolean;
                 priorOutcome?: components["schemas"]["EmbryoOutcome"] | null;
                 priorStageCode?: string | null;
+                /** Format: uuid */
+                priorObservationId?: string | null;
+                /** Format: date-time */
+                priorObservedAt?: string | null;
+                priorNotes?: string | null;
                 firstAbnormalStageLabel?: string | null;
             }[];
         };
@@ -1893,6 +1958,8 @@ export interface components {
             /** Format: uuid */
             operatorId?: string;
             /** Format: uuid */
+            experimentGroupId?: string;
+            /** Format: uuid */
             treatmentGroupId?: string;
             /** Format: uuid */
             donorCellLineId?: string;
@@ -2023,7 +2090,15 @@ export interface components {
         };
         ExportRequest: {
             filters?: components["schemas"]["AnalyticsFilter"];
-            /** @description Omit for all 14 sheets. Sheet names are listed in SRS appendix B. */
+            /**
+             * @description full preserves the detailed workbook; clean produces the client's 30-column v4 table.
+             * @default full
+             * @enum {string}
+             */
+            format: "full" | "clean";
+            /** @description Required for clean format. Strictly increasing Fry, Juvenile and Adult age milestones in days from birth. Counts require an ALIVE fish observation at or beyond each age; zero means no documented survivors, not confirmed mortality. Ages are included in the download filename. Manual fish without embryo lineage are excluded. */
+            fishStageAgeDays?: number[];
+            /** @description Only for full format; omit for all 14 sheets. Clean format always contains the single v4 sheet. */
             sheets?: string[] | null;
             /**
              * @default th
@@ -2097,7 +2172,7 @@ export interface components {
         /**
          * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
          *     can swap panels without rebuilding its query state:
-         *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+         *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
          *     `donorCellLineId`, `strain`, `batchId`.
          */
         AnalyticsFilters: components["schemas"]["AnalyticsFilter"];
@@ -2429,6 +2504,63 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    listExperimentGroups: {
+        parameters: {
+            query?: {
+                /** @description Include deactivated rows. Off by default so dropdowns stay clean (FR-111). */
+                includeInactive?: components["parameters"]["IncludeInactive"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Experiment groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ExperimentGroup"][];
+                    };
+                };
+            };
+        };
+    };
+    createExperimentGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                "X-Operator-Id": components["parameters"]["OperatorId"];
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperimentGroupInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentGroup"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
     listTreatmentGroups: {
         parameters: {
             query?: {
@@ -2677,6 +2809,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CsofLot"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateExperimentGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                "X-Operator-Id": components["parameters"]["OperatorId"];
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperimentGroupPatchInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentGroup"];
                 };
             };
             404: components["responses"]["NotFound"];
@@ -2959,6 +3126,7 @@ export interface operations {
                 batchId?: string;
                 siteId?: string;
                 operatorId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 donorCellLineId?: string;
                 strain?: string;
@@ -3390,6 +3558,7 @@ export interface operations {
                 siteId?: string;
                 operatorId?: string;
                 batchId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 donorCellLineId?: string;
                 strain?: string;
@@ -3752,6 +3921,7 @@ export interface operations {
                 status?: components["schemas"]["FishStatus"];
                 siteId?: string;
                 boxId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 batchId?: string;
                 operatorId?: string;
@@ -3945,7 +4115,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -3977,7 +4147,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4005,7 +4175,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4036,7 +4206,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4068,7 +4238,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4100,7 +4270,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4135,7 +4305,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4258,7 +4428,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4296,7 +4466,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4358,7 +4528,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];

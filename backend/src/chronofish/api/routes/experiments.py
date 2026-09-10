@@ -22,6 +22,7 @@ BATCH_INPUT_FIELDS = {
     "siteId",
     "operatorId",
     "protocolId",
+    "experimentGroupId",
     "treatmentGroupId",
     "recipientEggLotId",
     "csofLotId",
@@ -55,6 +56,9 @@ def _next_day_no(state: State, body: dict[str, Any]) -> int:
 
 
 def _validate_batch(state: State, body: dict[str, Any], current_id: str = "") -> None:
+    group_id = body.get("experimentGroupId")
+    if group_id is not None and (not isinstance(group_id, str) or not group_id.strip()):
+        raise APIError(422, "validation_error", "experimentGroupId ต้องเป็นรหัสกลุ่มหรือ null")
     for field in ("experimentDate", "siteId", "operatorId", "protocolId", "treatmentGroupId"):
         if not body.get(field):
             raise APIError(422, "validation_error", f"ต้องระบุ {field}")
@@ -67,6 +71,7 @@ def _validate_batch(state: State, body: dict[str, Any], current_id: str = "") ->
         "sites": "siteId",
         "operators": "operatorId",
         "protocols": "protocolId",
+        "experiment-groups": "experimentGroupId",
         "treatment-groups": "treatmentGroupId",
         "recipient-egg-lots": "recipientEggLotId",
         "csof-lots": "csofLotId",
@@ -236,6 +241,7 @@ def build_experiments_router(store: Store) -> APIRouter:
         batchId: str | None = None,
         siteId: str | None = None,
         operatorId: str | None = None,
+        experimentGroupId: str | None = None,
         treatmentGroupId: str | None = None,
         donorCellLineId: str | None = None,
         strain: str | None = None,
@@ -256,6 +262,8 @@ def build_experiments_router(store: Store) -> APIRouter:
             if siteId and item.get("siteId") != siteId:
                 continue
             if operatorId and item.get("operatorId") != operatorId:
+                continue
+            if experimentGroupId and item.get("experimentGroupId") != experimentGroupId:
                 continue
             if treatmentGroupId and item.get("treatmentGroupId") != treatmentGroupId:
                 continue

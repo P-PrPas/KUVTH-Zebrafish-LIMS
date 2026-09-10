@@ -63,6 +63,11 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
         headers=_headers(),
         json={"code": f"T-{suffix}", "name": "SQL treatment", "armType": "SCNT"},
     ).json()
+    group_response = first.post(
+        "/api/v1/experiment-groups", headers=_headers(), json={"code": f"G-{suffix}", "name": "Cloning programme"}
+    )
+    assert group_response.status_code == 201, group_response.text
+    group_id = group_response.json()["id"]
     batch_response = first.post(
         "/api/v1/batches",
         headers=_headers(),
@@ -73,6 +78,7 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
             "operatorId": DEMO_OPERATOR_ID,
             "protocolId": PROTOCOL_ID,
             "treatmentGroupId": treatment["id"],
+            "experimentGroupId": group_id,
         },
     )
     assert batch_response.status_code == 201, batch_response.text
@@ -120,6 +126,12 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
 
     second_store = SQLStore(_config())
     second = TestClient(create_app(_config(), second_store))
+    assert (
+        next(item for item in second.get("/api/v1/experiment-groups").json()["items"] if item["id"] == group_id)["name"]
+        == "Cloning programme"
+    )
+    assert second.get(f"/api/v1/batches/{duplicated_id}").json()["experimentGroupId"] == group_id
+    assert len(second.get("/api/v1/batches", params={"experimentGroupId": group_id}).json()["items"]) == 2
     sites = second.get("/api/v1/sites").json()["items"]
     assert sum(item["id"] == site["id"] for item in sites) == 1
     embryos = second.get(f"/api/v1/injection-lots/{lot_response.json()['id']}/embryos").json()["items"]

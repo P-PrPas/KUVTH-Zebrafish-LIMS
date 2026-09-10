@@ -269,6 +269,42 @@ paths:
           $ref: '#/components/responses/Conflict'
           # AC-101: 'CSOF 2021-3 ' and 'csof 2021-3' both collide with 'CSOF 2021-3'
 
+  /experiment-groups:
+    get:
+      tags: [Master data]
+      summary: List experiment groups
+      operationId: listExperimentGroups
+      parameters: [ $ref: '#/components/parameters/IncludeInactive' ]
+      responses:
+        '200':
+          description: Experiment groups
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ExperimentGroup' }
+    post:
+      tags: [Master data]
+      summary: Create an experiment group
+      operationId: createExperimentGroup
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExperimentGroupInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExperimentGroup' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /treatment-groups:
     get:
       tags: [Master data]
@@ -422,6 +458,27 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CsofLot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /experiment-groups/{id}:
+    parameters: [ $ref: '#/components/parameters/PathId' ]
+    patch:
+      tags: [Master data]
+      summary: Update or deactivate a experiment group
+      operationId: updateExperimentGroup
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExperimentGroupPatchInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExperimentGroup' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
@@ -643,6 +700,7 @@ paths:
         - { name: batchId, in: query, schema: { type: string, format: uuid } }
         - { name: siteId, in: query, schema: { type: string, format: uuid } }
         - { name: operatorId, in: query, schema: { type: string, format: uuid } }
+        - { name: experimentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: treatmentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: donorCellLineId, in: query, schema: { type: string, format: uuid } }
         - { name: strain, in: query, schema: { type: string } }
@@ -960,6 +1018,7 @@ paths:
         - { name: siteId, in: query, schema: { type: string, format: uuid } }
         - { name: operatorId, in: query, schema: { type: string, format: uuid } }
         - { name: batchId, in: query, schema: { type: string, format: uuid } }
+        - { name: experimentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: treatmentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: donorCellLineId, in: query, schema: { type: string, format: uuid } }
         - { name: strain, in: query, schema: { type: string } }
@@ -1337,6 +1396,7 @@ paths:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/FishStatus' } }
         - { name: siteId, in: query, schema: { type: string, format: uuid } }
         - { name: boxId, in: query, schema: { type: string, format: uuid } }
+        - { name: experimentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: treatmentGroupId, in: query, schema: { type: string, format: uuid } }
         - { name: batchId, in: query, schema: { type: string, format: uuid } }
         - { name: operatorId, in: query, schema: { type: string, format: uuid } }
@@ -1818,7 +1878,7 @@ paths:
   /exports/excel:
     post:
       tags: [Export]
-      summary: Build the 14-sheet Excel workbook
+      summary: Build a clean analysis table or the detailed 14-sheet workbook
       description: |
         Uses the same filters as the dashboard (FR-905). Every sheet is a flat
         table with a single header row and no merged cells (FR-902) so pandas
@@ -1951,7 +2011,7 @@ components:
       description: |
         Every `/analytics` endpoint accepts the same filter set, so the dashboard
         can swap panels without rebuilding its query state:
-        `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+        `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
         `donorCellLineId`, `strain`, `batchId`.
       style: form
       explode: true
@@ -2172,6 +2232,31 @@ components:
         lotCode: { type: string, minLength: 1, maxLength: 100 }
         active: { type: boolean }
 
+    ExperimentGroup:
+      type: object
+      required: [id, code, name, active]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        active: { type: boolean }
+    ExperimentGroupInput:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 50 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+    ExperimentGroupPatchInput:
+      type: object
+      minProperties: 1
+      properties:
+        code: { type: string, minLength: 1, maxLength: 50 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        active: { type: boolean }
+
     TreatmentGroup:
       type: object
       required: [id, code, armType, active]
@@ -2293,6 +2378,7 @@ components:
           format: uuid
           description: Pinned when the batch was created and never changed afterwards (FR-303, BR-21).
         timingProfileVersion: { type: integer }
+        experimentGroupId: { type: [string, 'null'], format: uuid }
         treatmentGroupId: { type: string, format: uuid }
         recipientEggLotId: { type: [string, 'null'], format: uuid }
         csofLotId: { type: [string, 'null'], format: uuid }
@@ -2314,6 +2400,7 @@ components:
         siteId: { type: string, format: uuid }
         operatorId: { type: string, format: uuid }
         protocolId: { type: string, format: uuid }
+        experimentGroupId: { type: [string, 'null'], format: uuid }
         treatmentGroupId: { type: string, format: uuid }
         recipientEggLotId: { type: [string, 'null'], format: uuid }
         csofLotId: { type: [string, 'null'], format: uuid }
@@ -2496,6 +2583,9 @@ components:
               priorOutcome:
                 oneOf: [ { $ref: '#/components/schemas/EmbryoOutcome' }, { type: 'null' } ]
               priorStageCode: { type: [string, 'null'] }
+              priorObservationId: { type: [string, 'null'], format: uuid }
+              priorObservedAt: { type: [string, 'null'], format: date-time }
+              priorNotes: { type: [string, 'null'] }
               firstAbnormalStageLabel: { type: [string, 'null'] }
 
     EmbryoObservationInput:
@@ -2779,6 +2869,7 @@ components:
         dateTo: { type: string, format: date }
         siteId: { type: string, format: uuid }
         operatorId: { type: string, format: uuid }
+        experimentGroupId: { type: string, format: uuid }
         treatmentGroupId: { type: string, format: uuid }
         donorCellLineId: { type: string, format: uuid }
         strain: { type: string }
@@ -2937,9 +3028,20 @@ components:
       type: object
       properties:
         filters: { $ref: '#/components/schemas/AnalyticsFilter' }
+        format:
+          type: string
+          enum: [full, clean]
+          default: full
+          description: full preserves the detailed workbook; clean produces the client's 30-column v4 table.
+        fishStageAgeDays:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: integer, minimum: 0 }
+          description: Required for clean format. Strictly increasing Fry, Juvenile and Adult age milestones in days from birth. Counts require an ALIVE fish observation at or beyond each age; zero means no documented survivors, not confirmed mortality. Ages are included in the download filename. Manual fish without embryo lineage are excluded.
         sheets:
           type: [array, 'null']
-          description: Omit for all 14 sheets. Sheet names are listed in SRS appendix B.
+          description: Only for full format; omit for all 14 sheets. Clean format always contains the single v4 sheet.
           minItems: 1
           uniqueItems: true
           items: { type: string }
