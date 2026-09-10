@@ -1958,12 +1958,12 @@ tbody tr:hover td {
   background: var(--surface-soft);
 }
 .well-cell--exception {
-  border-color: var(--danger);
-  background: var(--danger-soft);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 .well-cell--exception strong,
 .well-cell--exception > span {
-  color: var(--danger);
+  color: var(--accent);
 }
 .well-cell--exception > span,
 .well-cell--dead > span {

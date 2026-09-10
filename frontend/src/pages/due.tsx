@@ -453,7 +453,7 @@ function ObservationRound({
   };
   const stateFor = (embryo: ApiItem): "dead" | "saved" | "queued" | "exception" | "ready" | "unreviewed" => {
     const id = String(embryo.embryoId);
-    if (isPersistentlyDead(embryo)) return "dead";
+    if (isPersistentlyDead(embryo) || embryoOutcomes[id] === "DEAD") return "dead";
     if (savedIds[id]) return "saved";
     if (queuedIds[id]) return "queued";
     if (!stageCodes[id] || !embryoOutcomes[id]) return "unreviewed";
