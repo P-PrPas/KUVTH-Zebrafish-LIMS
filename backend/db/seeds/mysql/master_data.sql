@@ -11,6 +11,10 @@ INSERT IGNORE INTO operator (id, site_id, name, active, created_at, updated_at) 
     ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000001', 'Bee',  TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
     ('20000000-0000-7000-8000-000000000004', '10000000-0000-7000-8000-000000000001', 'Toon', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
 
+INSERT IGNORE INTO experiment_group (id, code, name, description, active, created_at, updated_at) VALUES
+    ('25000000-0000-7000-8000-000000000001', 'SCNT_CLONING', 'SCNT cloning programme',
+     'Parent group for related SCNT cloning experiment batches.', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+
 INSERT IGNORE INTO donor_cell_line (id, strain, preparation, batch_code, active, created_at, updated_at) VALUES
     ('30000000-0000-7000-8000-000000000001', 'AB',    'DISSOCIATED', NULL, TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
     ('30000000-0000-7000-8000-000000000002', 'AB',    'CHUNKS',      NULL, TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),

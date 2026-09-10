@@ -71,10 +71,12 @@ const checkpoint = {
 describe("due and checkpoint workflows", () => {
   beforeEach(() => {
     withoutIndexedDB();
+    localStorage.clear();
     sessionStorage.setItem("chronofish.operator_id", "operator-1");
   });
   afterEach(() => {
     document.body.innerHTML = "";
+    localStorage.clear();
     sessionStorage.clear();
     vi.restoreAllMocks();
   });
@@ -184,6 +186,19 @@ describe("due and checkpoint workflows", () => {
     expect(document.body.textContent).not.toContain("stage_02_2C");
     expect(document.querySelectorAll(".checkpoint-grid [data-well]")).toHaveLength(3);
     expect(document.querySelectorAll(".checkpoint-grid select")).toHaveLength(0);
+    expect(document.querySelector(".checkpoint-grid")?.textContent).not.toContain("B-1_1_1");
+    expect(document.querySelector(".checkpoint-draft-panel")?.textContent).toContain("Draft mode · auto-save active");
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "Save draft now")
+        ?.click();
+      await Promise.resolve();
+    });
+    const draftKey = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)).find((key) =>
+      key?.startsWith("chronofish.observation-draft.v1:operator-1:lot-1"),
+    );
+    expect(draftKey).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(draftKey ?? "") ?? "{}").savedAt).toEqual(expect.any(String));
     expect(document.querySelectorAll('.checkpoint-editor [aria-label^="Stage for well"]')).toHaveLength(1);
     await act(async () => {
       window.dispatchEvent(
@@ -204,7 +219,7 @@ describe("due and checkpoint workflows", () => {
       Array.from(document.querySelectorAll('.checkpoint-editor [aria-label^="Outcome for well"] option')).map(
         (option) => option.textContent,
       ),
-    ).toEqual(["Alive", "Dead"]);
+    ).toEqual(["Select observed outcome", "Alive", "Dead"]);
     expect(
       Array.from(document.querySelectorAll('.checkpoint-editor [aria-label^="Condition for well"] option')).map(
         (option) => option.textContent,
@@ -291,7 +306,7 @@ describe("due and checkpoint workflows", () => {
     root.unmount();
   });
 
-  it("applies one stage to a same-stage round before confirming all embryos", async () => {
+  it("keeps a bulk stage assignment in draft until an outcome is selected", async () => {
     const embryos = Array.from({ length: 15 }, (_, index) => ({
       embryoId: `embryo-${index + 1}`,
       embryoCode: `B-1_1_${index + 1}`,
@@ -311,14 +326,16 @@ describe("due and checkpoint workflows", () => {
         if (init?.method === "POST") {
           saved = JSON.parse(String(init.body));
           return json({
-            results: embryos.map((_, index) => ({
-              id: `obs-${index + 1}`,
-              status: "created",
-              hpaActual: 1,
-              hpaExpected: 1,
-              deviationH: 0,
-              deviationLabel: "ตรงกับสากล",
-            })),
+            results: [
+              {
+                id: "obs-1",
+                status: "created",
+                hpaActual: 1,
+                hpaExpected: 1,
+                deviationH: 0,
+                deviationLabel: "ตรงกับสากล",
+              },
+            ],
           });
         }
         return json({ items: [] });
@@ -352,6 +369,10 @@ describe("due and checkpoint workflows", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Stage applied to 15 blank embryos");
+    const confirm = Array.from(document.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Confirm 0"),
+    ) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
         .find((button) => button.textContent === "Undo bulk stage")
@@ -365,14 +386,20 @@ describe("due and checkpoint workflows", () => {
         ?.click();
       await Promise.resolve();
     });
+    const outcome = document.querySelector("#active-outcome") as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(outcome, "ALIVE");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
-        .find((button) => button.textContent === "Confirm 15 observations")
+        .find((button) => button.textContent === "Confirm 1 observations")
         ?.click();
       await Promise.resolve();
     });
 
-    expect((saved as { observations: unknown[] }).observations).toHaveLength(15);
+    expect((saved as { observations: unknown[] }).observations).toHaveLength(1);
     root.unmount();
   });
 
@@ -412,6 +439,12 @@ describe("due and checkpoint workflows", () => {
     await act(async () => {
       setSelect?.call(stageSelect, "stage_04_8C");
       stageSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const outcome = document.querySelector("#active-outcome") as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(outcome, "ALIVE");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
     vi.setSystemTime(new Date("2026-08-23T02:05:00Z"));
@@ -483,6 +516,19 @@ describe("due and checkpoint workflows", () => {
         ?.click();
       await Promise.resolve();
     });
+    const activeOutcome = document.querySelector("#active-outcome") as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(activeOutcome, "ALIVE");
+      activeOutcome.dispatchEvent(new Event("change", { bubbles: true }));
+      (document.querySelector('[data-well="A2"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    const secondOutcome = document.querySelector("#active-outcome") as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(secondOutcome, "ALIVE");
+      secondOutcome.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
         .find((button) => button.textContent === "Confirm 2 observations")
@@ -543,6 +589,12 @@ describe("due and checkpoint workflows", () => {
     await act(async () => {
       setSelect?.call(stage, "stage_03_4C");
       stage.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const outcome = document.querySelector("#active-outcome") as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(outcome, "ALIVE");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
     await act(async () => {
@@ -697,7 +749,7 @@ describe("due and checkpoint workflows", () => {
       select.dispatchEvent(new Event("change", { bubbles: true }));
     });
     expect(document.querySelectorAll(".well-cell--unassigned")).toHaveLength(3);
-    expect(document.querySelector(".checkpoint-draft-notice")?.textContent).toContain("not confirmed");
+    expect(document.querySelector(".checkpoint-draft-panel")?.textContent).toContain("Draft mode");
     const selected = document.querySelector('.well-cell[aria-pressed="true"]')?.id;
     const closing = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(closing);
@@ -707,7 +759,7 @@ describe("due and checkpoint workflows", () => {
     view = await mount();
     expect(document.querySelector('.well-cell[aria-pressed="true"]')?.id).toBe(selected);
     expect((document.querySelector("#active-stage") as HTMLSelectElement).value).toBe("stage_03_4C");
-    expect(document.querySelector(".checkpoint-draft-notice")?.textContent).toContain("not confirmed");
+    expect(document.querySelector(".checkpoint-draft-panel")?.textContent).toContain("Draft mode");
     expect(fetchMock.mock.calls.every(([input]) => !String(input).endsWith("/observations/embryo"))).toBe(true);
     await act(async () => view.root.unmount());
     view.element.remove();

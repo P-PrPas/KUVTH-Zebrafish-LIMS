@@ -1640,6 +1640,35 @@ tbody tr:hover td {
   color: var(--ink-soft);
   font-size: 0.9rem;
 }
+.checkpoint-draft-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -4px 0 18px;
+  padding: 13px 15px;
+  border: 1px solid #b8ccc6;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--ink-soft);
+}
+.checkpoint-draft-panel > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.checkpoint-draft-panel strong {
+  color: var(--primary-hover);
+  font-size: 0.92rem;
+}
+.checkpoint-draft-panel span {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+.checkpoint-draft-panel .button {
+  flex: 0 0 auto;
+}
 .timing-preview {
   margin: 18px 0;
   padding: 15px 18px;
@@ -1865,11 +1894,12 @@ tbody tr:hover td {
 }
 .well-cell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   width: 100%;
   min-width: 44px;
-  min-height: 78px;
-  align-content: start;
-  gap: 3px;
+  min-height: 64px;
+  align-content: center;
+  gap: 3px 6px;
   padding: 9px 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1887,11 +1917,13 @@ tbody tr:hover td {
   box-shadow: var(--shadow-sm);
 }
 .well-cell strong {
+  min-width: 0;
   color: var(--primary-hover);
   font-size: 0.98rem;
   line-height: 1.25;
 }
 .well-cell small {
+  grid-column: 1 / -1;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -1902,6 +1934,14 @@ tbody tr:hover td {
   white-space: nowrap;
 }
 .well-cell > span {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary-soft);
   color: var(--ink-soft);
   font-size: 0.8rem;
   line-height: 1.3;
@@ -1925,6 +1965,10 @@ tbody tr:hover td {
 .well-cell--exception > span {
   color: var(--danger);
 }
+.well-cell--exception > span,
+.well-cell--dead > span {
+  background: #fff;
+}
 .well-cell--dead {
   border-color: var(--danger);
   background: var(--danger-soft);
@@ -1937,8 +1981,16 @@ tbody tr:hover td {
 .well-cell--queued {
   background: var(--accent-soft);
 }
+.well-cell--queued > span {
+  background: #fff3db;
+  color: var(--accent);
+}
 .well-cell--unreviewed {
   background: var(--surface);
+}
+.well-cell--unreviewed > span {
+  background: #eef2f0;
+  color: var(--muted);
 }
 .checkpoint-editor__heading {
   margin-bottom: 16px;
@@ -3232,6 +3284,13 @@ button:disabled:hover {
   .checkpoint-workspace {
     grid-template-columns: 1fr;
   }
+  .checkpoint-draft-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .checkpoint-draft-panel .button {
+    width: 100%;
+  }
   .checkpoint-editor {
     position: static;
     order: -1;
@@ -3361,7 +3420,7 @@ button:disabled:hover {
     font-size: 1rem;
   }
   .well-cell {
-    min-height: 88px;
+    min-height: 68px;
   }
   .well-cell > span,
   .checkpoint-metrics small {
@@ -3539,7 +3598,7 @@ button:disabled:hover {
     gap: 6px;
   }
   .well-cell {
-    min-height: 76px;
+    min-height: 64px;
     padding: 8px 6px;
   }
   .well-cell strong {

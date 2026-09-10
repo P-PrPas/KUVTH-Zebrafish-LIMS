@@ -11,6 +11,7 @@ export type ObservationWorkspaceDraft = {
   notes: Record<string, string>;
   savedIds: Record<string, string>;
   confirmedAt: string;
+  savedAt?: string;
 };
 const prefix = "chronofish.observation-draft.v1";
 const key = (operator: string, lot: string) => `${prefix}:${operator}:${lot}`;
@@ -24,7 +25,8 @@ export function readObservationDraft(operator: string, lot: string): Observation
     value.due?.injectionLotId !== lot ||
     typeof value.due?.stageCode !== "string" ||
     typeof value.selectedId !== "string" ||
-    typeof value.confirmedAt !== "string"
+    typeof value.confirmedAt !== "string" ||
+    (value.savedAt != null && typeof value.savedAt !== "string")
   )
     throw new Error("Invalid observation draft");
   for (const field of ["stageCodes", "outcomes", "conditions", "notes", "savedIds"]) {
