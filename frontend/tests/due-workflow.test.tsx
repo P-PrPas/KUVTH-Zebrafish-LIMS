@@ -302,7 +302,28 @@ describe("due and checkpoint workflows", () => {
       await Promise.resolve();
     });
     expect(document.querySelectorAll(".checkpoint-grid [data-well]")).toHaveLength(1);
-    expect(document.querySelector(".checkpoint-grid [data-well]")?.getAttribute("data-well")).toBe("A2");
+    const abnormalWell = document.querySelector(".checkpoint-grid [data-well]") as HTMLButtonElement;
+    expect(abnormalWell.getAttribute("data-well")).toBe("A2");
+    await act(async () => {
+      abnormalWell.click();
+      await Promise.resolve();
+    });
+    const stage = document.querySelector('[aria-label="Stage for well A2"]') as HTMLSelectElement;
+    const outcome = document.querySelector('[aria-label="Outcome for well A2"]') as HTMLSelectElement;
+    await act(async () => {
+      setSelect?.call(stage, "stage_03_4C");
+      stage.dispatchEvent(new Event("change", { bubbles: true }));
+      setSelect?.call(outcome, "ALIVE");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(abnormalWell.classList.contains("well-cell--exception")).toBe(true);
+    await act(async () => {
+      setSelect?.call(outcome, "DEAD");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(abnormalWell.classList.contains("well-cell--dead")).toBe(true);
     root.unmount();
   });
 
