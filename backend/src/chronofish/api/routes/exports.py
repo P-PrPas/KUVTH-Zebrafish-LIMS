@@ -70,6 +70,74 @@ def _r_rows(state: State, query: dict[str, str]) -> list[list[object]]:
 
 R_HEADERS = ["Sites", "Strain", "Replicate", "Strain_Rep", *(stage_code(order) for order in range(1, 27))]
 
+# The client's v4 table deliberately omits 128-cell, Day2 and Day5.
+CLEAN_STAGE_ORDERS = (*range(1, 8), *range(9, 23), 24, 25)
+CLEAN_HEADERS = [
+    "Sites",
+    "Strain",
+    "Replicate",
+    "Strain_Rep",
+    "Activated",
+    "2-cell",
+    "4-cell",
+    "8-cell",
+    "16-cell",
+    "32-cell",
+    "64-cell",
+    "256-cell",
+    "512-cell",
+    "1k-cell",
+    "High",
+    "Oblong",
+    "Sphere",
+    "Dome",
+    "30%epi",
+    "50%epi",
+    "Germ-ring",
+    "Shield",
+    "75%epi",
+    "90%epi",
+    "Day1",
+    "Day3",
+    "Day4",
+    "Fry",
+    "Juvenile",
+    "Adult",
+]
+
+
+def _clean_rows(state: State, query: dict[str, str], ages: list[int]) -> list[list[object]]:
+    rows = _r_rows(state, query)
+    counts: defaultdict[tuple[str, str, str], list[int]] = defaultdict(lambda: [0, 0, 0])
+    observations = _fish_observation_index(state)
+    for fish_id, fish in filtered_fish(state, query).items():
+        embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
+        lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
+        batch = state.entities["batches"].get(str(lot.get("batchId")))
+        if not batch:
+            continue  # Manual fish have no experiment/replicate lineage.
+        site = state.entities["sites"].get(str(batch.get("siteId")), {})
+        donor = state.entities["donor-cell-lines"].get(str(lot.get("donorCellLineId")), {})
+        key = (_text(site.get("code")), _text(donor.get("strain")), _text(batch.get("replicateNo")))
+        # Count documented survival to each age, never the fish's current age alone.
+        alive_age = max(
+            (int(item["ageDays"]) for item in observations[fish_id] if item.get("outcome") == "ALIVE"),
+            default=-1,
+        )
+        for index, age in enumerate(ages):
+            counts[key][index] += int(alive_age >= age)
+    return [
+        [
+            row[0],
+            row[1],
+            int(row[2]) if row[2] else "",
+            row[3],
+            *(row[order + 3] for order in CLEAN_STAGE_ORDERS),
+            *counts[tuple(row[:3])],
+        ]
+        for row in rows
+    ]
+
 
 def _query(request: Request) -> dict[str, str]:
     return {key: str(request.query_params[key]) for key in ANALYTICS_FILTER_KEYS if request.query_params.get(key)}
@@ -722,6 +790,19 @@ def build_export_router(store: Store) -> APIRouter:
         body = await request.json()
         if not isinstance(body, dict):
             raise APIError(422, "validation_error", "export request ต้องเป็น object")
+        export_format = body.get("format", "full")
+        if export_format not in ("full", "clean"):
+            raise APIError(422, "validation_error", "format ต้องเป็น full หรือ clean")
+        ages = body.get("fishStageAgeDays")
+        if export_format == "clean" and (
+            not isinstance(ages, list)
+            or len(ages) != 3
+            or any(type(age) is not int or age < 0 for age in ages)
+            or not ages[0] < ages[1] < ages[2]
+        ):
+            raise APIError(422, "validation_error", "ระบุอายุ Fry, Juvenile, Adult เป็นวัน เรียงจากน้อยไปมาก")
+        if export_format == "clean" and body.get("sheets") is not None:
+            raise APIError(422, "validation_error", "clean format ใช้ชีต v4 เท่านั้น")
         requested_sheets = body.get("sheets")
         if requested_sheets is not None and (
             not isinstance(requested_sheets, list)
@@ -733,11 +814,22 @@ def build_export_router(store: Store) -> APIRouter:
         selected_names = set(requested_sheets) if requested_sheets is not None else None
         filters = _export_filters(body.get("filters"))
 
-        content = build_xlsx(_sheets(store.snapshot(), filters, selected_names))
+        state = store.snapshot()
+        sheets = (
+            [("v4", CLEAN_HEADERS, _clean_rows(state, filters, ages))]
+            if export_format == "clean"
+            else _sheets(state, filters, selected_names)
+        )
+        content = build_xlsx(sheets)
+        filename = (
+            f"kuvth-clean-fry{ages[0]}-juvenile{ages[1]}-adult{ages[2]}.xlsx"
+            if export_format == "clean"
+            else "kuvth-zebrafish-lims-export.xlsx"
+        )
         return Response(
             content,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": 'attachment; filename="kuvth-zebrafish-lims-export.xlsx"'},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     return router

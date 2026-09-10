@@ -846,6 +846,12 @@ input[type="checkbox"] {
   gap: 16px;
   width: 100%;
 }
+.export-clean-form {
+  display: block;
+}
+.export-clean-form h2 {
+  margin-top: 0;
+}
 .form-card--inline > label {
   min-width: 0;
 }
@@ -2876,6 +2882,19 @@ tbody tr:hover {
 .well-cell--selected {
   outline: 3px solid var(--primary);
   outline-offset: 2px;
+}
+/* Unassigned locations are neutral; status remains available as a symbol and label. */
+.well-cell--unassigned {
+  background: #edf0f2;
+  border-color: #8b969d;
+}
+.well-cell--unassigned strong,
+.well-cell--unassigned small,
+.well-cell--unassigned > span {
+  color: #45525a;
+}
+.checkpoint-draft-notice p {
+  margin: 6px 0 0;
 }
 .checkpoint-grid {
   overflow: visible;

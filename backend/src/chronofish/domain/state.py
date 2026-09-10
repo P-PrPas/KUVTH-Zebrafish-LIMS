@@ -15,6 +15,7 @@ RESOURCES = (
     "donor-cell-lines",
     "recipient-egg-lots",
     "csof-lots",
+    "experiment-groups",
     "treatment-groups",
     "fish-boxes",
     "protocols",

@@ -184,6 +184,8 @@ describe("batch detail actions", () => {
       if (path.endsWith("/sites")) return json({ items: [{ id: "site-1", code: "KU", name: "KUVTH" }] });
       if (path.endsWith("/operators")) return json({ items: [{ id: "operator-1", name: "Tech One" }] });
       if (path.endsWith("/protocols")) return json({ items: [{ id: "protocol-1", name: "SCNT" }] });
+      if (path.includes("/experiment-groups"))
+        return json({ items: [{ id: "group-1", code: "CLONE", name: "Cloning" }] });
       if (path.endsWith("/treatment-groups")) return json({ items: [{ id: "treatment-1", code: "SCNT" }] });
       if (path.endsWith("/recipient-egg-lots")) return json({ items: [{ id: "egg-1", label: "E-1" }] });
       if (path.endsWith("/csof-lots")) return json({ items: [{ id: "csof-1", lotCode: "C-1" }] });
@@ -212,12 +214,13 @@ describe("batch detail actions", () => {
       setValue?.call(dayNo, "4");
       dayNo.dispatchEvent(new Event("input", { bubbles: true }));
       for (const [select, value] of [
-        [selects[0], "operator-1"],
-        [selects[1], "site-1"],
-        [selects[2], "protocol-1"],
-        [selects[3], "treatment-1"],
-        [selects[4], "egg-1"],
-        [selects[5], "csof-1"],
+        [selects[0], "group-1"],
+        [selects[1], "operator-1"],
+        [selects[2], "site-1"],
+        [selects[3], "protocol-1"],
+        [selects[4], "treatment-1"],
+        [selects[5], "egg-1"],
+        [selects[6], "csof-1"],
       ] as const) {
         setSelect?.call(select, value);
         select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -233,6 +236,7 @@ describe("batch detail actions", () => {
     );
     expect(JSON.parse(String(create?.[1]?.body))).toMatchObject({
       dayNo: 4,
+      experimentGroupId: "group-1",
       siteId: "site-1",
       operatorId: "operator-1",
       protocolId: "protocol-1",
@@ -244,7 +248,7 @@ describe("batch detail actions", () => {
   });
 
   it("refreshes the experiment list after sync and exposes a rejected queued batch", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
       json({ items: [{ id: "batch-1", batchCode: "B-1", experimentDate: "2026-09-01" }] }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -266,7 +270,7 @@ describe("batch detail actions", () => {
       window.dispatchEvent(new Event("chronofish:queue-drained"));
       await settle();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches"))).toHaveLength(2);
     root.unmount();
   });
 

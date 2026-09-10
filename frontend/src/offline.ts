@@ -141,13 +141,15 @@ export async function rejectedQueueCount(): Promise<number> {
 }
 
 export async function rejectedQueueItems(): Promise<QueuedWriteRecord[]> {
+  return (await queuedWriteItems()).filter(({ value }) => value.status === "rejected");
+}
+
+export async function queuedWriteItems(): Promise<QueuedWriteRecord[]> {
   if (!("indexedDB" in window)) return [];
   let db: IDBDatabase | undefined;
   try {
     db = await openQueue();
-    return (await records(db))
-      .filter(({ value }) => value.status === "rejected")
-      .map(({ key, value }) => ({ id: key, value }));
+    return (await records(db)).map(({ key, value }) => ({ id: key, value }));
   } catch {
     return [];
   } finally {

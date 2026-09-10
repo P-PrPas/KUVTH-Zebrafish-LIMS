@@ -9,12 +9,21 @@ type MasterResource =
   | "donor-cell-lines"
   | "recipient-egg-lots"
   | "csof-lots"
+  | "experiment-groups"
   | "treatment-groups"
   | "fish-boxes";
 const masterConfig: Record<
   MasterResource,
   { label: string; fields: { key: string; label: string; type?: string; options?: string[]; required?: boolean }[] }
 > = {
+  "experiment-groups": {
+    label: "Experiment groups",
+    fields: [
+      { key: "code", label: "Code", required: true },
+      { key: "name", label: "Name", required: true },
+      { key: "description", label: "Description" },
+    ],
+  },
   operators: { label: "Operators", fields: [{ key: "name", label: "Name", required: true }] },
   "donor-cell-lines": {
     label: "Donor cell lines",
@@ -50,6 +59,7 @@ const masterConfig: Record<
   },
 };
 const thaiResource: Record<MasterResource, string> = {
+  "experiment-groups": "กลุ่มงานทดลอง",
   operators: "ผู้ปฏิบัติงาน",
   "donor-cell-lines": "สายเซลล์ผู้ให้",
   "recipient-egg-lots": "ชุดไข่ผู้รับ",
@@ -58,6 +68,7 @@ const thaiResource: Record<MasterResource, string> = {
   "fish-boxes": "ตู้ปลา",
 };
 const thaiField: Record<string, string> = {
+  description: "คำอธิบาย",
   name: "ชื่อ",
   strain: "สายพันธุ์",
   preparation: "รูปแบบการเตรียม",

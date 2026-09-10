@@ -1,8 +1,14 @@
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
-import { type ApiQueueResult, putQueue, type QueuedWrite } from "../offline";
+import {
+  readObservationDraft,
+  readObservationLocation,
+  saveObservationDraft,
+  saveObservationLocation,
+} from "../observation-draft";
+import { type ApiQueueResult, putQueue, type QueuedWrite, queuedWriteItems } from "../offline";
 import { dateTimeLocalToRFC3339 } from "../time";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
@@ -71,7 +77,15 @@ export function checkpointTiming(
 export function Due({ t }: { t: AppText }) {
   const [dashboardFilters] = useState(parseFilters);
   const [data, setData] = useState<ApiItem>({ overdue: [], upcoming: [] });
-  const [selected, setSelected] = useState<ApiItem | null>(null);
+  const [selected, setSelected] = useState<ApiItem | null>(() => readObservationLocation(operatorId()));
+  const selectLot = (item: ApiItem | null) => {
+    try {
+      saveObservationLocation(operatorId(), item);
+    } catch {
+      setError(t === text.th ? "จำหน้าล่าสุดบนอุปกรณ์นี้ไม่ได้" : "Could not remember this page on this device.");
+    }
+    setSelected(item);
+  };
   const [siteId, setSiteId] = useState(dashboardFilters.siteId ?? "");
   const [selectedOperatorId, setSelectedOperatorId] = useState(dashboardFilters.operatorId ?? "");
   const [masters, setMasters] = useState<Record<string, ApiItem[]>>({ sites: [], operators: [] });
@@ -112,7 +126,7 @@ export function Due({ t }: { t: AppText }) {
         : thai
           ? "กำลังโหลดชื่อผู้ปฏิบัติงาน…"
           : "Loading operator…";
-    return <ObservationRound due={selected} t={t} operatorName={operatorName} onBack={() => setSelected(null)} />;
+    return <ObservationRound due={selected} t={t} operatorName={operatorName} onBack={() => selectLot(null)} />;
   }
   const items = nextCheckpoints([...(data.overdue ?? []), ...(data.upcoming ?? [])]);
   return (
@@ -177,7 +191,7 @@ export function Due({ t }: { t: AppText }) {
               <button
                 key={String(item.injectionLotId)}
                 className={`list-row ${late > 0 ? "list-row--late" : "list-row--upcoming"}`}
-                onClick={() => setSelected(item)}
+                onClick={() => selectLot(item)}
               >
                 <span>
                   <strong>
@@ -222,7 +236,7 @@ function compareEmbryosByWell(left: ApiItem, right: ApiItem): number {
   return (
     leftRow - rightRow ||
     leftColumn - rightColumn ||
-    String(left.embryoCode ?? "").localeCompare(String(right.embryoCode ?? ""))
+    String(left.embryoCode ?? "").localeCompare(String(right.embryoCode ?? ""), undefined, { numeric: true })
   );
 }
 
@@ -258,16 +272,27 @@ function ObservationRound({
   onBack: () => void;
 }) {
   const thai = t === text.th;
+  const operator = operatorId();
+  const [restored] = useState(() => {
+    try {
+      return { draft: readObservationDraft(operator, String(due.injectionLotId)), failed: false };
+    } catch {
+      return { draft: null, failed: true };
+    }
+  });
+  const [draftError, setDraftError] = useState(restored.failed);
   const [entry, setEntry] = useState<ApiItem | null>(null);
-  const [stageCodes, setStageCodes] = useState<Record<string, string>>({});
+  const [stageCodes, setStageCodes] = useState<Record<string, string>>(restored.draft?.stageCodes ?? {});
   const [selectedStage, setSelectedStage] = useState(String(due.stageCode ?? ""));
-  const [selectedId, setSelectedId] = useState("");
-  const [embryoOutcomes, setEmbryoOutcomes] = useState<Record<string, EmbryoOutcome>>({});
-  const [embryoConditions, setEmbryoConditions] = useState<Record<string, string>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [selectedId, setSelectedId] = useState(restored.draft?.selectedId ?? "");
+  const [embryoOutcomes, setEmbryoOutcomes] = useState<Record<string, EmbryoOutcome>>(
+    (restored.draft?.outcomes ?? {}) as Record<string, EmbryoOutcome>,
+  );
+  const [embryoConditions, setEmbryoConditions] = useState<Record<string, string>>(restored.draft?.conditions ?? {});
+  const [notes, setNotes] = useState<Record<string, string>>(restored.draft?.notes ?? {});
   const [correctionReason, setCorrectionReason] = useState("");
-  const [confirmedAt, setConfirmedAt] = useState("");
-  const [savedIds, setSavedIds] = useState<Record<string, string>>({});
+  const [confirmedAt, setConfirmedAt] = useState(restored.draft?.confirmedAt ?? "");
+  const [savedIds, setSavedIds] = useState<Record<string, string>>(restored.draft?.savedIds ?? {});
   const [queuedIds, setQueuedIds] = useState<Record<string, boolean>>({});
   const [lastSavedIds, setLastSavedIds] = useState<string[]>([]);
   const [lastBulk, setLastBulk] = useState<{ ids: string[]; stage: string } | null>(null);
@@ -279,31 +304,128 @@ function ObservationRound({
   const [saving, setSaving] = useState(false);
   const wellButtons = useRef<Record<string, HTMLButtonElement | null>>({});
   const editorHeading = useRef<HTMLDivElement | null>(null);
+  const [hydrationAttempt, setHydrationAttempt] = useState(0);
 
   useEffect(() => {
-    void get(`/injection-lots/${due.injectionLotId}/checkpoints/${due.stageCode}`)
-      .then((value) => {
-        const loadedEmbryos = (value.embryos as ApiItem[] | undefined) ?? [];
-        const sortedEmbryos = [...loadedEmbryos].sort(compareEmbryosByWell);
-        const firstWell = sortedEmbryos.find((embryo) => !isPersistentlyDead(embryo)) ?? sortedEmbryos[0];
+    let cancelled = false;
+    let fromCache = false;
+    let hydrated = false;
+    const queueChanged = () => {
+      // A write may finish while the initial checkpoint request is still in flight.
+      if (!hydrated && !cancelled) {
+        cancelled = true;
+        setHydrationAttempt((value) => value + 1);
+      }
+    };
+    window.addEventListener("chronofish:queue-drained", queueChanged);
+    window.addEventListener("chronofish:queue-rejected", queueChanged);
+    void Promise.all([
+      get(`/injection-lots/${due.injectionLotId}/checkpoints/${due.stageCode}`).catch((error: Error) => {
+        if (!restored.draft?.entry) throw error;
+        fromCache = true;
+        if (!cancelled)
+          setError(
+            thai
+              ? "แสดงร่างจากอุปกรณ์ ยังตรวจสอบข้อมูลล่าสุดจากเซิร์ฟเวอร์ไม่ได้"
+              : "Showing this device's draft; current server records could not be checked.",
+          );
+        return restored.draft.entry;
+      }),
+      queuedWriteItems(),
+    ])
+      .then(([value, writes]) => {
+        if (cancelled) return;
+        hydrated = true;
+        const loaded = [...(value.embryos ?? [])].sort(compareEmbryosByWell);
+        const draft = restored.draft;
+        const nextStages: Record<string, string> = {};
+        const nextOutcomes: Record<string, EmbryoOutcome> = {};
+        const nextConditions: Record<string, string> = {};
+        const nextNotes: Record<string, string> = {};
+        const nextSaved: Record<string, string> = {};
+        const nextQueued: Record<string, boolean> = {};
+        const queued = writes
+          .filter(
+            ({ value: write }) =>
+              write.operatorId === operator && write.path === "/observations/embryo" && write.status === "pending",
+          )
+          .flatMap(
+            ({ value: write }) => ((write.body as ApiItem).observations as ObservationDraft[] | undefined) ?? [],
+          );
+        for (const embryo of loaded) {
+          const id = String(embryo.embryoId);
+          const stage = draft?.stageCodes[id] ?? "";
+          const prior = String(embryo.priorStageCode ?? "");
+          const savedId = draft?.savedIds[id];
+          const keepLocal = Boolean(
+            savedId && (fromCache || (savedId === embryo.priorObservationId && prior === stage)),
+          );
+          const alreadySaved = keepLocal || Boolean(stage && embryo.priorObservationId && prior >= stage);
+          const pendingWrite = queued.find((item) => item.embryoId === id);
+          nextStages[id] = alreadySaved && !keepLocal ? prior : String(pendingWrite?.stageCode ?? stage);
+          nextOutcomes[id] = isPersistentlyDead(embryo)
+            ? "DEAD"
+            : alreadySaved && !keepLocal
+              ? embryo.priorOutcome === "DEAD"
+                ? "DEAD"
+                : "ALIVE"
+              : (pendingWrite?.outcome ?? draft?.outcomes[id]) === "DEAD"
+                ? "DEAD"
+                : "ALIVE";
+          nextConditions[id] = String(
+            alreadySaved && !keepLocal
+              ? (embryo.defaultCondition ?? "NORMAL")
+              : (pendingWrite?.condition ?? draft?.conditions[id] ?? embryo.defaultCondition ?? "NORMAL"),
+          );
+          nextNotes[id] = String(
+            alreadySaved && !keepLocal ? (embryo.priorNotes ?? "") : (pendingWrite?.notes ?? draft?.notes[id] ?? ""),
+          );
+          if (alreadySaved) nextSaved[id] = String(keepLocal ? savedId : embryo.priorObservationId);
+          else if (pendingWrite) nextQueued[id] = true;
+        }
         setEntry(value);
-        setSelectedId(String(firstWell?.embryoId ?? ""));
-        setEmbryoOutcomes(
-          Object.fromEntries(
-            loadedEmbryos.map((embryo) => [String(embryo.embryoId), isPersistentlyDead(embryo) ? "DEAD" : "ALIVE"]),
-          ),
-        );
-        setEmbryoConditions(
-          Object.fromEntries(
-            loadedEmbryos.map((embryo) => [
-              String(embryo.embryoId),
-              embryo.defaultCondition === "ABNORMAL" ? "ABNORMAL" : "NORMAL",
-            ]),
-          ),
+        setStageCodes(nextStages);
+        setEmbryoOutcomes(nextOutcomes);
+        setEmbryoConditions(nextConditions);
+        setNotes(nextNotes);
+        setSavedIds(nextSaved);
+        setQueuedIds(nextQueued);
+        setSelectedId((current) =>
+          loaded.some((item) => String(item.embryoId) === current)
+            ? current
+            : String((loaded.find((item) => !isPersistentlyDead(item)) ?? loaded[0])?.embryoId ?? ""),
         );
       })
-      .catch((e: Error) => setError(e.message));
-  }, [due.injectionLotId, due.stageCode]);
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+      window.removeEventListener("chronofish:queue-drained", queueChanged);
+      window.removeEventListener("chronofish:queue-rejected", queueChanged);
+    };
+  }, [due.injectionLotId, due.stageCode, operator, restored, hydrationAttempt]);
+
+  useLayoutEffect(() => {
+    if (!entry) return;
+    try {
+      saveObservationDraft(operator, {
+        version: 1,
+        due,
+        entry,
+        selectedId,
+        stageCodes,
+        outcomes: embryoOutcomes,
+        conditions: embryoConditions,
+        notes,
+        savedIds,
+        confirmedAt,
+      });
+      setDraftError(false);
+    } catch {
+      setDraftError(true);
+    }
+  }, [operator, due, entry, selectedId, stageCodes, embryoOutcomes, embryoConditions, notes, savedIds, confirmedAt]);
 
   const embryos = (entry?.embryos as ApiItem[] | undefined) ?? [];
   const stages = (entry?.stages as ApiItem[] | undefined) ?? [];
@@ -360,6 +482,28 @@ function ObservationRound({
     const id = String(embryo.embryoId);
     return Boolean(stageCodes[id]) && !savedIds[id] && !queuedIds[id];
   });
+  const hasDraft = recordableEmbryos.some((embryo) => {
+    const id = String(embryo.embryoId);
+    return (
+      !savedIds[id] &&
+      !queuedIds[id] &&
+      Boolean(
+        stageCodes[id] ||
+          notes[id]?.trim() ||
+          embryoOutcomes[id] === "DEAD" ||
+          (embryoConditions[id] && embryoConditions[id] !== (embryo.defaultCondition ?? "NORMAL")),
+      )
+    );
+  });
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!hasDraft) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasDraft]);
   const bulkable = recordableEmbryos.filter((embryo) => {
     const id = String(embryo.embryoId);
     return !stageCodes[id] && !savedIds[id] && !queuedIds[id];
@@ -533,7 +677,7 @@ function ObservationRound({
           return putQueue(
             `/observations/embryo/${savedIds[id]}`,
             {
-              observedAt: confirmedAt,
+              observedAt: embryo.priorObservationId === savedIds[id] ? embryo.priorObservedAt : confirmedAt,
               outcome: embryoOutcomes[id],
               condition: embryoConditions[id],
               notes: notes[id] || null,
@@ -610,6 +754,29 @@ function ObservationRound({
     if (scrollToEditor && window.matchMedia?.("(max-width: 699px)")?.matches)
       window.setTimeout(() => editorHeading.current?.scrollIntoView?.({ behavior: "smooth", block: "start" }), 0);
   };
+  const leaveRound = () => {
+    // Completed results belong to the server; keep only unfinished work for the next visit.
+    const keep = (values: Record<string, string>) =>
+      Object.fromEntries(Object.entries(values).filter(([id]) => !savedIds[id]));
+    try {
+      saveObservationDraft(operator, {
+        version: 1,
+        due,
+        entry,
+        selectedId,
+        stageCodes: keep(stageCodes),
+        outcomes: keep(embryoOutcomes),
+        conditions: keep(embryoConditions),
+        notes: keep(notes),
+        savedIds: {},
+        confirmedAt: "",
+      });
+    } catch {
+      setDraftError(true);
+      return;
+    }
+    onBack();
+  };
   const moveWell = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) || matchingEmbryos.length === 0)
       return;
@@ -649,7 +816,7 @@ function ObservationRound({
 
   return (
     <section className="checkpoint-round">
-      <button className="back" onClick={onBack}>
+      <button className="back" onClick={leaveRound}>
         ← {t.due}
       </button>
       <div className="page-heading">
@@ -672,6 +839,25 @@ function ObservationRound({
         <span>{saveStatus}</span>
       </div>
       {error && <ErrorMessage message={error} />}
+      {draftError && (
+        <ErrorMessage
+          message={
+            thai
+              ? "อุปกรณ์นี้เก็บร่างไม่ได้ กรุณายืนยันผลก่อนออกจากหน้า"
+              : "Draft storage is unavailable. Confirm your observations before leaving."
+          }
+        />
+      )}
+      {hasDraft && !draftError && (
+        <div className="notice checkpoint-draft-notice" role="status">
+          <strong>{thai ? "ข้อมูลร่าง · ยังไม่ยืนยันผล" : "Draft · observations not confirmed"}</strong>
+          <p>
+            {thai
+              ? "จำข้อมูลและหลุมล่าสุดไว้บนอุปกรณ์นี้แล้ว ตรวจสอบแล้วกดยืนยันผลการตรวจ"
+              : "Your entries and last selected well are remembered on this device. Review them, then confirm observations."}
+          </p>
+        </div>
+      )}
       <p className="timing-preview">
         {thai ? "เวลาจะถูกบันทึกอัตโนมัติเมื่อกดยืนยัน" : "Observation time is captured automatically when Confirm is pressed."}
         {confirmedAt && ` · ${new Date(confirmedAt).toLocaleString()}`}
@@ -826,15 +1012,27 @@ function ObservationRound({
                       id={wellButtonId(id)}
                       data-well={well}
                       type="button"
-                      className={`well-cell well-cell--${state}${id === selectedId ? " well-cell--selected" : ""}`}
+                      className={`well-cell well-cell--${state}${!embryo.wellPosition ? " well-cell--unassigned" : ""}${id === selectedId ? " well-cell--selected" : ""}`}
                       aria-label={`${thai ? "หลุม" : "Well"} ${well}, ${String(embryo.embryoCode ?? "")}, ${stateLabel(state)}${id === selectedId ? `, ${thai ? "กำลังเลือก" : "selected"}` : ""}`}
                       aria-pressed={id === selectedId}
                       tabIndex={id === selectedId || (!selectedId && index === 0) ? 0 : -1}
                       onClick={() => selectWell(id, true)}
                       onKeyDown={(event) => moveWell(event, index)}
                     >
-                      <strong>{well}</strong>
-                      <small title={String(embryo.embryoCode ?? "")}>{String(embryo.embryoCode ?? "")}</small>
+                      <strong>
+                        {embryo.wellPosition
+                          ? well
+                          : `— ${
+                              String(embryo.embryoCode ?? "")
+                                .split("_")
+                                .at(-1) || index + 1
+                            }`}
+                      </strong>
+                      {embryo.wellPosition ? (
+                        <small title={String(embryo.embryoCode ?? "")}>{String(embryo.embryoCode ?? "")}</small>
+                      ) : (
+                        <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>
+                      )}
                       <span>
                         <b aria-hidden="true">
                           {state === "dead"
@@ -849,7 +1047,7 @@ function ObservationRound({
                                     ? "↺"
                                     : "•"}
                         </b>{" "}
-                        {stateLabel(state)}
+                        {embryo.wellPosition ? stateLabel(state) : <span className="sr-only">{stateLabel(state)}</span>}
                       </span>
                     </button>
                   </div>
@@ -887,7 +1085,7 @@ function ObservationRound({
                 </div>
               ) : (
                 <>
-                  <fieldset className="checkpoint-editor__fields">
+                  <fieldset className="checkpoint-editor__fields" disabled={Boolean(queuedIds[activeId])}>
                     <legend>{thai ? `ผลการตรวจ ${activeWell}` : `Observation for ${activeWell}`}</legend>
                     <label htmlFor="active-stage">
                       {thai ? "ระยะที่เห็น" : "Observed stage"}
@@ -959,6 +1157,7 @@ function ObservationRound({
                     <label htmlFor="active-notes">
                       {thai ? "หมายเหตุ" : "Notes"}
                       <textarea
+                        disabled={Boolean(queuedIds[activeId])}
                         id="active-notes"
                         rows={4}
                         value={notes[activeId] ?? ""}

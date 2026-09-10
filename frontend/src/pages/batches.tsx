@@ -22,12 +22,19 @@ const masterName = (items: ApiItem[] | undefined, id: unknown) => {
 export function Batches({ t }: { t: AppText }) {
   const [dashboardFilters] = useState(parseFilters);
   const [items, setItems] = useState<ApiItem[]>([]);
+  const [groups, setGroups] = useState<ApiItem[]>([]);
+  const [groupId, setGroupId] = useState(dashboardFilters.experimentGroupId ?? "");
+  useEffect(() => {
+    void get("/experiment-groups?includeInactive=true")
+      .then((data) => setGroups(data.items ?? []))
+      .catch((e: Error) => setMessage(e.message));
+  }, []);
   const [selected, setSelected] = useState<ApiItem | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const load = useCallback(() => {
-    void get(withFilters("/batches", dashboardFilters))
+    void get(withFilters("/batches", { ...dashboardFilters, experimentGroupId: groupId || undefined }))
       .then((data) => {
         const filtered = (data.items ?? []).filter(
           (item) => !dashboardFilters.batchId || String(item.id) === dashboardFilters.batchId,
@@ -36,7 +43,7 @@ export function Batches({ t }: { t: AppText }) {
         if (dashboardFilters.batchId && filtered.length === 1) setSelected(filtered[0]);
       })
       .catch((e: Error) => setMessage(e.message));
-  }, [dashboardFilters]);
+  }, [dashboardFilters, groupId]);
   useEffect(load, [load]);
   useEffect(() => {
     const refresh = () => load();
@@ -56,10 +63,12 @@ export function Batches({ t }: { t: AppText }) {
   }, [load]);
   if (selected) return <BatchDetail batch={selected} t={t} onBack={() => setSelected(null)} />;
   const thai = t === text.th;
-  const visibleItems = items.filter((item) =>
-    `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
-      .toLocaleLowerCase()
-      .includes(search.trim().toLocaleLowerCase()),
+  const visibleItems = items.filter(
+    (item) =>
+      (!groupId || item.experimentGroupId === groupId) &&
+      `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()),
   );
   const addQueued = (batch: ApiItem) => {
     setItems((current) => [{ ...batch, id: `queued-${Date.now()}`, queued: true }, ...current]);
@@ -74,6 +83,7 @@ export function Batches({ t }: { t: AppText }) {
         </button>
         <BatchForm
           t={t}
+          initialGroupId={groups.find((group) => group.id === groupId && group.active !== false) ? groupId : ""}
           onSaved={() => {
             setShowForm(false);
             load();
@@ -99,6 +109,17 @@ export function Batches({ t }: { t: AppText }) {
         </button>
       </div>
       <div className="record-toolbar">
+        <label>
+          {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+          <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+            <option value="">{thai ? "ทุกกลุ่มงาน" : "All experiment groups"}</option>
+            {groups.map((group) => (
+              <option key={String(group.id)} value={String(group.id)}>
+                {String(group.code)} · {String(group.name)}
+              </option>
+            ))}
+          </select>
+        </label>
         <label>
           {thai ? "ค้นหาการทดลอง" : "Find an experiment"}
           <input
@@ -132,6 +153,7 @@ export function Batches({ t }: { t: AppText }) {
               <span>
                 <strong>{String(item.batchCode)}</strong>
                 <small>
+                  {masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่จัดกลุ่ม" : "Ungrouped")} ·{" "}
                   {String(item.experimentDate)} · {thai ? "โปรไฟล์เวลา" : "profile"}{" "}
                   {item.timingProfileVersion != null
                     ? String(item.timingProfileVersion)
@@ -152,11 +174,13 @@ export function Batches({ t }: { t: AppText }) {
 function BatchForm({
   t,
   batch,
+  initialGroupId = "",
   onSaved,
   onQueued,
 }: {
   t: AppText;
   batch?: ApiItem;
+  initialGroupId?: string;
   onSaved: () => void;
   onQueued?: (batch: ApiItem) => void;
 }) {
@@ -168,6 +192,7 @@ function BatchForm({
     siteId: String(batch?.siteId ?? ""),
     operatorId: String(batch?.operatorId ?? operatorId()),
     protocolId: String(batch?.protocolId ?? ""),
+    experimentGroupId: String(batch?.experimentGroupId ?? initialGroupId),
     treatmentGroupId: String(batch?.treatmentGroupId ?? ""),
     recipientEggLotId: String(batch?.recipientEggLotId ?? ""),
     csofLotId: String(batch?.csofLotId ?? ""),
@@ -180,6 +205,7 @@ function BatchForm({
     sites: [],
     operators: [],
     protocols: [],
+    "experiment-groups": [],
     "treatment-groups": [],
     "recipient-egg-lots": [],
     "csof-lots": [],
@@ -187,7 +213,15 @@ function BatchForm({
   const [error, setError] = useState("");
   useEffect(() => {
     void Promise.all(
-      ["sites", "operators", "protocols", "treatment-groups", "recipient-egg-lots", "csof-lots"].map((resource) =>
+      [
+        "sites",
+        "operators",
+        "protocols",
+        "experiment-groups",
+        "treatment-groups",
+        "recipient-egg-lots",
+        "csof-lots",
+      ].map((resource) =>
         get(`/${resource}${batch ? "?includeInactive=true" : ""}`).then(
           (data) => [resource, data.items ?? []] as [string, ApiItem[]],
         ),
@@ -211,6 +245,7 @@ function BatchForm({
       ...form,
       dayNo: form.dayNo ? Number(form.dayNo) : null,
       batchCode: form.batchCode || null,
+      experimentGroupId: form.experimentGroupId || null,
       recipientEggLotId: form.recipientEggLotId || null,
       csofLotId: form.csofLotId || null,
       clutchCode: form.clutchCode || null,
@@ -245,6 +280,20 @@ function BatchForm({
           {thai ? "ข้อมูลรอบทดลอง" : "Experiment details"}
         </legend>
         <div className="form-card--inline">
+          <label>
+            {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+            <select value={form.experimentGroupId} onChange={(event) => set("experimentGroupId", event.target.value)}>
+              <option value="">{thai ? "ยังไม่จัดกลุ่ม" : "Ungrouped"}</option>
+              {masters["experiment-groups"].map((item) => (
+                <option key={String(item.id)} value={String(item.id)}>
+                  {String(item.code)} · {String(item.name)}
+                </option>
+              ))}
+            </select>
+            <small>
+              {thai ? "สร้างกลุ่มได้ที่ข้อมูลอ้างอิงและระบบ → ข้อมูลตั้งต้น" : "Manage groups in Reference & system → Master data."}
+            </small>
+          </label>
           <label>
             {thai ? "ลำดับวันทดลอง" : "Day no."}
             <input

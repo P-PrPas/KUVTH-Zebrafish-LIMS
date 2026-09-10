@@ -2,6 +2,8 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { saveObservationDraft, saveObservationLocation } from "../src/observation-draft";
+import * as offline from "../src/offline";
 import { Due, nextCheckpoints } from "../src/pages/due";
 import { text } from "../src/types";
 import { withoutIndexedDB } from "./helpers";
@@ -576,5 +578,142 @@ describe("due and checkpoint workflows", () => {
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true);
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true);
     root.unmount();
+  });
+  it.each(["pending", "saved", "offline", "rejected"])(
+    "reconciles a restored %s observation without resubmitting it",
+    async (status) => {
+      saveObservationLocation("operator-1", dueItem);
+      saveObservationDraft("operator-1", {
+        version: 1,
+        due: dueItem,
+        entry: checkpoint,
+        selectedId: "embryo-1",
+        stageCodes: { "embryo-1": "stage_03_4C" },
+        outcomes: { "embryo-1": "ALIVE" },
+        conditions: { "embryo-1": "NORMAL" },
+        notes: { "embryo-1": "Draft notes" },
+        savedIds: status === "offline" ? { "embryo-1": "obs-1" } : {},
+        confirmedAt: "2026-08-23T01:00:00Z",
+      });
+      vi.spyOn(offline, "queuedWriteItems").mockResolvedValue(
+        status === "pending" || status === "rejected"
+          ? [
+              {
+                id: 1,
+                value: {
+                  path: "/observations/embryo",
+                  method: "POST",
+                  operatorId: "operator-1",
+                  deviceId: "device-1",
+                  status,
+                  key: "key",
+                  contentType: "application/json",
+                  attempt: 0,
+                  nextAttempt: 0,
+                  createdAt: 0,
+                  body: {
+                    observations: [
+                      {
+                        embryoId: "embryo-1",
+                        stageCode: "stage_03_4C",
+                        outcome: "ALIVE",
+                        condition: "NORMAL",
+                        notes: "Queued notes",
+                      },
+                    ],
+                  },
+                },
+              },
+            ]
+          : [],
+      );
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/checkpoints/")) {
+          if (status === "offline") throw new TypeError("Offline");
+          return json({
+            ...checkpoint,
+            embryos: checkpoint.embryos.map((embryo, index) =>
+              status === "saved" && index === 0
+                ? {
+                    ...embryo,
+                    priorStageCode: "stage_03_4C",
+                    priorObservationId: "obs-1",
+                    priorObservedAt: "2026-08-23T01:00:00Z",
+                    priorNotes: "Server notes",
+                  }
+                : embryo,
+            ),
+          });
+        }
+        return json({ items: [], overdue: [], upcoming: [] });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const element = document.createElement("div");
+      document.body.append(element);
+      const root = createRoot(element);
+      await act(async () => {
+        root.render(<Due t={text.en} />);
+        await Promise.resolve();
+      });
+      const confirm = document.querySelector<HTMLButtonElement>(".checkpoint-action-bar button");
+      expect(confirm?.disabled).toBe(status !== "rejected");
+      expect((document.querySelector("#active-notes") as HTMLTextAreaElement).value).toBe(
+        status === "saved" ? "Server notes" : status === "pending" ? "Queued notes" : "Draft notes",
+      );
+      expect((document.querySelector("#active-notes") as HTMLTextAreaElement).disabled).toBe(status === "pending");
+      expect(fetchMock.mock.calls.every(([input]) => !String(input).includes("/observations/embryo"))).toBe(true);
+      await act(async () => root.unmount());
+    },
+  );
+  it("restores the lot, selected unassigned embryo and unconfirmed values after remount", async () => {
+    const unassigned = { ...checkpoint, embryos: checkpoint.embryos.map((item) => ({ ...item, wellPosition: null })) };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/due-checkpoints")) return json({ overdue: [dueItem], upcoming: [] });
+      if (String(input).includes("/checkpoints/")) return json(unassigned);
+      return json({ items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const mount = async () => {
+      const element = document.createElement("div");
+      document.body.append(element);
+      const root = createRoot(element);
+      await act(async () => {
+        root.render(<Due t={text.en} />);
+        await Promise.resolve();
+      });
+      return { root, element };
+    };
+    let view = await mount();
+    await act(async () => {
+      (document.querySelector(".list-row") as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (document.querySelectorAll(".well-cell")[1] as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      const select = document.querySelector("#active-stage") as HTMLSelectElement;
+      select.value = "stage_03_4C";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(document.querySelectorAll(".well-cell--unassigned")).toHaveLength(3);
+    expect(document.querySelector(".checkpoint-draft-notice")?.textContent).toContain("not confirmed");
+    const selected = document.querySelector('.well-cell[aria-pressed="true"]')?.id;
+    const closing = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(closing);
+    expect(closing.defaultPrevented).toBe(true);
+    await act(async () => view.root.unmount());
+    view.element.remove();
+    view = await mount();
+    expect(document.querySelector('.well-cell[aria-pressed="true"]')?.id).toBe(selected);
+    expect((document.querySelector("#active-stage") as HTMLSelectElement).value).toBe("stage_03_4C");
+    expect(document.querySelector(".checkpoint-draft-notice")?.textContent).toContain("not confirmed");
+    expect(fetchMock.mock.calls.every(([input]) => !String(input).endsWith("/observations/embryo"))).toBe(true);
+    await act(async () => view.root.unmount());
+    view.element.remove();
+    sessionStorage.setItem("chronofish.operator_id", "operator-2");
+    view = await mount();
+    expect(document.querySelector(".checkpoint-workspace")).toBeNull();
+    await act(async () => view.root.unmount());
   });
 });

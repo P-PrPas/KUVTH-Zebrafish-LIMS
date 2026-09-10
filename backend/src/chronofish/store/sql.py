@@ -30,6 +30,7 @@ RESOURCE_TABLE = {
     "donor-cell-lines": "donor_cell_line",
     "recipient-egg-lots": "recipient_egg_lot",
     "csof-lots": "csof_lot",
+    "experiment-groups": "experiment_group",
     "treatment-groups": "treatment_group",
     "fish-boxes": "fish_box",
     "protocols": "protocol",
@@ -53,6 +54,7 @@ TABLE_COLUMNS = {
     "donor_cell_line": "id strain preparation batch_code active created_at updated_at deleted_at",
     "recipient_egg_lot": "id breed lot_date label active created_at updated_at deleted_at",
     "csof_lot": "id lot_code active created_at updated_at deleted_at",
+    "experiment_group": "id code name description active created_at updated_at deleted_at",
     "treatment_group": "id code name arm_type active created_at updated_at deleted_at",
     "fish_box": "id box_code site_id active created_at updated_at deleted_at",
     "protocol": "id name stage1_max_age_days active created_at updated_at deleted_at",
@@ -62,7 +64,8 @@ TABLE_COLUMNS = {
     """,
     "experiment_batch": """
         id batch_code experiment_date day_no site_id operator_id protocol_id timing_profile_id
-        treatment_group_id recipient_egg_lot_id csof_lot_id clutch_code replicate_no incubation_temp_c
+        experiment_group_id treatment_group_id recipient_egg_lot_id csof_lot_id
+        clutch_code replicate_no incubation_temp_c
         notes created_at updated_at deleted_at
     """,
     "injection_lot": """

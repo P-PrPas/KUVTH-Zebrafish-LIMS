@@ -234,6 +234,7 @@ def build_fish_router(store: Store) -> APIRouter:
         status: str | None = None,
         siteId: str | None = None,
         boxId: str | None = None,
+        experimentGroupId: str | None = None,
         treatmentGroupId: str | None = None,
         batchId: str | None = None,
         operatorId: str | None = None,
@@ -256,11 +257,12 @@ def build_fish_router(store: Store) -> APIRouter:
             embryo = state.entities["embryos"].get(str(fish.get("embryoId")))
             lot = state.entities["injection-lots"].get(str((embryo or {}).get("injectionLotId")))
             batch = state.entities["batches"].get(str((lot or {}).get("batchId")))
-            if batchId or operatorId or dateFrom or dateTo:
+            if experimentGroupId or batchId or operatorId or dateFrom or dateTo:
                 if (
                     not batch
                     or batch.get("active") is False
                     or batch.get("deletedAt") is not None
+                    or (experimentGroupId and batch.get("experimentGroupId") != experimentGroupId)
                     or (batchId and batch.get("id") != batchId)
                     or (operatorId and batch.get("operatorId") != operatorId)
                     or (dateFrom and str(batch.get("experimentDate", "")) < dateFrom)

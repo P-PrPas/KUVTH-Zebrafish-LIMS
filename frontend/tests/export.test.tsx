@@ -253,6 +253,27 @@ describe("export page", () => {
     expect(click).toHaveBeenCalledTimes(2);
     expect(createObjectURL).toHaveBeenCalledTimes(2);
     expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+    const cleanForm = document.querySelector(".export-clean-form") as HTMLFormElement;
+    const ageInputs = Array.from(cleanForm.querySelectorAll<HTMLInputElement>('input[type="number"]'));
+    await act(async () => {
+      ageInputs.forEach((input, index) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, [7, 30, 90][index]);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+    await act(async () => {
+      cleanForm.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).endsWith("/exports/excel") &&
+          JSON.parse(String(init?.body)).format === "clean" &&
+          JSON.parse(String(init?.body)).fishStageAgeDays.join() === "7,30,90",
+      ),
+    ).toBe(true);
+    expect(click).toHaveBeenCalledTimes(3);
     if (originalCreate) Object.defineProperty(URL, "createObjectURL", originalCreate);
     else delete (URL as typeof URL & { createObjectURL?: unknown }).createObjectURL;
     if (originalRevoke) Object.defineProperty(URL, "revokeObjectURL", originalRevoke);

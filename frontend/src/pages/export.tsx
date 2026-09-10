@@ -32,6 +32,7 @@ export function Export({ t = text.en }: { t?: AppText } = {}) {
   const [downloading, setDownloading] = useState(false);
   const [reportReady, setReportReady] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [fishAges, setFishAges] = useState(["", "", ""]);
   useEffect(() => {
     const onPop = () => setFilters(analyticsFilters(parseFilters()));
     window.addEventListener("popstate", onPop);
@@ -90,6 +91,66 @@ export function Export({ t = text.en }: { t?: AppText } = {}) {
             updateFilterURL(next);
           }}
         />
+        <form
+          className="form-card export-clean-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const ages = fishAges.map(Number);
+            if (!(ages[0] < ages[1] && ages[1] < ages[2])) {
+              setMessage(
+                thai
+                  ? "อายุ Fry, Juvenile และ Adult ต้องเรียงจากน้อยไปมาก"
+                  : "Fry, Juvenile and Adult ages must increase in order.",
+              );
+              return;
+            }
+            void download(
+              "/exports/excel",
+              {
+                method: "POST",
+                body: JSON.stringify({ format: "clean", filters, fishStageAgeDays: ages }),
+              },
+              `kuvth-clean-fry${ages[0]}-juvenile${ages[1]}-adult${ages[2]}.xlsx`,
+            );
+          }}
+        >
+          <h2>{thai ? "Excel สำหรับวิเคราะห์ · Clean dataset" : "Analysis Excel · Clean dataset"}</h2>
+          <p className="muted">
+            {thai
+              ? "30 คอลัมน์ตามไฟล์ตัวอย่าง · 1 แถวต่อสถานที่ สายพันธุ์ และซ้ำการทดลอง"
+              : "30 columns matching the example · one row per site, strain and replicate"}
+          </p>
+          <fieldset className="filter-bar">
+            <legend>
+              {thai ? "กำหนดอายุที่ใช้วัดแต่ละระยะ (วันนับจากวันเกิด)" : "Age milestone for each stage (days from birth)"}
+            </legend>
+            {["Fry", "Juvenile", "Adult"].map((label, index) => (
+              <label key={label}>
+                {label}
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={fishAges[index]}
+                  onChange={(event) =>
+                    setFishAges((current) =>
+                      current.map((value, position) => (position === index ? event.target.value : value)),
+                    )
+                  }
+                />
+              </label>
+            ))}
+          </fieldset>
+          <p className="table-note">
+            {thai
+              ? "ใช้เกณฑ์ของงานวิจัยนี้ นับปลาที่มีผลตรวจว่ารอดถึงอายุที่กำหนดหรือมากกว่า ค่า 0 หมายถึงยังไม่มีผลยืนยันว่ารอดถึงระยะนั้น เกณฑ์อายุจะแนบในชื่อไฟล์"
+              : "Use your study's age criteria. Counts require an alive observation at or beyond each milestone. Zero means no confirmed survivors at that milestone. Ages are included in the filename."}
+          </p>
+          <button className="button button--primary" disabled={downloading} aria-busy={downloading}>
+            {thai ? "ดาวน์โหลด Clean Excel" : "Download Clean Excel"}
+          </button>
+        </form>
         <div className="action-grid">
           <button className="action-card" onClick={downloadExcel} disabled={downloading} aria-busy={downloading}>
             <strong>{t.downloadExcel}</strong>
