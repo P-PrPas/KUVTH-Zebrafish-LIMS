@@ -110,9 +110,9 @@ export function Batches({ t }: { t: AppText }) {
       </div>
       <div className="record-toolbar">
         <label>
-          {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+          {thai ? "โครงการวิจัย" : "Experiment group"}
           <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-            <option value="">{thai ? "ทุกกลุ่มงาน" : "All experiment groups"}</option>
+            <option value="">{thai ? "ทุกโครงการวิจัย" : "All experiment groups"}</option>
             {groups.map((group) => (
               <option key={String(group.id)} value={String(group.id)}>
                 {String(group.code)} · {String(group.name)}
@@ -153,7 +153,7 @@ export function Batches({ t }: { t: AppText }) {
               <span>
                 <strong>{String(item.batchCode)}</strong>
                 <small>
-                  {masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่จัดกลุ่ม" : "Ungrouped")} ·{" "}
+                  {masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่เชื่อมโยง" : "Ungrouped")} ·{" "}
                   {String(item.experimentDate)} · {thai ? "โปรไฟล์เวลา" : "profile"}{" "}
                   {item.timingProfileVersion != null
                     ? String(item.timingProfileVersion)
@@ -267,7 +267,7 @@ function BatchForm({
     }
   };
   return (
-    <form className="task-surface form-card" onSubmit={submit}>
+    <form className="task-surface form-card batch-form" onSubmit={submit}>
       <h1>{batch ? (thai ? "แก้ไขข้อมูลการทดลอง" : "Edit experiment") : thai ? "เริ่มการทดลองใหม่" : "New experiment"}</h1>
       <p className="muted">
         {thai
@@ -279,11 +279,11 @@ function BatchForm({
           <span aria-hidden="true">01</span>
           {thai ? "ข้อมูลรอบทดลอง" : "Experiment details"}
         </legend>
-        <div className="form-card--inline">
+        <div className="form-card--inline batch-form__fields batch-form__fields--details">
           <label>
-            {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+            {thai ? "โครงการวิจัย" : "Experiment group"}
             <select value={form.experimentGroupId} onChange={(event) => set("experimentGroupId", event.target.value)}>
-              <option value="">{thai ? "ยังไม่จัดกลุ่ม" : "Ungrouped"}</option>
+              <option value="">{thai ? "ยังไม่เชื่อมโยง" : "Ungrouped"}</option>
               {masters["experiment-groups"].map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
                   {String(item.code)} · {String(item.name)}
@@ -291,7 +291,9 @@ function BatchForm({
               ))}
             </select>
             <small>
-              {thai ? "สร้างกลุ่มได้ที่ข้อมูลอ้างอิงและระบบ → ข้อมูลตั้งต้น" : "Manage groups in Reference & system → Master data."}
+              {thai
+                ? "สร้างโครงการวิจัยได้ที่ข้อมูลอ้างอิงและระบบ → ข้อมูลตั้งต้น"
+                : "Manage groups in Reference & system → Master data."}
             </small>
           </label>
           <label>
@@ -331,7 +333,7 @@ function BatchForm({
           <span aria-hidden="true">02</span>
           {thai ? "ผู้รับผิดชอบและแผนการทดลอง" : "Team and protocol"}
         </legend>
-        <div className="form-card--inline">
+        <div className="form-card--inline batch-form__fields batch-form__fields--team">
           <label>
             {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
             <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
@@ -371,9 +373,9 @@ function BatchForm({
             </select>
           </label>
           <label>
-            {thai ? "กลุ่มการทดลอง" : "Treatment group"}
+            {thai ? "แขนการทดลอง" : "Treatment group"}
             <select required value={form.treatmentGroupId} onChange={(e) => set("treatmentGroupId", e.target.value)}>
-              <option value="">{thai ? "เลือกกลุ่มการทดลอง" : "Select treatment"}</option>
+              <option value="">{thai ? "เลือกแขนการทดลอง" : "Select treatment"}</option>
               {(masters["treatment-groups"] ?? []).map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
                   {String(item.code ?? item.name)}
@@ -386,7 +388,7 @@ function BatchForm({
       <details className="workflow-disclosure">
         <summary>{thai ? "ข้อมูลตัวอย่างและเงื่อนไขเพิ่มเติม (ไม่บังคับ)" : "Sample and environment details (optional)"}</summary>
         <div className="workflow-disclosure__body">
-          <div className="form-card--inline">
+          <div className="form-card--inline batch-form__fields batch-form__fields--optional">
             <label>
               {thai ? "ชุดไข่ผู้รับ" : "Recipient egg lot"}
               <select value={form.recipientEggLotId} onChange={(e) => set("recipientEggLotId", e.target.value)}>
@@ -414,7 +416,7 @@ function BatchForm({
               <input value={form.clutchCode} onChange={(e) => set("clutchCode", e.target.value)} />
             </label>
           </div>
-          <div className="form-card--inline">
+          <div className="form-card--inline batch-form__fields batch-form__fields--optional">
             <label>
               {thai ? "ลำดับซ้ำ" : "Replicate no."}
               <input

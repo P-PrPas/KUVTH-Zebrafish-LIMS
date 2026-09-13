@@ -323,7 +323,7 @@ describe("master data form", () => {
     expect(document.querySelectorAll(".admin-layout > section form").length).toBeGreaterThan(2);
     await act(async () => {
       Array.from(document.querySelectorAll<HTMLButtonElement>(".admin-toolbar button"))
-        .find((button) => button.textContent === "กลุ่มการทดลอง")
+        .find((button) => button.textContent === "แขนการทดลอง")
         ?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });

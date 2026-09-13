@@ -20,9 +20,15 @@ type PrintableReport = {
   error: string;
 };
 
-function filterSummary(filters: DashboardFilters): string {
+function filterSummary(filters: DashboardFilters, thai: boolean): string {
+  const labels: Record<string, string> = {
+    experimentGroupId: thai ? "โครงการวิจัย" : "Experiment group",
+    treatmentGroupId: thai ? "แขนการทดลอง" : "Treatment group",
+  };
   const values = Object.entries(filters).filter(([, value]) => value);
-  return values.length === 0 ? "All records" : values.map(([key, value]) => `${key}=${value}`).join(" · ");
+  return values.length === 0
+    ? "All records"
+    : values.map(([key, value]) => `${labels[key] ?? key}=${value}`).join(" · ");
 }
 
 export function Export({ t = text.en }: { t?: AppText } = {}) {
@@ -278,7 +284,7 @@ export function PrintableDashboard({
             : "Generated from the same filtered dataset as Research results and the Excel workbook."}
         </p>
         <p className="muted print-report__filters">
-          {thai ? "ตัวกรอง" : "Filters"}: {filterSummary(filters)}
+          {thai ? "ตัวกรอง" : "Filters"}: {filterSummary(filters, thai)}
         </p>
         <p className="muted">Timing profile versions: {report.timingProfileVersions.join(", ") || "none"}</p>
       </div>
@@ -353,7 +359,7 @@ export function PrintableDashboard({
               headers={[
                 "Condition",
                 "Strain",
-                "Treatment",
+                thai ? "แขนการทดลอง" : "Treatment group",
                 "Age day",
                 "At risk",
                 "Alive",

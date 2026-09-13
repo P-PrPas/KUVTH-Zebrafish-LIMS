@@ -832,7 +832,7 @@ export function Controls({ t = text.en }: { t?: AppText } = {}) {
         {rows.map((row, index) => (
           <div className="form-card--inline" key={`${index}-${row.armType}`}>
             <label>
-              {thai ? "กลุ่มเปรียบเทียบ" : "Arm"}
+              {thai ? "แขนการทดลอง" : "Arm"}
               <select
                 value={row.armType}
                 onChange={(event) =>
