@@ -87,6 +87,8 @@ describe("lab workflow forms", () => {
     expect(document.body.textContent).toContain("Recipient egg lot");
     expect(document.body.textContent).toContain("CSOF lot");
     expect(document.body.textContent).toContain("Treatment group");
+    expect(document.querySelector(".batch-form__fields--details")).not.toBeNull();
+    expect(document.querySelector(".batch-form__fields--team")).not.toBeNull();
     root.unmount();
   });
 

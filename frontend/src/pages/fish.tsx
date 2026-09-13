@@ -478,7 +478,7 @@ export function Fish({ t }: { t: AppText }) {
                 />
               </label>
               <label>
-                {thai ? "กลุ่มการทดลอง" : "Treatment"}
+                {thai ? "แขนการทดลอง" : "Treatment group"}
                 <select
                   value={filters.treatmentGroupId}
                   onChange={(event) => setFilters({ ...filters, treatmentGroupId: event.target.value })}

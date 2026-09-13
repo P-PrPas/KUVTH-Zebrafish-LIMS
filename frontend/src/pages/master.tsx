@@ -59,12 +59,12 @@ const masterConfig: Record<
   },
 };
 const thaiResource: Record<MasterResource, string> = {
-  "experiment-groups": "กลุ่มงานทดลอง",
+  "experiment-groups": "โครงการวิจัย",
   operators: "ผู้ปฏิบัติงาน",
   "donor-cell-lines": "สายเซลล์ผู้ให้",
   "recipient-egg-lots": "ชุดไข่ผู้รับ",
   "csof-lots": "ชุดน้ำยา CSOF",
-  "treatment-groups": "กลุ่มการทดลอง",
+  "treatment-groups": "แขนการทดลอง",
   "fish-boxes": "ตู้ปลา",
 };
 const thaiField: Record<string, string> = {
@@ -78,7 +78,7 @@ const thaiField: Record<string, string> = {
   label: "ชื่อเรียก",
   lotCode: "รหัสชุด",
   code: "รหัส",
-  armType: "ประเภทกลุ่ม",
+  armType: "ประเภทแขนการทดลอง",
   boxCode: "รหัสตู้ปลา",
   siteId: "สถานที่",
 };
@@ -439,7 +439,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     <section className="master-catalog task-surface">
       <div>
         <p className="eyebrow">{thai ? "รายการที่ใช้ซ้ำ" : "REUSABLE REFERENCE LISTS"}</p>
-        <h2>{thai ? "บุคลากร วัสดุ และกลุ่มทดลอง" : "People, materials and experiment groups"}</h2>
+        <h2>{thai ? "บุคลากร วัสดุ และโครงการวิจัย" : "People, materials and experiment groups"}</h2>
         <p className="task-intro">
           {thai
             ? "เลือกประเภทข้อมูลหนึ่งรายการเพื่อเพิ่ม แก้ไข หรือเลิกใช้ โดยประวัติเดิมจะไม่ถูกลบ"

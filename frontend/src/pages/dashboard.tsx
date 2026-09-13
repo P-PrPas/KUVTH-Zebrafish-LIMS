@@ -204,8 +204,8 @@ function ScopeBar({ filters, options, reportMeta, thai, onClear, onEdit }: Scope
   const labels: Record<string, string> = {
     siteId: thai ? "สถานที่" : "Site",
     operatorId: thai ? "ผู้ปฏิบัติงาน" : "Operator",
-    experimentGroupId: thai ? "กลุ่มงานทดลอง" : "Experiment group",
-    treatmentGroupId: thai ? "กลุ่มทดลอง" : "Treatment",
+    experimentGroupId: thai ? "โครงการวิจัย" : "Experiment group",
+    treatmentGroupId: thai ? "แขนการทดลอง" : "Treatment group",
     donorCellLineId: thai ? "เซลล์ผู้ให้" : "Donor",
     batchId: thai ? "รอบทดลอง" : "Batch",
     strain: thai ? "สายพันธุ์" : "Strain",
@@ -295,12 +295,12 @@ export function FilterBar({
       <fieldset className="filter-bar">
         <legend>{thai ? "เลือกเฉพาะข้อมูลที่ต้องการวิเคราะห์" : "Choose records to analyse"}</legend>
         <label>
-          {thai ? "กลุ่มงานทดลอง" : "Experiment group"}
+          {thai ? "โครงการวิจัย" : "Experiment group"}
           <select
             value={filters.experimentGroupId ?? ""}
             onChange={(event) => update("experimentGroupId", event.target.value)}
           >
-            <option value="">{thai ? "ทุกกลุ่มงาน" : "All experiment groups"}</option>
+            <option value="">{thai ? "ทุกโครงการวิจัย" : "All experiment groups"}</option>
             {(options.groups ?? []).map((item) => (
               <option key={String(item.id)} value={String(item.id)}>
                 {String(item.code)} · {String(item.name)}
@@ -331,12 +331,12 @@ export function FilterBar({
           </select>
         </label>
         <label>
-          {thai ? "กลุ่มการทดลอง" : "Treatment"}
+          {thai ? "แขนการทดลอง" : "Treatment group"}
           <select
             value={filters.treatmentGroupId ?? ""}
             onChange={(event) => update("treatmentGroupId", event.target.value)}
           >
-            <option value="">{thai ? "ทุกกลุ่ม" : "All treatments"}</option>
+            <option value="">{thai ? "ทุกแขนการทดลอง" : "All treatment groups"}</option>
             {options.treatments.map((item) => (
               <option key={String(item.id)} value={String(item.id)}>
                 {String(item.code ?? item.name)}
@@ -421,7 +421,7 @@ function ComparisonControl({
     overall: thai ? "ภาพรวม (ไม่แบ่งกลุ่ม)" : "Overall (no groups)",
     abnormalityGroup: thai ? "กลุ่มความผิดปกติ" : "Abnormality group",
     strain: thai ? "สายพันธุ์" : "Strain",
-    treatmentGroup: thai ? "กลุ่มทดลอง" : "Treatment",
+    treatmentGroup: thai ? "แขนการทดลอง" : "Treatment group",
     operator: thai ? "ผู้ปฏิบัติงาน" : "Operator",
   };
   return (
@@ -473,7 +473,7 @@ function stepPath(
 
 function stageComparisonLabel(comparison: Stage1Comparison, thai: boolean): string {
   if (comparison === "operator") return thai ? "ผู้ปฏิบัติงาน" : "Operator";
-  if (comparison === "treatmentGroup") return thai ? "กลุ่มทดลอง" : "Treatment group";
+  if (comparison === "treatmentGroup") return thai ? "แขนการทดลอง" : "Treatment group";
   return thai ? "สายพันธุ์" : "Strain";
 }
 
@@ -483,7 +483,7 @@ function stageComparisonValue(point: ApiItem, comparison: Stage1Comparison, oper
     return id ? masterLabel(operators, id, id) : "All operators";
   }
   if (comparison === "treatmentGroup")
-    return String(point.treatmentGroup ?? point.treatmentGroupId ?? "All treatments");
+    return String(point.treatmentGroup ?? point.treatmentGroupId ?? "All treatment groups");
   return String(point.strain ?? "All strains");
 }
 
@@ -907,7 +907,7 @@ export function SurvivalChart({
             </svg>
             <p className="chart-summary">
               {thai
-                ? `${shown.length} เส้นแสดงในแผงนี้ แยกตาม${comparison === "strain" ? "สายพันธุ์" : comparison === "operator" ? "ผู้ปฏิบัติงาน" : "กลุ่มทดลอง"}; จุดข้อมูลมีอัตรารอดและ risk set`
+                ? `${shown.length} เส้นแสดงในแผงนี้ แยกตาม${comparison === "strain" ? "สายพันธุ์" : comparison === "operator" ? "ผู้ปฏิบัติงาน" : "แขนการทดลอง"}; จุดข้อมูลมีอัตรารอดและ risk set`
                 : `${shown.length} series shown in this site facet, compared by ${comparison === "strain" ? "strain" : comparison === "operator" ? "operator" : "treatment"}; focus a point for survival and risk-set details.`}
             </p>
             <StageRiskSummary
@@ -1041,7 +1041,7 @@ function fishComparisonValue(point: ApiItem, comparison: Stage2Comparison): stri
 function fishComparisonLabel(comparison: Stage2Comparison, thai: boolean): string {
   if (comparison === "overall") return thai ? "ภาพรวม" : "Overall";
   if (comparison === "abnormalityGroup") return thai ? "กลุ่มความผิดปกติ" : "Abnormality group";
-  if (comparison === "treatmentGroup") return thai ? "กลุ่มทดลอง" : "Treatment group";
+  if (comparison === "treatmentGroup") return thai ? "แขนการทดลอง" : "Treatment group";
   return thai ? "สายพันธุ์" : "Strain";
 }
 
@@ -1283,7 +1283,7 @@ export function FishSurvivalChart({
       </svg>
       <p className="chart-summary">
         {thai
-          ? `${shown.length} เส้น Kaplan–Meier แสดงตาม${comparison === "overall" ? "ภาพรวม" : comparison === "abnormalityGroup" ? "กลุ่มความผิดปกติ" : comparison === "strain" ? "สายพันธุ์" : "กลุ่มทดลอง"}; ขีดแนวตั้งคือ censored และวงกลมคือเหตุการณ์`
+          ? `${shown.length} เส้น Kaplan–Meier แสดงตาม${comparison === "overall" ? "ภาพรวม" : comparison === "abnormalityGroup" ? "กลุ่มความผิดปกติ" : comparison === "strain" ? "สายพันธุ์" : "แขนการทดลอง"}; ขีดแนวตั้งคือ censored และวงกลมคือเหตุการณ์`
           : `${shown.length} Kaplan-Meier series shown by ${comparison === "overall" ? "overall" : comparison === "abnormalityGroup" ? "abnormality group" : comparison === "strain" ? "strain" : "treatment"}; vertical marks are censored and rings are events.`}
       </p>
       <FishRiskSummary points={shown.flatMap(([, groupPoints]) => groupPoints)} comparison={comparison} thai={thai} />
