@@ -222,6 +222,21 @@ def _create_embryos(
     return embryos
 
 
+def _has_open_embryos(state: State, batch_id: str) -> bool:
+    lot_ids = {
+        str(lot["id"])
+        for lot in state.entities["injection-lots"].values()
+        if lot.get("batchId") == batch_id and lot.get("active") is not False and lot.get("deletedAt") is None
+    }
+    return any(
+        embryo.get("injectionLotId") in lot_ids
+        and embryo.get("active") is not False
+        and embryo.get("deletedAt") is None
+        and not embryo.get("exitReason")
+        for embryo in state.entities["embryos"].values()
+    )
+
+
 def _control_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = [
         {**copy.deepcopy(item), "stageLabel": stage_label(stage_number(str(item.get("stageCode") or "")))}
@@ -290,7 +305,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                 )
                 if matching_lot is None:
                     continue
-            items.append(copy.deepcopy(item))
+            items.append({**copy.deepcopy(item), "hasOpenEmbryos": _has_open_embryos(state, str(item["id"]))})
         items.sort(key=lambda item: (str(item.get("experimentDate", "")), str(item.get("batchCode", ""))), reverse=True)
         try:
             offset = max(int(cursor or 0), 0)
@@ -316,6 +331,7 @@ def build_experiments_router(store: Store) -> APIRouter:
         if not batch or batch.get("active") is False or batch.get("deletedAt") is not None:
             raise APIError(404, "not_found", "ไม่พบ batch")
         result = copy.deepcopy(batch)
+        result["hasOpenEmbryos"] = _has_open_embryos(state, batch_id)
         lots = []
         for lot in state.entities["injection-lots"].values():
             if lot.get("batchId") != batch_id or lot.get("active") is False or lot.get("deletedAt") is not None:

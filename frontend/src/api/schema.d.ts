@@ -1483,6 +1483,8 @@ export interface components {
             /** @description Recorded but unused in v1 (ASM-01, Q-N2). */
             incubationTempC?: number | null;
             notes?: string | null;
+            /** @description True when at least one active embryo in this experiment has no terminal exit reason. */
+            readonly hasOpenEmbryos?: boolean;
         };
         BatchInput: {
             /** @description Omit to let the server suggest `{dayNo}_{operator}_{treatmentGroup}` (FR-302). */

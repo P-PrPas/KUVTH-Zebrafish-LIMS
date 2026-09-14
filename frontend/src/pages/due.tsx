@@ -839,11 +839,23 @@ function ObservationRound({
           <p className="eyebrow">
             {String(due.batchCode)} · LOT {String(due.lotNo)}
           </p>
-          <h1>{thai ? "บันทึกรอบตรวจ Lot" : "Record lot observation"}</h1>
+          <h1>
+            {due.historical
+              ? thai
+                ? "ดู/แก้ไขผลตรวจย้อนหลัง"
+                : "Historical checkpoint editor"
+              : thai
+                ? "บันทึกรอบตรวจ Lot"
+                : "Record lot observation"}
+          </h1>
           <p className="muted">
-            {thai
-              ? `ช่วงที่ระบบแนะนำ: ${String(due.stageLabel)} · เลือกระยะจริงแยกแต่ละฟองในแผ่นหลุม`
-              : `Suggested window: ${String(due.stageLabel)} · scan wells and record only what you observe`}
+            {due.historical
+              ? thai
+                ? "ตรวจสอบหรือแก้ไขผลตรวจเดิมของชุดนี้ พร้อมเหตุผลการแก้ไขเมื่อจำเป็น"
+                : "Review or correct saved observations for this lot; corrections require an audit reason."
+              : thai
+                ? `ช่วงที่ระบบแนะนำ: ${String(due.stageLabel)} · เลือกระยะจริงแยกแต่ละฟองในแผ่นหลุม`
+                : `Suggested window: ${String(due.stageLabel)} · scan wells and record only what you observe`}
           </p>
         </div>
       </div>

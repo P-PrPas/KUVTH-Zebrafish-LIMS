@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
+import { saveObservationLocation } from "../observation-draft";
 import { putQueue, type QueuedWrite } from "../offline";
 import { dateTimeLocalToRFC3339, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
 import { type AppText, text } from "../types";
@@ -19,11 +20,17 @@ const masterName = (items: ApiItem[] | undefined, id: unknown) => {
   return String(item?.name ?? item?.strain ?? item?.label ?? item?.lotCode ?? item?.code ?? "");
 };
 
+type ExperimentStatus = "all" | "tracking" | "completed";
+
+const experimentStatus = (item: ApiItem): Exclude<ExperimentStatus, "all"> =>
+  item.hasOpenEmbryos === false ? "completed" : "tracking";
+
 export function Batches({ t }: { t: AppText }) {
   const [dashboardFilters] = useState(parseFilters);
   const [items, setItems] = useState<ApiItem[]>([]);
   const [groups, setGroups] = useState<ApiItem[]>([]);
   const [groupId, setGroupId] = useState(dashboardFilters.experimentGroupId ?? "");
+  const [statusFilter, setStatusFilter] = useState<ExperimentStatus>("all");
   useEffect(() => {
     void get("/experiment-groups?includeInactive=true")
       .then((data) => setGroups(data.items ?? []))
@@ -66,6 +73,7 @@ export function Batches({ t }: { t: AppText }) {
   const visibleItems = items.filter(
     (item) =>
       (!groupId || item.experimentGroupId === groupId) &&
+      (statusFilter === "all" || experimentStatus(item) === statusFilter) &&
       `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()),
@@ -129,6 +137,28 @@ export function Batches({ t }: { t: AppText }) {
             placeholder={thai ? "รหัสการทดลอง หรือวันที่ YYYY-MM-DD" : "Experiment code or YYYY-MM-DD"}
           />
         </label>
+        <fieldset className="status-filter">
+          <legend>{thai ? "สถานะการทดลอง" : "Experiment status"}</legend>
+          <div className="tabs" role="group" aria-label={thai ? "กรองสถานะการทดลอง" : "Filter experiment status"}>
+            {(
+              [
+                ["all", thai ? "ทั้งหมด" : "All"],
+                ["tracking", thai ? "กำลังติดตาม" : "Tracking"],
+                ["completed", thai ? "จบแล้ว" : "Completed"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                className={statusFilter === value ? "tab tab--active" : "tab"}
+                type="button"
+                aria-pressed={statusFilter === value}
+                key={value}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <p className="muted" role="status">
           {thai
             ? `แสดง ${visibleItems.length} จาก ${items.length} การทดลอง`
@@ -162,7 +192,17 @@ export function Batches({ t }: { t: AppText }) {
                       : "pinned to this experiment"}
                 </small>
               </span>
-              <span className="pill">{item.queued ? t.queued : thai ? "กำลังดำเนินการ" : "active"}</span>
+              <span className="pill">
+                {item.queued
+                  ? t.queued
+                  : experimentStatus(item) === "tracking"
+                    ? thai
+                      ? "กำลังติดตาม"
+                      : "Tracking"
+                    : thai
+                      ? "จบแล้ว"
+                      : "Completed"}
+              </span>
             </button>
           ))}
         </div>
@@ -729,6 +769,18 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     .map((value) => value.trim().toUpperCase())
     .filter((value, index, values) => wells.includes(value) && values.indexOf(value) === index)
     .slice(0, preview.length);
+  const openHistoricalCheckpoint = (item: ApiItem) => {
+    saveObservationLocation(operatorId(), {
+      injectionLotId: item.id,
+      batchCode: detail?.batchCode ?? batch.batchCode,
+      lotNo: item.lotNo,
+      stageCode: "stage_01_1C",
+      stageLabel: thai ? "ระยะเริ่มต้น" : "Activated",
+      stageOrder: 1,
+      historical: true,
+    });
+    window.location.hash = "due";
+  };
   const toggleWell = (well: string) => {
     const next = selectedWells.includes(well)
       ? selectedWells.filter((value) => value !== well)
@@ -775,6 +827,18 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         </div>
       </div>
       <div className="record-facts">
+        <div className="record-fact">
+          <span>{thai ? "สถานะ" : "Status"}</span>
+          <strong>
+            {experimentStatus(detail ?? batch) === "tracking"
+              ? thai
+                ? "กำลังติดตาม"
+                : "Tracking"
+              : thai
+                ? "จบแล้ว"
+                : "Completed"}
+          </strong>
+        </div>
         <div className="record-fact">
           <span>{thai ? "วันที่ทดลอง" : "Experiment date"}</span>
           <strong>{String(detail?.experimentDate ?? batch.experimentDate ?? "—")}</strong>
@@ -998,17 +1062,28 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 {formatBangkokDateTime(String(item.activatedAt ?? ""))}
               </p>
             </div>
-            {item.activatedAt && String(item.id).startsWith("queued-") ? (
-              <span className="pill">{thai ? "รอซิงก์ก่อนเพิ่มตัวอ่อน" : "Sync pending"}</span>
-            ) : item.activatedAt ? (
-              <button className="button button--secondary" type="button" onClick={() => addEmbryos(String(item.id))}>
-                {thai ? `เพิ่มตัวอ่อน ${count} ตัว` : `Add ${count} embryos`}
-              </button>
-            ) : (
-              <button className="button button--primary" type="button" onClick={() => useTemplate(item)}>
-                {thai ? "เปิดใช้แม่แบบชุดนี้" : "Activate template"}
-              </button>
-            )}
+            <div className="button-row">
+              {Boolean(item.activatedAt) && !String(item.id).startsWith("queued-") && (
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  onClick={() => openHistoricalCheckpoint(item)}
+                >
+                  {thai ? "ดู/แก้ไขผลตรวจ" : "View / edit results"}
+                </button>
+              )}
+              {item.activatedAt && String(item.id).startsWith("queued-") ? (
+                <span className="pill">{thai ? "รอซิงก์ก่อนเพิ่มตัวอ่อน" : "Sync pending"}</span>
+              ) : item.activatedAt ? (
+                <button className="button button--secondary" type="button" onClick={() => addEmbryos(String(item.id))}>
+                  {thai ? `เพิ่มตัวอ่อน ${count} ตัว` : `Add ${count} embryos`}
+                </button>
+              ) : (
+                <button className="button button--primary" type="button" onClick={() => useTemplate(item)}>
+                  {thai ? "เปิดใช้แม่แบบชุดนี้" : "Activate template"}
+                </button>
+              )}
+            </div>
           </div>
           {Boolean(item.activatedAt) && (
             <label className="form-card--inline">
