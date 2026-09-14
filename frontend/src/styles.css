@@ -2920,6 +2920,27 @@ tbody tr:hover {
   margin: 0 0 10px;
   font-size: 0.875rem;
 }
+.status-filter {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.status-filter legend {
+  margin-bottom: 7px;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  font-weight: 500;
+}
+.status-filter .tabs {
+  margin: 0;
+}
+.lot-card > .page-heading > .button-row {
+  min-width: 0;
+}
+.lot-card > .page-heading > .button-row .button {
+  flex: 0 1 auto;
+}
 .checkpoint-editor {
   border-top: 4px solid var(--primary);
 }
@@ -3247,6 +3268,9 @@ button:disabled:hover {
   .form-card--inline {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+  .status-filter {
+    width: 100%;
   }
   .list-row {
     align-items: flex-start;

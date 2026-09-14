@@ -412,4 +412,57 @@ describe("batch detail actions", () => {
     expect(document.body.textContent).toContain("B-1_1_1");
     root.unmount();
   });
+
+  it("filters experiments by embryo status and opens a lot's historical editor", async () => {
+    const tracking = { id: "batch-1", batchCode: "TRACKING", experimentDate: "2026-09-01", hasOpenEmbryos: true };
+    const completed = { id: "batch-2", batchCode: "COMPLETED", experimentDate: "2026-09-02", hasOpenEmbryos: false };
+    const detail = {
+      ...completed,
+      injectionLots: [{ id: "lot-2", lotNo: "2", donorCellLineId: "donor-1", activatedAt: "2026-09-02T01:00:00Z" }],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.endsWith("/batches")) return json({ items: [tracking, completed] });
+        if (path.endsWith("/batches/batch-2")) return json(detail);
+        if (path.includes("/injection-lots/lot-2/embryos")) return json({ items: [] });
+        if (path.includes("?includeInactive=true")) return json({ items: [] });
+        return json({ items: [] });
+      }),
+    );
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+
+    await act(async () => {
+      root.render(<Batches t={text.en} />);
+      await settle();
+    });
+    expect(document.body.textContent).toContain("Tracking");
+    expect(document.body.textContent).toContain("Completed");
+
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "Completed")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("COMPLETED");
+    expect(document.body.textContent).not.toContain("TRACKING");
+
+    await act(async () => {
+      (document.querySelector(".list-row") as HTMLButtonElement).click();
+      await settle();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "View / edit results")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(window.location.hash).toBe("#due");
+    expect(localStorage.getItem("chronofish.observation-draft.v1:location:operator-1")).toContain('"historical":true');
+    root.unmount();
+  });
 });

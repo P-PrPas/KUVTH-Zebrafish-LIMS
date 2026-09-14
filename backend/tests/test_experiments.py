@@ -271,6 +271,49 @@ def test_batch_update_preserves_inactive_historical_references(client, write_hea
     assert updated.json()["notes"] == "historical site retained"
 
 
+def test_batch_read_model_reports_open_embryos(client, write_headers):
+    batch, donor = create_batch(client, write_headers, 240)
+    lot = client.post(
+        f"/api/v1/batches/{batch['id']}/injection-lots",
+        headers=headers(write_headers, 241),
+        json={
+            "lotNo": "1",
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T00:00:00Z",
+            "nActivated": 2,
+        },
+    ).json()
+
+    def record_dead(embryo_id: str, number: int):
+        response = client.post(
+            "/api/v1/observations/embryo",
+            headers=headers(write_headers, number),
+            json={
+                "observations": [
+                    {
+                        "clientUuid": f"01900000-0000-7000-8000-{number:012d}",
+                        "embryoId": embryo_id,
+                        "stageCode": "stage_01_1C",
+                        "observedAt": "2026-08-20T01:00:00Z",
+                        "outcome": "DEAD",
+                        "condition": "NORMAL",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    record_dead(lot["embryos"][0]["id"], 242)
+    partially_open = client.get("/api/v1/batches").json()["items"]
+    assert next(item for item in partially_open if item["id"] == batch["id"])["hasOpenEmbryos"] is True
+    assert client.get(f"/api/v1/batches/{batch['id']}").json()["hasOpenEmbryos"] is True
+
+    record_dead(lot["embryos"][1]["id"], 243)
+    completed = client.get("/api/v1/batches").json()["items"]
+    assert next(item for item in completed if item["id"] == batch["id"])["hasOpenEmbryos"] is False
+    assert client.get(f"/api/v1/batches/{batch['id']}").json()["hasOpenEmbryos"] is False
+
+
 def test_embryo_patch_only_changes_a_unique_valid_well(client, write_headers):
     batch, donor = create_batch(client, write_headers)
     lot = client.post(

@@ -2388,6 +2388,10 @@ components:
           type: [number, 'null']
           description: Recorded but unused in v1 (ASM-01, Q-N2).
         notes: { type: [string, 'null'] }
+        hasOpenEmbryos:
+          type: boolean
+          readOnly: true
+          description: True when at least one active embryo in this experiment has no terminal exit reason.
     BatchInput:
       type: object
       required: [experimentDate, siteId, operatorId, protocolId, treatmentGroupId]
