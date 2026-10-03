@@ -951,6 +951,14 @@ function FishDetail({
   const correct = async (event: FormEvent) => {
     event.preventDefault();
     if (!editing || !reason.trim() || !detail) return;
+    if (!outcomes.includes(String(editing.outcome) as FishOutcome)) {
+      setError(
+        thai
+          ? "à¹€à¸¥à¸·à¸­à¸à¸œà¸¥à¸—à¸µà¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡: à¸¡à¸µà¸Šà¸µà¸§à¸´à¸•à¸«à¸£à¸·à¸­à¸•à¸²à¸¢"
+          : "Choose Alive or Dead as the corrected outcome.",
+      );
+      return;
+    }
     const previous = detail;
     setDetail({
       ...detail,
@@ -1128,8 +1136,14 @@ function FishDetail({
                       <button
                         className="inline-action"
                         onClick={() => {
-                          setEditing(item);
+                          const recordedOutcome = String(item.outcome ?? "");
+                          setEditing({
+                            ...item,
+                            recordedOutcome,
+                            outcome: outcomes.includes(recordedOutcome as FishOutcome) ? recordedOutcome : "",
+                          });
                           setReason("");
+                          setError("");
                         }}
                       >
                         {thai ? "แก้ไขผล" : "Correct"}
@@ -1145,13 +1159,27 @@ function FishDetail({
           )}
           {editing && (
             <form className="task-surface form-card" onSubmit={correct}>
+              {!outcomes.includes(String(editing.recordedOutcome) as FishOutcome) && (
+                <p className="field-hint">
+                  {thai
+                    ? `à¸œà¸¥à¹€à¸”à¸´à¸¡: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)} — à¹€à¸¥à¸·à¸­à¸à¸¡à¸µà¸Šà¸µà¸§à¸´à¸•à¸«à¸£à¸·à¸­à¸•à¸²à¸¢à¹ƒà¸«à¸¡à¹ˆ`
+                    : `Previously recorded: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)}. Choose Alive or Dead to correct it.`}
+                </p>
+              )}
               <h2>{thai ? `แก้ไขผลวันที่ ${String(editing.observedOn)}` : `Correct ${String(editing.observedOn)}`}</h2>
               <label>
                 {thai ? "ผลการตรวจ" : "Outcome"}
                 <select
-                  value={String(editing.outcome ?? "ALIVE")}
-                  onChange={(event) => setEditing({ ...editing, outcome: event.target.value })}
+                  required
+                  value={String(editing.outcome ?? "")}
+                  onChange={(event) => {
+                    setEditing({ ...editing, outcome: event.target.value });
+                    setError("");
+                  }}
                 >
+                  <option value="" disabled>
+                    {thai ? "à¹€à¸¥à¸·à¸­à¸à¸œà¸¥à¸à¸²à¸£à¸•à¸£à¸§à¸ˆ" : "Select corrected outcome"}
+                  </option>
                   {outcomes.map((value) => (
                     <option key={value} value={value}>
                       {outcomeLabel(value, t)}
