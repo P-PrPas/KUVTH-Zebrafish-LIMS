@@ -68,6 +68,7 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
             "fishCode": "manual-export",
             "dob": datetime.now(BANGKOK).date().isoformat(),
             "donorCellLineId": lot["donorCellLineId"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
         },
     )
     assert manual.status_code == 201, manual.text

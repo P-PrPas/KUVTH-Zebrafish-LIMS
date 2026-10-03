@@ -11,16 +11,21 @@ def setup_master(client, base):
     donor = client.post(
         "/api/v1/donor-cell-lines",
         headers=headers(base, 203),
-        json={"strain": "AB", "preparation": "CHUNKS"},
+        json={"strain": "AB", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
+    ).json()
+    recipient = client.post(
+        "/api/v1/recipient-egg-lots",
+        headers=headers(base, 204),
+        json={"breed": "AB", "label": "REC-1"},
     ).json()
     treatment = client.post(
-        "/api/v1/treatment-groups", headers=headers(base, 204), json={"code": "SCNT", "armType": "SCNT"}
+        "/api/v1/treatment-groups", headers=headers(base, 199), json={"code": "SCNT", "armType": "SCNT"}
     ).json()
-    return site, operator, donor, treatment
+    return site, operator, donor, treatment, recipient
 
 
 def create_batch(client, base, number=205):
-    site, operator, donor, treatment = setup_master(client, base)
+    site, operator, donor, treatment, recipient = setup_master(client, base)
     response = client.post(
         "/api/v1/batches",
         headers=headers(base, number),
@@ -30,6 +35,7 @@ def create_batch(client, base, number=205):
             "operatorId": operator["id"],
             "protocolId": "01900000-0000-7000-8000-000000000001",
             "treatmentGroupId": treatment["id"],
+            "recipientEggLotId": recipient["id"],
         },
     )
     assert response.status_code == 201, response.text
@@ -370,7 +376,7 @@ def test_embryo_patch_only_changes_a_unique_valid_well(client, write_headers):
 
 
 def test_uat_batch_three_lots_create_fifteen_embryos_without_partial_lots(client, write_headers):
-    site, operator, donor, treatment = setup_master(client, write_headers)
+    site, operator, donor, treatment, _recipient = setup_master(client, write_headers)
     batch_response = client.post(
         "/api/v1/batches",
         headers=headers(write_headers, 225),

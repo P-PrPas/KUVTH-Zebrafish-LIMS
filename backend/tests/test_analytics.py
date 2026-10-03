@@ -166,8 +166,7 @@ def test_analytics_fixture_matches_manual_counts_and_shared_filters(client, writ
     assert survival["meta"]["missing"]["stageCheckpoint"] > 0
 
     timing = client.get("/api/v1/analytics/timing-deviation", params={**filters, "groupBy": ["operator"]}).json()
-    assert {item["operatorId"] for item in timing["items"]} == {batch["operatorId"]}
-    assert {item["stageOrder"] for item in timing["items"]} == {19, 22}
+    assert timing["items"] == []  # SCNT observations are excluded from timing analysis.
 
     abnormality = client.get("/api/v1/analytics/abnormality-onset", params=filters).json()
     assert abnormality["items"] == [{"stageOrder": 19, "stageLabel": "Shield", "count": 1}]
@@ -205,7 +204,12 @@ def test_manual_fish_is_not_counted_as_promoted_and_uses_unknown_metadata(client
     fish_response = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 520),
-        json={"fishCode": "manual-analytics", "dob": today, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "manual-analytics",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     )
     assert fish_response.status_code == 201, fish_response.text
     assert client.get("/api/v1/fish", params={"batchId": _batch["id"]}).json()["items"] == []
@@ -542,12 +546,12 @@ def test_fish_supporting_analysis_reports_composition_age_and_box_boundaries(cli
         "DISCARDED": 1,
     }
     assert {row["sex"]: row["n"] for row in supporting["sexComposition"]} == {"M": 2, "F": 2, "UNKNOWN": 1}
-    assert [row["n"] for row in supporting["ageDistribution"]] == [2, 1, 1, 0, 1]
+    assert [row["n"] for row in supporting["ageDistribution"]] == [4, 1, 0, 0, 0, 0, 0]
     assert supporting["ageDistribution"][0]["minDays"] == 0
-    assert supporting["ageDistribution"][0]["maxDays"] == 6
-    assert supporting["ageDistribution"][1]["minDays"] == 7
-    assert supporting["ageDistribution"][1]["maxDays"] == 13
-    assert supporting["ageDistribution"][-1]["minDays"] == 28
+    assert supporting["ageDistribution"][0]["maxDays"] == 14
+    assert supporting["ageDistribution"][1]["minDays"] == 15
+    assert supporting["ageDistribution"][1]["maxDays"] == 31
+    assert supporting["ageDistribution"][-1]["minDays"] == 730
     assert supporting["ageDistribution"][-1]["maxDays"] is None
     assert {row["boxCode"]: row["n"] for row in supporting["boxCensus"]} == {
         "B1": 2,

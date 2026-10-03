@@ -99,8 +99,8 @@ describe("master data form", () => {
 
     const expected = [
       ["Operators", ["Name"]],
-      ["Donor cell lines", ["Strain", "Preparation", "Batch code"]],
-      ["Recipient egg lots", ["Breed", "Lot date", "Label"]],
+      ["Donor cell lines", ["Strain", "Preparation", "Preservation", "Batch code", "Cryovial / sample detail"]],
+      ["Recipient egg lots", ["Breed", "Egg collection date", "Donor fish code", "Label"]],
       ["CSOF lots", ["Lot code"]],
       ["Treatment groups", ["Code", "Name", "Arm type"]],
       ["Fish boxes", ["Box code", "Site ID"]],

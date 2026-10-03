@@ -23,6 +23,7 @@ export function ReportPanel({
   empty = false,
   emptyMessage = "No data",
   quality,
+  emphasis = false,
 }: {
   title: string;
   children: ReactNode;
@@ -31,10 +32,11 @@ export function ReportPanel({
   empty?: boolean;
   emptyMessage?: string;
   quality?: ReactNode;
+  emphasis?: boolean;
 }) {
   const localizedLoading = loadingMessage ?? (/[฀-๿]/.test(title) ? "กำลังโหลดข้อมูลวิเคราะห์…" : "Loading analytics…");
   return (
-    <section className="report-panel" aria-busy={loading}>
+    <section className={emphasis ? "report-panel report-panel--featured" : "report-panel"} aria-busy={loading}>
       <h2>{title}</h2>
       {loading ? (
         <p className="table-note" role="status">

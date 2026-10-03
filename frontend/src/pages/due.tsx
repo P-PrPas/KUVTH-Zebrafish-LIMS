@@ -292,6 +292,7 @@ function ObservationRound({
   const [embryoConditions, setEmbryoConditions] = useState<Record<string, string>>(restored.draft?.conditions ?? {});
   const [notes, setNotes] = useState<Record<string, string>>(restored.draft?.notes ?? {});
   const [correctionReason, setCorrectionReason] = useState("");
+  const [observationTime, setObservationTime] = useState(restored.draft?.observationTime ?? "");
   const [confirmedAt, setConfirmedAt] = useState(restored.draft?.confirmedAt ?? "");
   const [draftSavedAt, setDraftSavedAt] = useState(restored.draft?.savedAt ?? "");
   const [savedIds, setSavedIds] = useState<Record<string, string>>(restored.draft?.savedIds ?? {});
@@ -424,6 +425,7 @@ function ObservationRound({
         conditions: embryoConditions,
         notes,
         savedIds,
+        observationTime,
         confirmedAt,
         savedAt,
       });
@@ -436,7 +438,19 @@ function ObservationRound({
   };
   useLayoutEffect(() => {
     persistDraft();
-  }, [operator, due, entry, selectedId, stageCodes, embryoOutcomes, embryoConditions, notes, savedIds, confirmedAt]);
+  }, [
+    operator,
+    due,
+    entry,
+    selectedId,
+    stageCodes,
+    embryoOutcomes,
+    embryoConditions,
+    notes,
+    savedIds,
+    observationTime,
+    confirmedAt,
+  ]);
 
   const embryos = (entry?.embryos as ApiItem[] | undefined) ?? [];
   const stages = (entry?.stages as ApiItem[] | undefined) ?? [];
@@ -654,7 +668,13 @@ function ObservationRound({
     );
   const save = async () => {
     if (!entry || pending.length === 0) return;
-    const observedAt = new Date().toISOString();
+    let observedAt: string;
+    try {
+      observedAt = observationTime ? dateTimeLocalToRFC3339(observationTime) : new Date().toISOString();
+    } catch {
+      setError(thai ? "รูปแบบเวลาตรวจไม่ถูกต้อง" : "Observation time is invalid");
+      return;
+    }
     const observations = pending.map((embryo) => observationFor(embryo, observedAt));
     setQueuedIds((current) => ({
       ...current,
@@ -685,13 +705,15 @@ function ObservationRound({
     setError("");
     try {
       const savedEmbryos = embryos.filter((embryo) => savedIds[String(embryo.embryoId)]);
+      const correctedAt = observationTime ? dateTimeLocalToRFC3339(observationTime) : "";
       const results = await Promise.all(
         savedEmbryos.map((embryo) => {
           const id = String(embryo.embryoId);
           return putQueue(
             `/observations/embryo/${savedIds[id]}`,
             {
-              observedAt: embryo.priorObservationId === savedIds[id] ? embryo.priorObservedAt : confirmedAt,
+              observedAt:
+                correctedAt || (embryo.priorObservationId === savedIds[id] ? embryo.priorObservedAt : confirmedAt),
               outcome: embryoOutcomes[id],
               condition: embryoConditions[id],
               notes: notes[id] || null,
@@ -900,9 +922,17 @@ function ObservationRound({
         </div>
       )}
       <p className="timing-preview">
-        {thai ? "เวลาจะถูกบันทึกอัตโนมัติเมื่อกดยืนยัน" : "Observation time is captured automatically when Confirm is pressed."}
+        {thai ? "เวลาเว้นว่างไว้จะใช้เวลาปัจจุบัน · ผู้บันทึก" : "Leave time blank to use now · recorded by"} {operatorName}
         {confirmedAt && ` · ${new Date(confirmedAt).toLocaleString()}`}
       </p>
+      <label className="checkpoint-time-field">
+        {thai ? "เวลาที่สังเกต (ไม่บังคับ)" : "Observation time (optional)"}
+        <input
+          type="datetime-local"
+          value={observationTime}
+          onChange={(event) => setObservationTime(event.target.value)}
+        />
+      </label>
       <div className="checkpoint-metrics" role="status" aria-live="polite">
         <div>
           <span aria-hidden="true">•</span>
@@ -1215,6 +1245,30 @@ function ObservationRound({
                     : `Abnormality was first recorded at ${String(activeEmbryo.firstAbnormalStageLabel)}.`}
                 </p>
               )}
+              <section className="checkpoint-history" aria-labelledby="checkpoint-history-heading">
+                <h3 id="checkpoint-history-heading">{thai ? "ประวัติผลตรวจที่บันทึกแล้ว" : "Saved observation history"}</h3>
+                {((activeEmbryo.history as ApiItem[] | undefined) ?? []).length ? (
+                  <ol>
+                    {((activeEmbryo.history as ApiItem[] | undefined) ?? []).map((item) => (
+                      <li key={String(item.id)}>
+                        <strong>{String(item.stageLabel ?? item.stageCode)}</strong>
+                        <span>
+                          {String(item.outcome)} · {String(item.condition)}
+                        </span>
+                        <small>
+                          {new Date(String(item.observedAt)).toLocaleString()} ·{" "}
+                          {String(item.operatorName ?? (thai ? "ไม่ระบุผู้บันทึก" : "Operator not recorded"))}
+                        </small>
+                        {item.notes && <p>{String(item.notes)}</p>}
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="muted">
+                    {thai ? "ยังไม่มีผลตรวจที่บันทึกไว้สำหรับหลุมนี้" : "No saved observations for this well yet."}
+                  </p>
+                )}
+              </section>
               {savedCount > 0 && (
                 <form
                   className="checkpoint-correction"

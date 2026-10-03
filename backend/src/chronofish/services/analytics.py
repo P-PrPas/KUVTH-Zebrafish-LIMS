@@ -36,7 +36,15 @@ FISH_GROUP_DIMENSIONS = {"condition", "strain", "treatmentGroup"}
 CONTROL_STAGE_ORDERS = {3, 19, 20, 22, 23, 24}
 FISH_CENSOR_STATUSES = {"ALIVE", "FROZEN", "DISCARDED"}
 FISH_STATUS_ORDER = ("ALIVE", "DEAD", "FROZEN", "DISCARDED")
-FISH_AGE_BINS = ((0, 6, "0-6"), (7, 13, "7-13"), (14, 20, "14-20"), (21, 27, "21-27"), (28, None, "28+"))
+FISH_AGE_BINS = (
+    (0, 14, "0–14 days"),
+    (15, 31, "15–31 days"),
+    (32, 90, "1–3 months"),
+    (91, 181, "3–6 months"),
+    (182, 364, "6–12 months"),
+    (365, 729, "1–2 years"),
+    (730, None, "2+ years"),
+)
 ABNORMALITY_COMPARISON = {
     "field": "abnormalityGroup",
     "label": "Ever abnormal vs No abnormality recorded",
@@ -537,6 +545,8 @@ class Analytics:
                 continue
             donor = self.state.entities["donor-cell-lines"].get(str(lot.get("donorCellLineId")), {})
             treatment = self.state.entities["treatment-groups"].get(str(batch.get("treatmentGroupId")), {})
+            if treatment.get("armType") not in {"IVF", "NATURAL_BREEDING"}:
+                continue
             order, deviation = stage_number(str(observation["stageCode"])), observation.get("deviationH")
             if deviation is None:
                 missing_deviation += 1

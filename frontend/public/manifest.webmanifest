@@ -1,6 +1,6 @@
 {
-  "name": "KUVTH Zebrafish LIMS",
-  "short_name": "KUVTH LIMS",
+  "name": "KUVACB AqLIMS",
+  "short_name": "AqLIMS",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f6f2",

@@ -168,14 +168,14 @@ def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str
     except ValueError as error:
         raise APIError(422, "validation_error", str(error)) from error
     _active(state, "donor-cell-lines", str(body["donorCellLineId"]), "donorCellLineId")
-    for field in ("enuPowerPct", "enuPulseUs", "enuLed", "nEggs", "nActivated"):
+    for field in ("enuPowerPct", "enuPulseUs", "enuLed", "nEggs", "nManipulated", "nActivated"):
         if body.get(field) is not None and (isinstance(body[field], bool) or not isinstance(body[field], int)):
             raise APIError(422, "validation_error", "ค่าจำนวนต้องเป็นจำนวนเต็ม")
     count = body["nActivated"]
     if count not in range(0, 97):
         raise APIError(422, "validation_error", "nActivated ต้องอยู่ระหว่าง 0 ถึง 96")
     if (
-        any(int(body.get(field) or 0) < 0 for field in ("enuPulseUs", "enuLed", "nEggs"))
+        any(int(body.get(field) or 0) < 0 for field in ("enuPulseUs", "enuLed", "nEggs", "nManipulated"))
         or not 0 <= int(body.get("enuPowerPct") or 0) <= 100
     ):
         raise APIError(422, "validation_error", "ค่าจำนวนอยู่นอกช่วงที่กำหนด")
@@ -464,6 +464,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                 "enuFinishAt",
                 "activatedAt",
                 "nEggs",
+                "nManipulated",
                 "nActivated",
                 "wellPositions",
                 "notes",

@@ -3,7 +3,7 @@
 
 INSERT IGNORE INTO site (id, code, name, active, created_at, updated_at) VALUES
     ('10000000-0000-7000-8000-000000000001', 'KU',  'Kasetsart University',    TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
-    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Mahasarakham University', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Michigan State University', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
 
 INSERT IGNORE INTO operator (id, site_id, name, active, created_at, updated_at) VALUES
     ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'Jan',  TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),

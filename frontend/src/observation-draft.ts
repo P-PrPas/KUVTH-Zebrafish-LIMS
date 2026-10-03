@@ -10,6 +10,7 @@ export type ObservationWorkspaceDraft = {
   conditions: Record<string, string>;
   notes: Record<string, string>;
   savedIds: Record<string, string>;
+  observationTime?: string;
   confirmedAt: string;
   savedAt?: string;
 };
@@ -25,6 +26,7 @@ export function readObservationDraft(operator: string, lot: string): Observation
     value.due?.injectionLotId !== lot ||
     typeof value.due?.stageCode !== "string" ||
     typeof value.selectedId !== "string" ||
+    (value.observationTime != null && typeof value.observationTime !== "string") ||
     typeof value.confirmedAt !== "string" ||
     (value.savedAt != null && typeof value.savedAt !== "string")
   )

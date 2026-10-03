@@ -810,6 +810,21 @@ input[type="checkbox"] {
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
+.filter-bar--quick {
+  grid-template-columns: minmax(250px, 360px) minmax(0, 1fr);
+  margin-bottom: 12px;
+  padding: 16px 20px 20px;
+}
+.dashboard-filter-set {
+  margin-bottom: 26px;
+}
+.dashboard-filter-set .filter-disclosure {
+  margin-bottom: 0;
+}
+.filter-quick-help {
+  margin: 0 0 4px;
+  color: var(--muted);
+}
 .form-card {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1014,6 +1029,12 @@ button.list-row:hover {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
+.report-panel--featured > h2 {
+  color: var(--ink);
+  font-size: clamp(1.3rem, 2vw, 1.6rem);
+  font-weight: 700;
+  border-bottom: 2px solid var(--accent);
+}
 .chart {
   display: block;
   width: 100%;
@@ -1159,6 +1180,26 @@ button.list-row:hover {
 .chart-point:focus-visible {
   outline: 3px solid var(--primary);
   outline-offset: 3px;
+}
+.chart-point-hit {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.chart-point-hit:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 3px;
+}
+.chart-point__visible {
+  pointer-events: none;
+}
+.chart-point-selection {
+  margin: 10px 0 14px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--primary);
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.55;
 }
 .chart-end-label {
   font-size: 13px;
@@ -1511,6 +1552,11 @@ tbody tr:hover td {
   background: var(--danger-soft);
   color: #702a25;
 }
+.data-quality-alert--warning {
+  border-color: #d6bd83;
+  background: var(--accent-soft);
+  color: #704b1f;
+}
 .data-quality-alert--ok {
   border-color: #b8ccc6;
   background: var(--surface-soft);
@@ -1526,7 +1572,10 @@ tbody tr:hover td {
   background: var(--surface);
   font-weight: 700;
 }
-.data-quality-alert h2 {
+.data-quality-alert h2,
+.data-quality-alert h3,
+.data-quality-alert h4 {
+  margin-top: 0;
   margin-bottom: 4px;
   color: inherit;
   font-size: 1.05rem;
@@ -1677,6 +1726,44 @@ tbody tr:hover td {
   background: var(--surface-warm);
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
+}
+.checkpoint-time-field {
+  display: grid;
+  max-width: 420px;
+  gap: 6px;
+  margin: 12px 0;
+}
+.checkpoint-history {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.checkpoint-history h3 {
+  margin: 0 0 10px;
+  font-size: 0.98rem;
+}
+.checkpoint-history ol {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  margin: 0;
+  padding-left: 24px;
+  overflow: auto;
+}
+.checkpoint-history li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.checkpoint-history small,
+.checkpoint-history li p {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.checkpoint-history li p {
+  margin: 4px 0 0;
 }
 .checkpoint-shortcuts {
   margin: 18px 0;
@@ -2470,11 +2557,34 @@ tbody tr:hover td {
 }
 .record-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(110px, 0.7fr) minmax(320px, 1.6fr);
+  grid-template-columns: minmax(180px, 1.4fr) minmax(170px, 0.9fr) minmax(320px, 1.6fr);
   gap: 18px;
   align-items: center;
   padding: 15px 18px;
   border-bottom: 1px solid var(--line);
+}
+.record-row__health {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.record-row__health select {
+  min-width: 0;
+}
+.fish-check-reminder {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-left: 4px solid var(--danger);
+  border-radius: 0 10px 10px 0;
+  background: var(--danger-soft);
+  color: var(--ink);
+}
+.fish-check-reminder strong {
+  color: var(--danger);
 }
 .record-row:last-child {
   border-bottom: 0;
@@ -2497,6 +2607,13 @@ tbody tr:hover td {
   min-height: 44px;
   padding: 7px 11px;
   font-size: 0.875rem;
+}
+.record-row__notes {
+  grid-column: 1 / -1;
+}
+.record-row__notes textarea {
+  width: 100%;
+  margin-top: 8px;
 }
 .status-label {
   display: inline-flex;

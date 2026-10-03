@@ -16,7 +16,7 @@
 INSERT INTO site (id, code, name, active, created_at, updated_at)
 SELECT * FROM (VALUES
     ('10000000-0000-7000-8000-000000000001', 'KU',  'Kasetsart University',    TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00'),
-    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Mahasarakham University', TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
+    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Michigan State University', TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
 ) AS v(id, code, name, active, created_at, updated_at)
 WHERE NOT EXISTS (SELECT 1 FROM site WHERE site.code = v.code);
 

@@ -34,7 +34,7 @@ describe("browser shell workflows", () => {
       root.render(<App />);
       await Promise.resolve();
     });
-    expect(document.body.textContent).toContain("KUVTH Zebrafish LIMS");
+    expect(document.body.textContent).toContain("KUVACB AqLIMS");
     const navigation = document.querySelector('nav[aria-label="เมนูหลัก"]')!;
     expect(navigation).not.toBeNull();
     expect(navigation.querySelector("details summary")?.textContent).toContain("งานต่อเนื่องและรายงาน");
@@ -46,7 +46,10 @@ describe("browser shell workflows", () => {
       language?.click();
       await Promise.resolve();
     });
-    expect(document.querySelector("nav")?.textContent).toContain("Research results");
+    expect(document.querySelector("nav")?.textContent).toContain("Experiment dashboard");
+    expect(document.querySelector("nav")?.textContent).toContain("Developmental tracking");
+    expect(document.querySelector("nav")?.textContent).toContain("New experiment");
+    expect(document.querySelector("nav")?.textContent).toContain("Longitudinal tracking");
     root.unmount();
   });
 
@@ -67,13 +70,13 @@ describe("browser shell workflows", () => {
     });
 
     const batches = Array.from(document.querySelectorAll<HTMLButtonElement>("nav button")).find(
-      (button) => button.textContent?.trim() === "การทดลอง",
+      (button) => button.textContent?.trim() === "การทดลองใหม่",
     );
     await act(async () => {
       batches?.click();
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
-    expect(document.title).toBe("การทดลอง · KUVTH Zebrafish LIMS");
+    expect(document.title).toBe("การทดลองใหม่ · KUVACB AqLIMS");
     expect(document.activeElement?.id).toBe("main-content");
 
     await act(async () => {
@@ -81,7 +84,7 @@ describe("browser shell workflows", () => {
       window.dispatchEvent(new PopStateEvent("popstate"));
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
-    expect(document.title).toBe("ตรวจสอบการแก้ไข · KUVTH Zebrafish LIMS");
+    expect(document.title).toBe("ตรวจสอบการแก้ไข · KUVACB AqLIMS");
     expect(document.activeElement?.id).toBe("main-content");
     const current = document.querySelector<HTMLButtonElement>('[aria-current="page"]')!;
     const pushState = vi.spyOn(window.history, "pushState");
@@ -369,7 +372,7 @@ describe("browser shell workflows", () => {
       review?.click();
       await Promise.resolve();
     });
-    expect(document.querySelector('[aria-current="page"]')?.textContent).toBe("Experiments");
+    expect(document.querySelector('[aria-current="page"]')?.textContent).toBe("New experiment");
     vi.stubGlobal(
       "confirm",
       vi.fn(() => true),

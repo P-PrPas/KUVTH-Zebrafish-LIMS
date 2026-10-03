@@ -9,6 +9,7 @@ import {
   ControlSummary,
   Dashboard,
   dashboardDataPath,
+  FilterBar,
   FishSurvivalChart,
   FunnelChart,
   formatDeviationHours,
@@ -39,6 +40,44 @@ describe("analytics dashboard", () => {
     window.history.replaceState(null, "", "/#dashboard");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps experiment group filtering visible and the remaining filters grouped", async () => {
+    const onChange = vi.fn();
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(
+        <FilterBar
+          filters={{}}
+          onChange={onChange}
+          options={{
+            groups: [{ id: "group-1", code: "A", name: "Compare breeds" }],
+            sites: [],
+            operators: [],
+            treatments: [],
+            donors: [],
+            batches: [],
+          }}
+          t={text.en}
+        />,
+      );
+    });
+    const groupFilter = document.getElementById("dashboard-experiment-group-filter") as HTMLSelectElement;
+    const moreFilters = document.getElementById("dashboard-filter-disclosure") as HTMLDetailsElement;
+    expect(groupFilter).not.toBeNull();
+    expect(Array.from(groupFilter.options).map((option) => option.textContent)).toEqual([
+      "All experiment groups",
+      "A · Compare breeds",
+    ]);
+    expect(moreFilters.open).toBe(false);
+    await act(async () => {
+      groupFilter.value = "group-1";
+      groupFilter.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(onChange).toHaveBeenCalledWith({ experimentGroupId: "group-1" });
+    root.unmount();
   });
 
   it("requests one consistent dashboard snapshot with URL filters and exposes data quality", async () => {
@@ -117,7 +156,7 @@ describe("analytics dashboard", () => {
                 { status: "DEAD", n: 1, pct: 0.5 },
                 { status: "DISCARDED", n: 1, pct: 0.5 },
               ],
-              ageDistribution: [{ bin: "14-20", n: 2, pct: 1 }],
+              ageDistribution: [{ bin: "1–3 months", n: 2, pct: 1 }],
               ageDefinition: "Age is calculated at the current follow-up date.",
               sexComposition: [
                 { sex: "F", n: 1, pct: 0.5 },
@@ -191,12 +230,12 @@ describe("analytics dashboard", () => {
     expect(Array.from(document.querySelectorAll("h2")).every((heading) => !heading.textContent?.includes("(n="))).toBe(
       true,
     );
-    expect(document.body.textContent).toContain("Data quality");
+    expect(document.body.textContent).toContain("Some source data is incomplete");
     expect(document.body.textContent).toContain("Exploratory data only: n=3");
     expect(document.body.textContent).not.toContain("Lowest filtered survival is 100.00% at 1-cell");
     expect(document.body.textContent).not.toContain("Highest loss occurs at 1-cell: 0 of 3 embryos");
     expect(document.body.textContent).toContain("Source records");
-    expect(document.body.textContent).toContain("Attrition ranking by checkpoint");
+    expect(document.body.textContent).toContain("View attrition by checkpoint");
     expect(document.body.textContent).toContain("No abnormality recorded");
     expect(document.querySelector("table caption")).not.toBeNull();
     expect(document.querySelector('[aria-label="Timing deviation from standard in hours"]')).toBeNull();
@@ -210,9 +249,9 @@ describe("analytics dashboard", () => {
     expect(document.getElementById("dashboard-panel-stage2")).not.toBeNull();
     expect(new URLSearchParams(window.location.search).get("tab")).toBe("stage2");
     expect(new URLSearchParams(window.location.search).get("siteId")).toBe("site-1");
-    expect(document.body.textContent).toContain("All fish in registry");
+    expect(document.body.textContent).toContain("Fish survival by age");
     expect(document.body.textContent).toContain("View supporting fish composition and cohort quality");
-    expect(document.body.textContent).toContain("Completeness warning: unknown sex records remain in this cohort.");
+    expect(document.body.textContent).toContain("1 fish have no recorded sex");
     expect(document.body.textContent).toContain("1 fish need a follow-up check");
     expect(document.body.textContent).toContain("Open daily fish check");
     expect(document.body.textContent).toContain("no lowest/best fish-survival headline is reported");
@@ -439,8 +478,8 @@ describe("analytics dashboard", () => {
                 { status: "FROZEN", n: 1, pct: 1 / 3 },
               ],
               ageDistribution: [
-                { bin: "0-6", n: 2, pct: 2 / 3 },
-                { bin: "7-13", n: 1, pct: 1 / 3 },
+                { bin: "0–14 days", n: 2, pct: 2 / 3 },
+                { bin: "15–31 days", n: 1, pct: 1 / 3 },
               ],
               ageDefinition: "Age is calculated from the latest follow-up date.",
               sexComposition: [
@@ -504,7 +543,7 @@ describe("analytics dashboard", () => {
       supporting.open = true;
       supporting.dispatchEvent(new Event("toggle"));
     });
-    expect(supporting.querySelectorAll(".supporting-analysis__section")).toHaveLength(5);
+    expect(supporting.querySelectorAll(".supporting-analysis__section")).toHaveLength(4);
     expect(supporting.querySelectorAll(".composition__segment")).not.toHaveLength(0);
     root.unmount();
   });
@@ -643,7 +682,9 @@ describe("analytics dashboard", () => {
       "No lowest/best survival headline: the candidate checkpoint has risk set n=1",
     );
     expect(document.body.textContent).not.toContain("Lowest filtered survival is");
-    expect(document.body.textContent).toContain("No highest-loss ranking: the candidate checkpoint has risk set n=1");
+    expect(document.body.textContent).toContain(
+      "No lowest/best survival headline: the candidate checkpoint has risk set n=1",
+    );
     expect(document.body.textContent).toContain("Series with fewer than 5 at the initial point");
     const stage2Tab = document.getElementById("dashboard-tab-stage2") as HTMLButtonElement;
     await act(async () => {
@@ -675,7 +716,9 @@ describe("analytics dashboard", () => {
     document.body.append(rootElement);
     const root = createRoot(rootElement);
     await act(async () => {
-      root.render(<FishSurvivalChart points={points} thai comparison="strain" />);
+      root.render(
+        <FishSurvivalChart points={points} thai comparison="strain" ageUnit="days" onAgeUnitChange={() => {}} />,
+      );
       await Promise.resolve();
     });
 
@@ -723,7 +766,12 @@ describe("analytics dashboard", () => {
       root.render(
         <>
           <SurvivalChart points={stagePoints} comparison="treatmentGroup" />
-          <FishSurvivalChart points={fishPoints} comparison="abnormalityGroup" />
+          <FishSurvivalChart
+            points={fishPoints}
+            comparison="abnormalityGroup"
+            ageUnit="days"
+            onAgeUnitChange={() => {}}
+          />
           <FunnelChart
             points={Array.from({ length: 9 }, (_, index) => ({
               stageOrder: index + 1,
@@ -739,7 +787,7 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Showing at most 4 series per site (4 of 5)");
     expect(document.body.textContent).toContain("Showing 4 of 5 groups");
     expect(document.body.textContent).toContain("Abnormality group");
-    expect(document.querySelector("svg.chart--funnel")?.getAttribute("viewBox")).toBe("0 0 560 268");
+    expect(document.querySelector("svg.chart--funnel")?.getAttribute("viewBox")).toBe("0 0 560 300");
     const legendItems = document.querySelectorAll<HTMLButtonElement>("button.chart-legend__item");
     await act(async () => {
       legendItems[0].click();
@@ -765,7 +813,7 @@ describe("analytics dashboard", () => {
       root.render(
         <>
           <SurvivalChart points={points.slice(0, 2)} />
-          <FishSurvivalChart points={points.slice(2)} />
+          <FishSurvivalChart points={points.slice(2)} ageUnit="days" onAgeUnitChange={() => {}} />
         </>,
       );
       await Promise.resolve();
@@ -867,6 +915,8 @@ describe("analytics dashboard", () => {
             { ageDays: 0, treatmentGroup: "IVF", atRisk: 1, surv: 1 },
           ]}
           comparison="treatmentGroup"
+          ageUnit="days"
+          onAgeUnitChange={() => {}}
         />,
       );
       await Promise.resolve();
@@ -930,14 +980,14 @@ describe("analytics dashboard", () => {
           />
           <AgeDistributionSummary
             rows={[
-              { bin: "0-6", n: 2, pct: 0.5 },
-              { bin: "7-13", n: 2, pct: 0.5 },
+              { bin: "0–14 days", n: 2, pct: 0.5 },
+              { bin: "15–31 days", n: 2, pct: 0.5 },
             ]}
             definition="Age in days at current follow-up date."
             thai={false}
           />
           <AgeDistributionSummary
-            rows={[{ bin: "0-6", n: 2, pct: 0.5 }]}
+            rows={[{ bin: "0–14 days", n: 2, pct: 0.5 }]}
             definition="Age in days at current follow-up date."
             thai
           />
@@ -992,11 +1042,11 @@ describe("analytics dashboard", () => {
       );
       await Promise.resolve();
     });
-    expect(document.body.textContent).toContain("ALIVE: 3 (60.00%)");
-    expect(document.body.textContent).toContain("Unknown: 1 (25.00%)");
-    expect(document.body.textContent).toContain("0-6 days");
+    expect(document.body.textContent).toContain("Alive: 3 (60.00%)");
+    expect(document.body.textContent).toContain("Not recorded: 1 (25.00%)");
+    expect(document.body.textContent).toContain("0–14 days");
     expect(document.body.textContent).toContain("B1");
-    expect(document.body.textContent).toContain("ALIVE 4");
+    expect(document.body.textContent).toContain("Alive 4");
     expect(document.body.textContent).toContain("50.00% normal");
     expect(document.body.textContent).toContain("known 2 · missing due 1");
     expect(document.body.textContent).toContain("partial data");
