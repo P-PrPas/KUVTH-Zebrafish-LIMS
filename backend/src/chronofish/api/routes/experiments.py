@@ -222,12 +222,16 @@ def _create_embryos(
     return embryos
 
 
-def _has_open_embryos(state: State, batch_id: str) -> bool:
-    lot_ids = {
-        str(lot["id"])
+def _active_injection_lots(state: State, batch_id: str) -> list[dict[str, Any]]:
+    return [
+        lot
         for lot in state.entities["injection-lots"].values()
         if lot.get("batchId") == batch_id and lot.get("active") is not False and lot.get("deletedAt") is None
-    }
+    ]
+
+
+def _has_open_embryos(state: State, batch_id: str) -> bool:
+    lot_ids = {str(lot["id"]) for lot in _active_injection_lots(state, batch_id)}
     return any(
         embryo.get("injectionLotId") in lot_ids
         and embryo.get("active") is not False
@@ -238,10 +242,7 @@ def _has_open_embryos(state: State, batch_id: str) -> bool:
 
 
 def _injection_lot_count(state: State, batch_id: str) -> int:
-    return sum(
-        lot.get("batchId") == batch_id and lot.get("active") is not False and lot.get("deletedAt") is None
-        for lot in state.entities["injection-lots"].values()
-    )
+    return len(_active_injection_lots(state, batch_id))
 
 
 def _control_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -346,9 +347,7 @@ def build_experiments_router(store: Store) -> APIRouter:
         result = copy.deepcopy(batch)
         result["hasOpenEmbryos"] = _has_open_embryos(state, batch_id)
         lots = []
-        for lot in state.entities["injection-lots"].values():
-            if lot.get("batchId") != batch_id or lot.get("active") is False or lot.get("deletedAt") is not None:
-                continue
+        for lot in _active_injection_lots(state, batch_id):
             detail = copy.deepcopy(lot)
             detail["embryos"] = sorted(
                 (

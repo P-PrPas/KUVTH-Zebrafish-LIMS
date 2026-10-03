@@ -635,6 +635,93 @@ describe("lab workflow forms", () => {
     root.unmount();
   });
 
+  it("requires an explicit Alive or Dead value when correcting a frozen history observation", async () => {
+    window.history.replaceState({}, "", "/?fishMode=registry");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("/fish?includeInactive=true"))
+        return json({ items: [{ id: "fish-frozen", fishCode: "F-FROZEN", status: "ALIVE", strain: "AB" }] });
+      if (path.includes("/fish/fish-frozen"))
+        return json({
+          id: "fish-frozen",
+          fishCode: "F-FROZEN",
+          observations: [
+            {
+              id: "observation-frozen-history",
+              observedOn: "2026-10-01",
+              outcome: "FROZEN",
+              condition: "NORMAL",
+              healthStatus: "UNDETERMINED",
+            },
+          ],
+        });
+      return json({ items: [] });
+    });
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    vi.stubGlobal("fetch", fetchMock);
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(<Fish t={text.en} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent?.includes("F-FROZEN"))
+        ?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "Correct")
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("Previously recorded: Frozen");
+    const form = document.querySelector("form.form-card") as HTMLFormElement;
+    const outcome = form.querySelector("select") as HTMLSelectElement;
+    expect(outcome.value).toBe("");
+    const reason = form.querySelector("input[required]") as HTMLInputElement;
+    const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setInput?.call(reason, "corrected from frozen");
+      reason.dispatchEvent(new Event("input", { bubbles: true }));
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([input, init]) =>
+          String(input).includes("/observations/fish/observation-frozen-history") && init?.method === "PATCH",
+      ),
+    ).toBe(false);
+
+    const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    await act(async () => {
+      setSelect?.call(outcome, "ALIVE");
+      outcome.dispatchEvent(new Event("change", { bubbles: true }));
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes("/observations/fish/observation-frozen-history") && init?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).includes("/observations/fish/observation-frozen-history") && init?.method === "PATCH",
+    );
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({ outcome: "ALIVE" });
+    root.unmount();
+    window.history.replaceState({}, "", "/");
+  });
+
   it("sends a backdated roll-call range with an audit reason in one request", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes("/fish/roll-call")) {
