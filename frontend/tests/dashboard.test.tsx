@@ -481,8 +481,8 @@ describe("analytics dashboard", () => {
                 { status: "FROZEN", n: 1, pct: 1 / 3 },
               ],
               ageDistribution: [
-                { bin: "0–14 days", n: 2, pct: 2 / 3 },
-                { bin: "15–31 days", n: 1, pct: 1 / 3 },
+                { bin: "0–14 days", minDays: 0, maxDays: 14, n: 2, pct: 2 / 3 },
+                { bin: "15–31 days", minDays: 15, maxDays: 31, n: 1, pct: 1 / 3 },
               ],
               ageDefinition: "Age is calculated from the latest follow-up date.",
               sexComposition: [
@@ -536,6 +536,19 @@ describe("analytics dashboard", () => {
     });
     expect(supporting.querySelectorAll(".supporting-analysis__section")).toHaveLength(4);
     expect(supporting.querySelectorAll(".composition__segment")).not.toHaveLength(0);
+    const ageTableSummary = Array.from(supporting.querySelectorAll(".data-disclosure > summary")).find((summary) =>
+      summary.textContent?.includes("ดูตารางการกระจายอายุ"),
+    );
+    const ageTable = ageTableSummary?.closest("details") as HTMLDetailsElement | null;
+    expect(ageTable).not.toBeNull();
+    await act(async () => {
+      if (ageTable) {
+        ageTable.open = true;
+        ageTable.dispatchEvent(new Event("toggle"));
+      }
+    });
+    expect(ageTable?.textContent).toContain("0–14 วัน");
+    expect(ageTable?.textContent).not.toContain("0–14 days");
     root.unmount();
   });
 

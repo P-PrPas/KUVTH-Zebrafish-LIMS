@@ -2591,7 +2591,7 @@ export function Dashboard({ onNavigate, t }: { onNavigate: (page: Page) => void;
                     caption={thai ? "การกระจายอายุปลา" : "Fish age distribution"}
                     headers={thai ? ["ช่วงอายุ", "n", "%"] : ["Age band", "n", "%"]}
                     rows={(data.fishSupporting.ageDistribution ?? []).map((row) => [
-                      String(row.bin),
+                      ageBinLabel(row, thai),
                       Number(row.n ?? 0),
                       percent(row.pct),
                     ])}

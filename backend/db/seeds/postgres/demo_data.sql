@@ -150,7 +150,7 @@ WITH lot_data AS (
 INSERT INTO injection_lot
  (id,batch_id,lot_no,donor_cell_line_id,enu_power_pct,enu_pulse_us,enu_led,enu_start_at,enu_finish_at,activated_at,n_eggs,n_activated,notes,created_at,updated_at)
 SELECT CONCAT('62000000-0000-7000-8000-',LPAD(batch_no::text,12,'0')),
- CONCAT('61000000-0000-7000-8000-',LPAD(batch_no::text,12,'0')),replicate_no::text,
+ CONCAT('61000000-0000-7000-8000-',LPAD(batch_no::text,12,'0')),'1',
  CONCAT('54000000-0000-7000-8000-',LPAD(donor_no::text,12,'0')),100,500,CASE group_code WHEN 'Control' THEN 85 ELSE 80 END,
  activated_at-INTERVAL '15 minutes',activated_at-INTERVAL '5 minutes',activated_at,activated+4,activated,
  CONCAT('Mock lot using N in Lot / Activated fields; ',strain,' ',group_code),activated_at-INTERVAL '15 minutes',CURRENT_TIMESTAMP

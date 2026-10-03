@@ -4,8 +4,6 @@
 -- Regenerate: python3 scripts/gen_mysql_migrations.py
 -- ===========================================================================
 
--- Retain the owner-confirmed MSU correction when rolling back schema changes.
-
 ALTER TABLE recipient_egg_lot DROP COLUMN donor_fish_code;
 ALTER TABLE donor_cell_line DROP COLUMN sample_info, DROP COLUMN preservation;
 ALTER TABLE fish_observation DROP CHECK ck_fish_observation_health_status;

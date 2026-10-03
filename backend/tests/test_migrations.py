@@ -93,3 +93,10 @@ def test_feedback_migration_rollbacks_drop_foreign_key_before_its_supporting_ind
             else "DROP INDEX ix_fish_recipient_egg_lot"
         )
         assert down.index(foreign_key) < down.index(supporting_index)
+
+
+def test_feedback_migration_does_not_rewrite_existing_site_names():
+    migrations = Path(__file__).parents[1] / "db" / "migrations"
+    for driver in ("postgres", "mysql"):
+        up = (migrations / driver / "000011_persist_feedback_fields.up.sql").read_text(encoding="utf-8")
+        assert "UPDATE SITE" not in up.upper()

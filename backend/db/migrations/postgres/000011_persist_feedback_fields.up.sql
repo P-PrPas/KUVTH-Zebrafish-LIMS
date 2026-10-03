@@ -23,8 +23,3 @@ ALTER TABLE donor_cell_line
 
 ALTER TABLE recipient_egg_lot
     ADD COLUMN donor_fish_code VARCHAR(150) NULL;
-
--- Correct the originally seeded MSU location without overwriting user-edited names.
-UPDATE site
-SET name = 'Michigan State University', updated_at = CURRENT_TIMESTAMP
-WHERE code = 'MSU' AND name = 'Mahasarakham University';

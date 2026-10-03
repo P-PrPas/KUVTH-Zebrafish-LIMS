@@ -48,7 +48,7 @@ def test_batch_lot_and_embryos_are_created_atomically(client, write_headers):
         f"/api/v1/batches/{batch['id']}/injection-lots",
         headers=headers(write_headers, 206),
         json={
-            "lotNo": "June_2",
+            "lotNo": "manually-entered-number-is-ignored",
             "donorCellLineId": donor["id"],
             "activatedAt": "2026-08-20T00:00:00Z",
             "nActivated": 2,
@@ -56,12 +56,146 @@ def test_batch_lot_and_embryos_are_created_atomically(client, write_headers):
         },
     )
     assert lot.status_code == 201, lot.text
+    assert lot.json()["lotNo"] == "1"
     assert [item["embryoCode"] for item in lot.json()["embryos"]] == [
-        f"{batch['batchCode']}_June_2_1",
-        f"{batch['batchCode']}_June_2_2",
+        f"{batch['batchCode']}_1_1",
+        f"{batch['batchCode']}_1_2",
     ]
+    next_lot = client.post(
+        f"/api/v1/batches/{batch['id']}/injection-lots",
+        headers=headers(write_headers, 240),
+        json={
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T01:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert next_lot.status_code == 201, next_lot.text
+    assert next_lot.json()["lotNo"] == "2"
     detail = client.get(f"/api/v1/batches/{batch['id']}").json()
+    assert [item["lotNo"] for item in detail["injectionLots"]] == ["1", "2"]
+    assert detail["nextLotNo"] == "3"
     assert len(detail["injectionLots"][0]["embryos"]) == 2
+    same_experiment_day = client.post(
+        "/api/v1/batches",
+        headers=headers(write_headers, 241),
+        json={
+            "experimentDate": "2026-08-20",
+            "siteId": batch["siteId"],
+            "operatorId": batch["operatorId"],
+            "protocolId": batch["protocolId"],
+            "treatmentGroupId": batch["treatmentGroupId"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+        },
+    )
+    assert same_experiment_day.status_code == 201, same_experiment_day.text
+    shared_day_lot = client.post(
+        f"/api/v1/batches/{same_experiment_day.json()['id']}/injection-lots",
+        headers=headers(write_headers, 242),
+        json={
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T02:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert shared_day_lot.status_code == 201, shared_day_lot.text
+    assert shared_day_lot.json()["lotNo"] == "3"
+    next_day = client.post(
+        "/api/v1/batches",
+        headers=headers(write_headers, 243),
+        json={
+            "experimentDate": "2026-08-21",
+            "siteId": batch["siteId"],
+            "operatorId": batch["operatorId"],
+            "protocolId": batch["protocolId"],
+            "treatmentGroupId": batch["treatmentGroupId"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+        },
+    )
+    assert next_day.status_code == 201, next_day.text
+    next_day_lot = client.post(
+        f"/api/v1/batches/{next_day.json()['id']}/injection-lots",
+        headers=headers(write_headers, 244),
+        json={
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-21T00:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert next_day_lot.status_code == 201, next_day_lot.text
+    assert next_day_lot.json()["lotNo"] == "1"
+    assert client.get(f"/api/v1/batches/{next_day.json()['id']}").json()["nextLotNo"] == "2"
+
+    group = client.post(
+        "/api/v1/experiment-groups",
+        headers=headers(write_headers, 245),
+        json={"code": "NO-EGG-CODE", "name": "Unlinked experiments"},
+    ).json()
+    unlinked = client.post(
+        "/api/v1/batches",
+        headers=headers(write_headers, 246),
+        json={
+            "experimentDate": "2026-08-20",
+            "siteId": batch["siteId"],
+            "operatorId": batch["operatorId"],
+            "protocolId": batch["protocolId"],
+            "treatmentGroupId": batch["treatmentGroupId"],
+            "experimentGroupId": group["id"],
+        },
+    )
+    assert unlinked.status_code == 201, unlinked.text
+    unlinked_lot = client.post(
+        f"/api/v1/batches/{unlinked.json()['id']}/injection-lots",
+        headers=headers(write_headers, 247),
+        json={
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T03:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert unlinked_lot.status_code == 201, unlinked_lot.text
+    assert unlinked_lot.json()["lotNo"] == "1"
+    another_unlinked = client.post(
+        "/api/v1/batches",
+        headers=headers(write_headers, 249),
+        json={
+            "experimentDate": "2026-08-20",
+            "siteId": batch["siteId"],
+            "operatorId": batch["operatorId"],
+            "protocolId": batch["protocolId"],
+            "treatmentGroupId": batch["treatmentGroupId"],
+            "experimentGroupId": group["id"],
+        },
+    )
+    assert another_unlinked.status_code == 201, another_unlinked.text
+    another_unlinked_lot = client.post(
+        f"/api/v1/batches/{another_unlinked.json()['id']}/injection-lots",
+        headers=headers(write_headers, 250),
+        json={
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T04:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert another_unlinked_lot.status_code == 201, another_unlinked_lot.text
+    assert another_unlinked_lot.json()["lotNo"] == "1"
+
+
+def test_lot_requires_donor_activated_at_and_n_activated(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    valid = {
+        "donorCellLineId": donor["id"],
+        "activatedAt": "2026-08-20T00:00:00Z",
+        "nActivated": 1,
+    }
+    for index, field in enumerate(valid, start=251):
+        response = client.post(
+            f"/api/v1/batches/{batch['id']}/injection-lots",
+            headers=headers(write_headers, index),
+            json={key: value for key, value in valid.items() if key != field},
+        )
+        assert response.status_code == 422
+    assert client.get(f"/api/v1/batches/{batch['id']}").json()["injectionLots"] == []
 
 
 def test_enu_after_activation_is_warning_not_rejection(client, write_headers):
@@ -74,7 +208,7 @@ def test_enu_after_activation_is_warning_not_rejection(client, write_headers):
             "donorCellLineId": donor["id"],
             "activatedAt": "2026-08-20T00:00:00Z",
             "enuFinishAt": "2026-08-20T08:00:01+07:00",
-            "nActivated": 0,
+            "nActivated": 1,
         },
     )
     assert response.status_code == 201, response.text
@@ -94,19 +228,23 @@ def test_lot_rejects_fractional_counts_without_leaving_partial_data(client, writ
             "nActivated": 1.5,
         },
     )
-    invalid_lot_number = client.post(
-        f"/api/v1/batches/{batch['id']}/injection-lots",
-        headers=headers(write_headers, 238),
-        json={
-            "lotNo": 1,
-            "donorCellLineId": donor["id"],
-            "activatedAt": "2026-08-20T00:00:00Z",
-            "nActivated": 1,
-        },
-    )
-
     assert response.status_code == 422
-    assert invalid_lot_number.status_code == 422
+    assert client.get(f"/api/v1/batches/{batch['id']}").json()["injectionLots"] == []
+
+
+def test_lot_rejects_out_of_range_embryo_counts_without_partial_data(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    for index, count in enumerate((0, 97), start=254):
+        response = client.post(
+            f"/api/v1/batches/{batch['id']}/injection-lots",
+            headers=headers(write_headers, index),
+            json={
+                "donorCellLineId": donor["id"],
+                "activatedAt": "2026-08-20T00:00:00Z",
+                "nActivated": count,
+            },
+        )
+        assert response.status_code == 422
     assert client.get(f"/api/v1/batches/{batch['id']}").json()["injectionLots"] == []
 
 
@@ -128,10 +266,11 @@ def test_duplicate_batch_lot_template_can_be_activated_once(client, write_header
     duplicated = client.post(
         f"/api/v1/batches/{batch['id']}/duplicate",
         headers=headers(write_headers, 213),
-        json={"experimentDate": "2026-08-21", "copyInjectionLots": True},
+        json={"experimentDate": "2026-08-20", "copyInjectionLots": True},
     )
     assert duplicated.status_code == 201, duplicated.text
     draft = client.get(f"/api/v1/batches/{duplicated.json()['id']}").json()["injectionLots"][0]
+    assert draft["lotNo"] == "2"
     assert draft["activatedAt"] is None
     assert draft["enuStartAt"] is None
     assert draft["enuFinishAt"] is None
@@ -152,7 +291,7 @@ def test_duplicate_batch_lot_template_can_be_activated_once(client, write_header
     assert activated.status_code == 200, activated.text
     assert len(activated.json()["embryos"]) == 2
     assert activated.json()["batchId"] == duplicated.json()["id"]
-    assert activated.json()["lotNo"] == "1"
+    assert activated.json()["lotNo"] == "2"
     assert activated.json().get("deletedAt") is None
     again = client.patch(
         f"/api/v1/injection-lots/{draft['id']}",

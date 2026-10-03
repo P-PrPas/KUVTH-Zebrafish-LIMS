@@ -506,8 +506,6 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       .then(async (value) => {
         setDetail(value);
         const lots = (value.injectionLots as ApiItem[] | undefined) ?? [];
-        const nextLotNo = Math.max(0, ...lots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
-        setLot((current) => ({ ...current, lotNo: current.lotNo || String(nextLotNo) }));
         const loaded = await Promise.all(
           lots.map(
             async (item: ApiItem) =>
@@ -548,6 +546,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     return () => window.removeEventListener("chronofish:queue-rejected", rejected);
   }, [batch.id, load]);
   const setLotValue = (key: string, value: string) => setLot((current) => ({ ...current, [key]: value }));
+  const existingLots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
+  const fallbackNextLotNo = Math.max(0, ...existingLots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
+  const nextLotNo = String(detail?.nextLotNo ?? fallbackNextLotNo);
+  const currentLotNo = templateId ? lot.lotNo : nextLotNo;
   const duplicate = async () => {
     const requestedDate = window.prompt(thai ? "วันที่ทดลอง (ปปปป-ดด-วว)" : "Experiment date (YYYY-MM-DD)", today());
     if (!requestedDate) return;
@@ -585,6 +587,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     const optimisticId = templateId ?? `queued-lot-${Date.now()}`;
     const optimistic = {
       ...lot,
+      lotNo: currentLotNo,
       id: optimisticId,
       batchId: batch.id,
       nActivated,
@@ -593,8 +596,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     };
     const previousDetail = detail;
     try {
+      const lotFields: Record<string, string> = { ...lot };
+      delete lotFields.lotNo;
       const payload = {
-        ...lot,
+        ...lotFields,
         activatedAt: dateTimeLocalToRFC3339(lot.activatedAt),
         enuStartAt: lot.enuStartAt ? dateTimeLocalToRFC3339(lot.enuStartAt) : null,
         enuFinishAt: lot.enuFinishAt ? dateTimeLocalToRFC3339(lot.enuFinishAt) : null,
@@ -607,8 +612,8 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       if (
         !window.confirm(
           thai
-            ? `${templateId ? "กระตุ้น" : "สร้าง"} ชุด ${lot.lotNo} ที่มีตัวอ่อน ${payload.nActivated} ตัวหรือไม่?`
-            : `${templateId ? "Activate" : "Create"} lot ${lot.lotNo} with ${payload.nActivated} embryos?`,
+            ? `${templateId ? "กระตุ้น" : "สร้าง"} ชุด ${currentLotNo} ที่มีตัวอ่อน ${payload.nActivated} ตัวหรือไม่?`
+            : `${templateId ? "Activate" : "Create"} lot ${currentLotNo} with ${payload.nActivated} embryos?`,
         )
       )
         return;
@@ -619,6 +624,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           current
             ? {
                 ...current,
+                nextLotNo: templateId ? current.nextLotNo : String(Number(current.nextLotNo ?? currentLotNo) + 1),
                 injectionLots: templateId
                   ? ((current.injectionLots as ApiItem[] | undefined) ?? []).map((item) =>
                       item.id === templateId ? optimistic : item,
@@ -647,10 +653,6 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         load();
       }
       setTemplateId(null);
-      const lots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
-      const nextLotNo =
-        Math.max(0, ...[...lots, optimistic].map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
-      setLot((current) => ({ ...current, lotNo: String(nextLotNo) }));
     } catch (e) {
       setDetail(previousDetail);
       setMessage((e as Error).message);
@@ -748,7 +750,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   };
   const preview = Array.from(
     { length: Math.min(Math.max(Number(lot.nActivated) || 0, 0), 96) },
-    (_, index) => `${String(detail?.batchCode ?? batch.batchCode)}_${lot.lotNo}_${index + 1}`,
+    (_, index) => `${String(detail?.batchCode ?? batch.batchCode)}_${currentLotNo}_${index + 1}`,
   );
   const openHistoricalCheckpoint = (item: ApiItem) => {
     saveObservationLocation(operatorId(), {
@@ -860,16 +862,20 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           </h2>
           <div className="form-card--inline">
             <label>
-              {thai ? "หมายเลขชุดตัวอ่อน" : "Lot number"}
-              <input required value={lot.lotNo} onChange={(event) => setLotValue("lotNo", event.target.value)} />
+              {thai ? "หมายเลขชุดตัวอ่อน (สร้างอัตโนมัติ)" : "Lot number (automatic)"}
+              <input
+                aria-label={thai ? "หมายเลขชุดตัวอ่อน (สร้างอัตโนมัติ)" : "Lot number (automatic)"}
+                readOnly
+                value={currentLotNo}
+              />
               <small>
                 {templateId
                   ? thai
-                    ? "ใช้หมายเลขของแม่แบบ หรือแก้ไขได้"
-                    : "Uses the template number; you can change it."
+                    ? "ใช้หมายเลขลำดับที่จองไว้ให้การทดลองและวันที่นี้"
+                    : "Uses the sequence number reserved for this experiment and date."
                   : thai
-                    ? "แนะนำหมายเลขถัดไปให้อัตโนมัติ และแก้ไขได้"
-                    : "Next number is suggested automatically and can be changed."}
+                    ? "ระบบนับต่อจาก Code of Egg หรือรหัส clutch ในวันเดียวกัน; หากไม่ได้เชื่อมรหัส จะเริ่มนับแยกในการทดลองนี้"
+                    : "Numbers continue for the same Code of Egg or clutch code on the same date; without a linked code, numbering is isolated to this experiment."}
               </small>
             </label>
             <label>

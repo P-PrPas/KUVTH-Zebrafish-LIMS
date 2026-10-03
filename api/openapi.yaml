@@ -809,8 +809,12 @@ paths:
       summary: Add an injection lot and generate its embryos
       description: |
         Creates the lot and immediately generates `nActivated` embryo records
-        (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1 — the same
-        shape the lab already uses in its v2 spreadsheet (`1_Jan_Control_1_1`).
+        (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1. The
+        server assigns the next numeric `lotNo` across batches sharing the same
+        Code of Egg or clutch code and date. If neither is linked, numbering is
+        scoped to the batch. Numbering starts at 1 for each scope/date
+        and cannot be entered or changed by the caller. Copied lot templates are
+        assigned a number within the destination experiment/date and keep it when activated.
 
         `activatedAt` is mandatory (FR-307): it is T0 for every downstream
         calculation and for the fish date of birth (BR-01, BR-10).
@@ -2390,6 +2394,10 @@ components:
           minimum: 0
           readOnly: true
           description: Number of active injection lots in this experiment.
+        nextLotNo:
+          type: string
+          readOnly: true
+          description: Next numeric lot number for this Code of Egg or clutch code and experiment date; when neither is linked, numbering is scoped to the batch.
     BatchInput:
       type: object
       required: [experimentDate, siteId, operatorId, protocolId, treatmentGroupId]
@@ -2427,7 +2435,7 @@ components:
         batchId: { type: string, format: uuid }
         lotNo:
           type: string
-          description: Text, not a number — real data contains both '1' and 'June_2'.
+          description: Server-generated sequence within the Code of Egg or clutch code and experiment date; otherwise scoped to the batch.
           examples: ['1']
         donorCellLineId: { type: string, format: uuid }
         enuPowerPct: { type: [integer, 'null'], examples: [100] }
@@ -2445,9 +2453,9 @@ components:
         notes: { type: [string, 'null'] }
     InjectionLotInput:
       type: object
-      required: [lotNo, donorCellLineId, activatedAt, nActivated]
+      description: The server assigns the next lotNo for the Code of Egg or clutch code and date. If neither code is linked, numbering is scoped to the batch.
+      required: [donorCellLineId, activatedAt, nActivated]
       properties:
-        lotNo: { type: string, maxLength: 20 }
         donorCellLineId: { type: string, format: uuid }
         enuPowerPct: { type: [integer, 'null'], minimum: 0, maximum: 100 }
         enuPulseUs: { type: [integer, 'null'], minimum: 0 }
@@ -2459,7 +2467,7 @@ components:
         nManipulated: { type: [integer, 'null'], minimum: 0 }
         nActivated:
           type: integer
-          minimum: 0
+          minimum: 1
           maximum: 96
           description: This many embryo records are created immediately (FR-308).
         wellPositions:
@@ -2480,7 +2488,7 @@ components:
         activatedAt: { type: string, format: date-time }
         nEggs: { type: [integer, 'null'], minimum: 0 }
         nManipulated: { type: [integer, 'null'], minimum: 0 }
-        nActivated: { type: integer, minimum: 0, maximum: 96 }
+        nActivated: { type: integer, minimum: 1, maximum: 96 }
         wellPositions:
           type: [array, 'null']
           items: { type: string, pattern: '^[A-H](1[0-2]|[1-9])$' }

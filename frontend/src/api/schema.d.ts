@@ -481,8 +481,12 @@ export interface paths {
         /**
          * Add an injection lot and generate its embryos
          * @description Creates the lot and immediately generates `nActivated` embryo records
-         *     (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1 — the same
-         *     shape the lab already uses in its v2 spreadsheet (`1_Jan_Control_1_1`).
+         *     (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1. The
+         *     server assigns the next numeric `lotNo` across batches sharing the same
+         *     Code of Egg or clutch code and date. If neither is linked, numbering is
+         *     scoped to the batch. Numbering starts at 1 for each scope/date
+         *     and cannot be entered or changed by the caller. Copied lot templates are
+         *     assigned a number within the destination experiment/date and keep it when activated.
          *
          *     `activatedAt` is mandatory (FR-307): it is T0 for every downstream
          *     calculation and for the fish date of birth (BR-01, BR-10).
@@ -1504,6 +1508,8 @@ export interface components {
             readonly hasOpenEmbryos?: boolean;
             /** @description Number of active injection lots in this experiment. */
             readonly nInjectionLots?: number;
+            /** @description Next numeric lot number for this Code of Egg or clutch code and experiment date; when neither is linked, numbering is scoped to the batch. */
+            readonly nextLotNo?: string;
         };
         BatchInput: {
             /** @description Omit to let the server suggest `{dayNo}_{operator}_{treatmentGroup}` (FR-302). */
@@ -1539,7 +1545,7 @@ export interface components {
             /** Format: uuid */
             batchId: string;
             /**
-             * @description Text, not a number — real data contains both '1' and 'June_2'.
+             * @description Server-generated sequence within the Code of Egg or clutch code and experiment date; otherwise scoped to the batch.
              * @example 1
              */
             lotNo: string;
@@ -1565,8 +1571,8 @@ export interface components {
             nActivated: number;
             notes?: string | null;
         };
+        /** @description The server assigns the next lotNo for the Code of Egg or clutch code and date. If neither code is linked, numbering is scoped to the batch. */
         InjectionLotInput: {
-            lotNo: string;
             /** Format: uuid */
             donorCellLineId: string;
             enuPowerPct?: number | null;
