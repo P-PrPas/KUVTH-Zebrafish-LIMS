@@ -140,7 +140,13 @@ describe("lab workflow forms", () => {
       if (path.endsWith("/batches"))
         return json({ items: [{ id: "batch-1", batchCode: "B-1", experimentDate: "2026-08-23" }] });
       if (path.endsWith("/batches/batch-1"))
-        return json({ id: "batch-1", batchCode: "B-1", experimentDate: "2026-08-23", injectionLots: [] });
+        return json({
+          id: "batch-1",
+          batchCode: "B-1",
+          experimentDate: "2026-08-23",
+          injectionLots: [],
+          nextLotNo: "4",
+        });
       if (path.includes("/donor-cell-lines?")) return json({ items: [{ id: "donor-1", strain: "AB", active: true }] });
       return json({ items: [] });
     });
@@ -166,7 +172,13 @@ describe("lab workflow forms", () => {
     });
 
     expect(document.body.textContent).toContain("Running numbers in this lot");
-    expect(document.body.textContent).toContain("B-1_1_1");
+    expect(document.body.textContent).toContain("B-1_4_1");
+    const lotNumber = document.querySelector('input[aria-label="Lot number (automatic)"]') as HTMLInputElement;
+    expect(lotNumber.value).toBe("4");
+    expect(lotNumber.readOnly).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Numbers continue for the same Code of Egg or clutch code on the same date",
+    );
     expect(document.querySelector(".well-grid--plate")).toBeNull();
     expect(document.querySelector(".well-list--mobile")).not.toBeNull();
     const lotForm = Array.from(document.querySelectorAll("form")).find((form) =>

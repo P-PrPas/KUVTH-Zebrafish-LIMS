@@ -13,6 +13,7 @@ from ...domain.state import State
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, uuid7
+from ...services.experiments import lot_number_sort_key, next_lot_number
 from ...store import Store
 
 BATCH_INPUT_FIELDS = {
@@ -153,13 +154,11 @@ def _create_batch(state: State, request: Request, body: dict[str, Any], source_i
 
 
 def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str | None]:
-    for field in ("lotNo", "donorCellLineId", "activatedAt"):
+    for field in ("donorCellLineId", "activatedAt"):
         if not body.get(field):
-            raise APIError(422, "validation_error", "ต้องระบุ lotNo, donorCellLineId และ activatedAt")
+            raise APIError(422, "validation_error", "ต้องระบุ donorCellLineId และ activatedAt")
     if "nActivated" not in body:
         raise APIError(422, "validation_error", "ต้องระบุ nActivated")
-    if not isinstance(body["lotNo"], str) or len(body["lotNo"]) > 20:
-        raise APIError(422, "validation_error", "lotNo ต้องเป็นข้อความยาวไม่เกิน 20 ตัวอักษร")
     activated = parse_datetime(str(body["activatedAt"]))
     start = parse_datetime(str(body["enuStartAt"])) if body.get("enuStartAt") else None
     finish = parse_datetime(str(body["enuFinishAt"])) if body.get("enuFinishAt") else None
@@ -172,8 +171,8 @@ def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str
         if body.get(field) is not None and (isinstance(body[field], bool) or not isinstance(body[field], int)):
             raise APIError(422, "validation_error", "ค่าจำนวนต้องเป็นจำนวนเต็ม")
     count = body["nActivated"]
-    if count not in range(0, 97):
-        raise APIError(422, "validation_error", "nActivated ต้องอยู่ระหว่าง 0 ถึง 96")
+    if count not in range(1, 97):
+        raise APIError(422, "validation_error", "nActivated ต้องอยู่ระหว่าง 1 ถึง 96")
     if (
         any(int(body.get(field) or 0) < 0 for field in ("enuPulseUs", "enuLed", "nEggs", "nManipulated"))
         or not 0 <= int(body.get("enuPowerPct") or 0) <= 100
@@ -360,8 +359,9 @@ def build_experiments_router(store: Store) -> APIRouter:
                 key=lambda item: int(item.get("seqInLot", 0)),
             )
             lots.append(detail)
-        result["injectionLots"] = sorted(lots, key=lambda item: str(item.get("lotNo", "")))
+        result["injectionLots"] = sorted(lots, key=lot_number_sort_key)
         result["nInjectionLots"] = len(lots)
+        result["nextLotNo"] = next_lot_number(state, batch)
         return result
 
     @router.patch("/batches/{id}")
@@ -412,6 +412,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                         {
                             "id": uuid7(),
                             "batchId": created["id"],
+                            "lotNo": next_lot_number(state, created),
                             "enuStartAt": None,
                             "enuFinishAt": None,
                             "activatedAt": None,
@@ -436,15 +437,16 @@ def build_experiments_router(store: Store) -> APIRouter:
             if not batch or batch.get("active") is False or batch.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ batch")
             count, positions, warning = _lot_inputs(state, body)
-            if any(
-                item.get("batchId") == batch_id
-                and str(item.get("lotNo", "")).strip().casefold() == str(body["lotNo"]).casefold()
-                and item.get("deletedAt") is None
-                for item in state.entities["injection-lots"].values()
-            ):
-                raise APIError(409, "conflict", "lotNo ซ้ำใน batch")
             lot_id, now = uuid7(), iso_now()
-            lot = {**body, "id": lot_id, "batchId": batch_id, "active": True, "createdAt": now, "updatedAt": now}
+            lot = {
+                **body,
+                "id": lot_id,
+                "batchId": batch_id,
+                "lotNo": next_lot_number(state, batch),
+                "active": True,
+                "createdAt": now,
+                "updatedAt": now,
+            }
             state.entities["injection-lots"][lot_id] = lot
             embryos = _create_embryos(state, request, batch, lot, count, positions)
             audit(state, request, "INSERT", "injection_lot", lot_id, None, lot)
