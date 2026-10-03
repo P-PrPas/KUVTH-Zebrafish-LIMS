@@ -8,7 +8,7 @@ import { uuidv7 } from "../uuidv7";
 
 type FishOutcome = "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
 type FishHealthStatus = "HEALTHY" | "WEAK" | "SICK" | "DISABLED" | "AGED" | "UNDETERMINED";
-const outcomes: FishOutcome[] = ["ALIVE", "DEAD", "FROZEN", "DISCARDED"];
+const outcomes: FishOutcome[] = ["ALIVE", "DEAD"];
 const healthStatuses: FishHealthStatus[] = ["HEALTHY", "WEAK", "SICK", "DISABLED", "AGED", "UNDETERMINED"];
 const bangkokDate = (value = new Date()) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(value);
@@ -454,9 +454,11 @@ export function Fish({ t }: { t: AppText }) {
                   </header>
                   {fishInBox.map((fish) => {
                     const id = String(fish.fishId);
+                    const recordedOutcome = String(fish.recordedOutcome ?? "ALIVE");
+                    const recordedSelectable = outcomes.includes(recordedOutcome as FishOutcome);
                     const value =
                       outcomesByFish[id] ??
-                      (fish.alreadyRecorded ? (String(fish.recordedOutcome ?? "ALIVE") as FishOutcome) : "ALIVE");
+                      (fish.alreadyRecorded ? (recordedSelectable ? (recordedOutcome as FishOutcome) : "") : "ALIVE");
                     return (
                       <div className="record-row" key={id}>
                         <button className="fish-row-main record-row__title" onClick={() => setSelected(id)}>
@@ -505,6 +507,13 @@ export function Fish({ t }: { t: AppText }) {
                             </button>
                           ))}
                         </div>
+                        {fish.alreadyRecorded && !recordedSelectable && (
+                          <small role="note">
+                            {thai
+                              ? `ผลที่บันทึกไว้: ${outcomeLabel(recordedOutcome as FishOutcome, t)} · เลือกสถานะใหม่เพื่อแก้ไข`
+                              : `Previously recorded: ${outcomeLabel(recordedOutcome as FishOutcome, t)}. Select Alive or Dead to correct it.`}
+                          </small>
+                        )}
                         {date === endDate && (
                           <details className="record-row__notes">
                             <summary>{thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}</summary>
@@ -763,13 +772,13 @@ function ManualFishForm({
         />
       </label>
       <label>
-        {thai ? "สายเซลล์ผู้ให้" : "Donor"}
+        {thai ? "เซลล์ผู้ให้" : "Donor cell"}
         <select
           required
           value={form.donorCellLineId}
           onChange={(e) => setForm({ ...form, donorCellLineId: e.target.value })}
         >
-          <option value="">{thai ? "เลือกสายเซลล์ผู้ให้" : "Select donor"}</option>
+          <option value="">{thai ? "เลือกเซลล์ผู้ให้" : "Select donor cell"}</option>
           {masters["donor-cell-lines"].map((item) => (
             <option key={String(item.id)} value={String(item.id)}>
               {String(item.strain ?? item.name ?? item.id)}
@@ -793,7 +802,7 @@ function ManualFishForm({
         </select>
       </label>
       <details className="workflow-disclosure">
-        <summary>{thai ? "เพิ่มตำแหน่งเลี้ยง เพศ และหมายเหตุ" : "Add housing, sex and notes"}</summary>
+        <summary>{thai ? "ระบบเลี้ยงปลา เพศ และหมายเหตุ" : "Fish system, sex and notes"}</summary>
         <div className="workflow-disclosure__body form-card--inline">
           <label>
             {thai ? "สถานที่" : "Site"}

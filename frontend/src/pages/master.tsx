@@ -39,7 +39,7 @@ const masterConfig: Record<
     label: "Donor cell lines",
     fields: [
       { key: "strain", label: "Strain", required: true },
-      { key: "preparation", label: "Preparation", options: ["DISSOCIATED", "CHUNKS"], required: true },
+      { key: "preparation", label: "Types of Specimen", options: ["DISSOCIATED", "CHUNKS"], required: true },
       { key: "preservation", label: "Preservation", options: ["FRESH", "CRYOPRESERVED"], required: true },
       { key: "batchCode", label: "Batch code" },
       { key: "sampleInfo", label: "Cryovial / sample detail" },
@@ -84,7 +84,7 @@ const thaiField: Record<string, string> = {
   description: "คำอธิบาย",
   name: "ชื่อ",
   strain: "สายพันธุ์",
-  preparation: "รูปแบบการเตรียม",
+  preparation: "รูปแบบตัวอย่าง (Types of Specimen)",
   preservation: "การเก็บรักษา",
   batchCode: "รหัสชุด",
   sampleInfo: "รายละเอียดตัวอย่าง/หลอดแช่แข็ง",

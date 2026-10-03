@@ -76,3 +76,20 @@ def test_mysql_engine_enables_multi_statements(monkeypatch, migration_dir):
     monkeypatch.setattr("chronofish.store.database.create_engine", create_engine)
     assert create_database_engine(config(migration_dir, "mysql"))
     assert captured["kwargs"]["connect_args"]["client_flag"]
+
+
+def test_feedback_migration_rollbacks_drop_foreign_key_before_its_supporting_index():
+    migrations = Path(__file__).parents[1] / "db" / "migrations"
+    for driver in ("postgres", "mysql"):
+        down = (migrations / driver / "000011_persist_feedback_fields.down.sql").read_text(encoding="utf-8")
+        foreign_key = (
+            "DROP CONSTRAINT IF EXISTS fk_fish_recipient_egg_lot"
+            if driver == "postgres"
+            else "DROP FOREIGN KEY fk_fish_recipient_egg_lot"
+        )
+        supporting_index = (
+            "DROP INDEX IF EXISTS ix_fish_recipient_egg_lot"
+            if driver == "postgres"
+            else "DROP INDEX ix_fish_recipient_egg_lot"
+        )
+        assert down.index(foreign_key) < down.index(supporting_index)

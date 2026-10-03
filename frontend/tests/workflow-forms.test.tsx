@@ -85,7 +85,7 @@ describe("lab workflow forms", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Recipient egg lot");
-    expect(document.body.textContent).toContain("CSOF lot");
+    expect(document.body.textContent).toContain("Egg holding medium");
     expect(document.body.textContent).toContain("Treatment group");
     expect(document.querySelector(".batch-form__fields--details")).not.toBeNull();
     expect(document.querySelector(".batch-form__fields--team")).not.toBeNull();
@@ -134,7 +134,7 @@ describe("lab workflow forms", () => {
     root.unmount();
   });
 
-  it("shows a 96-well planner, mobile fallback, and confirms before creating a lot", async () => {
+  it("shows the running-number preview and confirms before creating a lot", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith("/batches"))
@@ -165,7 +165,9 @@ describe("lab workflow forms", () => {
       await Promise.resolve();
     });
 
-    expect(document.querySelectorAll(".well-grid--plate .well")).toHaveLength(96);
+    expect(document.body.textContent).toContain("Running numbers in this lot");
+    expect(document.body.textContent).toContain("B-1_1_1");
+    expect(document.querySelector(".well-grid--plate")).toBeNull();
     expect(document.querySelector(".well-list--mobile")).not.toBeNull();
     const lotForm = Array.from(document.querySelectorAll("form")).find((form) =>
       form.textContent?.includes("Injection lot"),
@@ -357,7 +359,8 @@ describe("lab workflow forms", () => {
 
     expect((document.querySelector('[data-testid="batch-day-no"]') as HTMLInputElement).value).toBe("2");
     expect(document.body.textContent).toContain("Recipient egg lot");
-    expect(document.body.textContent).toContain("Incubation");
+    expect(document.body.textContent).not.toContain("Clutch code");
+    expect(document.body.textContent).not.toContain("Incubation");
     root.unmount();
   });
 
@@ -380,7 +383,11 @@ describe("lab workflow forms", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Bangkok date");
-    expect(document.body.textContent).toContain("Frozen");
+    const outcomes = document.querySelector('[aria-label="Outcome for F-1"]');
+    expect(Array.from(outcomes?.querySelectorAll("button") ?? []).map((button) => button.textContent)).toEqual([
+      "Alive",
+      "Dead",
+    ]);
     const registryTab = Array.from(document.querySelectorAll("button")).find(
       (button) => button.textContent === "Fish registry",
     );
@@ -557,6 +564,72 @@ describe("lab workflow forms", () => {
     );
     expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
       outcome: "DEAD",
+      overrideReason: "corrected after review",
+    });
+    root.unmount();
+  });
+
+  it("makes a previously frozen observation explicitly correctable to Alive", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/fish/roll-call"))
+        return json({
+          items: [
+            {
+              fishId: "fish-frozen",
+              fishCode: "F-FROZEN",
+              status: "ALIVE",
+              condition: "NORMAL",
+              alreadyRecorded: true,
+              observationId: "observation-frozen",
+              recordedOutcome: "FROZEN",
+            },
+          ],
+        });
+      return json({});
+    });
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    vi.stubGlobal("fetch", fetchMock);
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(<Fish t={text.en} />);
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain("Previously recorded: Frozen");
+    expect(document.body.textContent).toContain("Alive");
+    const alive = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Alive");
+    await act(async () => {
+      alive?.click();
+      await Promise.resolve();
+    });
+    const reason = document.querySelector('input[name="rollCallCorrectionReason"]') as HTMLInputElement;
+    const setReason = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setReason?.call(reason, "corrected after review");
+      reason.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "Save 1 fish")
+        ?.click();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).includes("/observations/fish/observation-frozen") && init?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const patchCall = fetchMock.mock.calls.find(
+      ([input, init]) => String(input).includes("/observations/fish/observation-frozen") && init?.method === "PATCH",
+    );
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      outcome: "ALIVE",
       overrideReason: "corrected after review",
     });
     root.unmount();

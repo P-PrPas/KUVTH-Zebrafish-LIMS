@@ -35,13 +35,20 @@ def _validate(state: State, resource: str, item: dict[str, Any], current_id: str
                 continue
             if not isinstance(value, str) or len(value) > limit or (field != "description" and not value.strip()):
                 raise APIError(422, "validation_error", f"{field} is invalid (maximum {limit} characters)")
+    # Keep unrelated patches possible for pre-000011 rows; their lost value cannot be inferred safely.
+    legacy_missing_preservation = (
+        resource == "donor-cell-lines"
+        and bool(current_id)
+        and state.entities[resource].get(current_id, {}).get("preservation") is None
+        and item.get("preservation") is None
+    )
     missing = next((field for field in spec["required"] if not str(item.get(field, "")).strip()), None)
-    if missing and not (resource == "donor-cell-lines" and current_id and missing == "preservation"):
+    if missing and not (legacy_missing_preservation and missing == "preservation"):
         raise APIError(422, "validation_error", f"ต้องระบุ {missing}")
     if resource == "donor-cell-lines" and item.get("preparation") not in {"DISSOCIATED", "CHUNKS"}:
         raise APIError(422, "validation_error", "preparation ต้องเป็น DISSOCIATED หรือ CHUNKS")
     if resource == "donor-cell-lines" and item.get("preservation") not in {"FRESH", "CRYOPRESERVED"}:
-        if not (current_id and item.get("preservation") is None):
+        if not legacy_missing_preservation:
             raise APIError(422, "validation_error", "preservation ต้องเป็น FRESH หรือ CRYOPRESERVED")
     if resource == "donor-cell-lines" and any(
         len(str(item.get(field) or "")) > limit for field, limit in (("sampleInfo", 1000), ("batchCode", 100))

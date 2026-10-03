@@ -51,8 +51,10 @@ def _columns(value: str) -> frozenset[str]:
 TABLE_COLUMNS = {
     "site": "id code name active created_at updated_at deleted_at",
     "operator": "id site_id name active created_at updated_at deleted_at",
-    "donor_cell_line": "id strain preparation batch_code active created_at updated_at deleted_at",
-    "recipient_egg_lot": "id breed lot_date label active created_at updated_at deleted_at",
+    "donor_cell_line": (
+        "id strain preparation batch_code preservation sample_info active created_at updated_at deleted_at"
+    ),
+    "recipient_egg_lot": "id breed lot_date donor_fish_code label active created_at updated_at deleted_at",
     "csof_lot": "id lot_code active created_at updated_at deleted_at",
     "experiment_group": "id code name description active created_at updated_at deleted_at",
     "treatment_group": "id code name arm_type active created_at updated_at deleted_at",
@@ -70,7 +72,7 @@ TABLE_COLUMNS = {
     """,
     "injection_lot": """
         id batch_id lot_no donor_cell_line_id enu_power_pct enu_pulse_us enu_led enu_start_at
-        enu_finish_at activated_at n_eggs n_activated notes created_at updated_at deleted_at
+        enu_finish_at activated_at n_eggs n_manipulated n_activated notes created_at updated_at deleted_at
     """,
     "embryo": """
         id injection_lot_id seq_in_lot embryo_code well_position exit_stage_id exit_at exit_reason
@@ -87,11 +89,12 @@ TABLE_COLUMNS = {
     "clone_fish": """
         id embryo_id fish_code running_no dob donor_cell_line_id site_id fish_box_id status
         biological_condition first_abnormal_on first_abnormal_age_days first_abnormal_stage_id sex
+        recipient_egg_lot_id health_status
         fin_clipped exit_date exit_reason remarks created_at updated_at deleted_at
     """,
     "fish_observation": """
         id client_uuid clone_fish_id observed_on age_days outcome biological_condition operator_id
-        device_id is_backdated notes created_at updated_at deleted_at
+        device_id is_backdated health_status notes created_at updated_at deleted_at
     """,
     "specimen": """
         id clone_fish_id specimen_code specimen_kind specimen_type collected_on frozen_on storage notes

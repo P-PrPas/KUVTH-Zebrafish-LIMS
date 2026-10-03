@@ -1729,7 +1729,7 @@ paths:
                   meta: { $ref: '#/components/schemas/AnalyticsMeta' }
                   supporting:
                     type: object
-                    required: [statusComposition, ageDistribution, ageDefinition, sexComposition, sexCompleteness, boxCensus, boxMeta, batchPerformance, day5Definition]
+                    required: [statusComposition, ageDistribution, ageDefinition, sexComposition, sexCompleteness, boxCensus, boxMeta]
                     properties:
                       statusComposition:
                         type: array
@@ -1794,25 +1794,6 @@ paths:
                         properties:
                           nBoxes: { type: integer, minimum: 0 }
                           emptyBoxes: { type: integer, minimum: 0 }
-                      batchPerformance:
-                        type: array
-                        items:
-                          type: object
-                          required: [batchId, batchCode, status, eligible, n, denominator, nNormal, nAbnormal, missingEmbryos, pctNormal]
-                          properties:
-                            batchId: { type: string }
-                            batchCode: { type: string }
-                            status: { type: string, enum: [ELIGIBLE, NOT_ELIGIBLE, MISSING, MISSING_CONDITION] }
-                            eligible: { type: boolean }
-                            n: { type: integer, minimum: 0 }
-                            denominator: { type: integer, minimum: 0 }
-                            nNormal: { type: integer, minimum: 0 }
-                            nAbnormal: { type: integer, minimum: 0 }
-                            missingEmbryos: { type: integer, minimum: 0 }
-                            pctNormal: { type: [number, 'null'], minimum: 0, maximum: 1 }
-                      day5Definition:
-                        type: string
-                        description: Day 5 due is calculated per lot from activatedAt plus timing-profile expectedHpa for protocol stage order 26; future embryos without observations are excluded from missing counts.
                       missingExitDate: { type: integer, minimum: 0 }
 
   /analytics/observation-gaps:
@@ -2404,6 +2385,11 @@ components:
           type: boolean
           readOnly: true
           description: True when at least one active embryo in this experiment has no terminal exit reason.
+        nInjectionLots:
+          type: integer
+          minimum: 0
+          readOnly: true
+          description: Number of active injection lots in this experiment.
     BatchInput:
       type: object
       required: [experimentDate, siteId, operatorId, protocolId, treatmentGroupId]
@@ -2926,10 +2912,9 @@ components:
       properties:
         stage1:
           type: object
-          required: [nBatches, nEggs, nActivated, nReachedShield, nReachedDay1, nPromoted, pctNormal, controlComparison]
+          required: [nBatches, nActivated, nReachedShield, nReachedDay1, nPromoted, pctNormal, controlComparison]
           properties:
             nBatches: { type: integer }
-            nEggs: { type: integer }
             nActivated: { type: integer }
             nReachedShield: { type: integer }
             nReachedDay1: { type: integer }
@@ -3042,10 +3027,10 @@ components:
         riskSet:
           type: integer
           description: Embryos that have actually reached this checkpoint's due time (BR-16).
-        alive: { type: integer }
-        nPrev: { type: integer }
-        nDead: { type: integer }
-        surv: { type: number, examples: [0.4711] }
+        alive: { type: [integer, 'null'], description: Known alive embryos; null when the checkpoint has no observed outcomes. }
+        nPrev: { type: integer, description: Observed previous-stage survivors included in this estimate. }
+        nDead: { type: integer, description: Deaths observed in this estimate; missing checks are excluded. }
+        surv: { type: [number, 'null'], examples: [0.4711], description: null when no checkpoint outcomes support an estimate. }
         pctOfDevelopment: { type: [number, 'null'] }
 
     DeviationSummary:

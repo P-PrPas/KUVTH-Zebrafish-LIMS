@@ -60,7 +60,7 @@ def test_r_export_has_stable_30_column_shape(client):
 
 
 def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_headers):
-    _batch, lot, _embryo, _activated = setup_embryo(client, write_headers)
+    batch, lot, _embryo, _activated = setup_embryo(client, write_headers)
     manual = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 450),
@@ -68,10 +68,39 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
             "fishCode": "manual-export",
             "dob": datetime.now(BANGKOK).date().isoformat(),
             "donorCellLineId": lot["donorCellLineId"],
-            "recipientEggLotId": _batch["recipientEggLotId"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+            "healthStatus": "WEAK",
         },
     )
     assert manual.status_code == 201, manual.text
+    fish_observation = client.post(
+        "/api/v1/observations/fish",
+        headers=headers(write_headers, 451),
+        json={
+            "observations": [
+                {
+                    "clientUuid": "01900000-0000-7000-8000-000000000451",
+                    "cloneFishId": manual.json()["id"],
+                    "observedOn": datetime.now(BANGKOK).date().isoformat(),
+                    "outcome": "ALIVE",
+                    "condition": "NORMAL",
+                    "healthStatus": "SICK",
+                }
+            ]
+        },
+    )
+    assert fish_observation.status_code == 200, fish_observation.text
+    with store.lock:
+        group_id = "export-group"
+        store.state.entities["experiment-groups"][group_id] = {"id": group_id, "name": "Export Group"}
+        store.state.entities["batches"][batch["id"]]["experimentGroupId"] = group_id
+        store.state.entities["injection-lots"][lot["id"]].update(
+            {"nEggs": 4, "nManipulated": 3, "enuStartAt": "2026-09-01T10:00:00Z", "enuFinishAt": "2026-09-01T11:00:00Z"}
+        )
+        store.state.entities["donor-cell-lines"][lot["donorCellLineId"]].update(
+            {"preservation": "CRYOPRESERVED", "sampleInfo": "Cryovial A"}
+        )
+        store.state.entities["recipient-egg-lots"][batch["recipientEggLotId"]]["donorFishCode"] = "EGG-DONOR-1"
     idempotency_before_export = set(store.idempotency)
 
     response = client.post("/api/v1/exports/excel", json={"filters": {}})
@@ -83,6 +112,9 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
         workbook = archive.read("xl/workbook.xml").decode()
         metadata = archive.read("xl/worksheets/sheet1.xml").decode()
         batch_sheet = archive.read("xl/worksheets/sheet2.xml").decode()
+        batch_rows = worksheet_rows(archive.read("xl/worksheets/sheet2.xml"))
+        fish_register = worksheet_rows(archive.read("xl/worksheets/sheet7.xml"))
+        fish_observations = worksheet_rows(archive.read("xl/worksheets/sheet8.xml"))
         embryo_matrix = archive.read("xl/worksheets/sheet4.xml").decode()
         stage_counts = archive.read("xl/worksheets/sheet5.xml").decode()
         summary = worksheet_rows(archive.read("xl/worksheets/sheet12.xml"))
@@ -117,7 +149,31 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
     assert '<row r="2">' in r_table
     assert re.search(r'<c r="E2"><v>\d+</v></c>', stage_counts)
     assert re.search(r'<c r="E2"><v>\d+</v></c>', r_table)
-    assert summary[1][6] == "0"
+    assert "n_eggs" not in summary[0]
+    assert summary[1][5] == "0"
+    batch_columns = {name: index for index, name in enumerate(batch_rows[0])}
+    for column in (
+        "experiment_group_id",
+        "experiment_group",
+        "recipient_donor_fish_code",
+        "donor_preservation",
+        "donor_sample_info",
+        "n_manipulated",
+        "pick_up_at",
+        "finished_inject_at",
+    ):
+        assert column in batch_columns
+    assert batch_rows[1][batch_columns["experiment_group"]] == "Export Group"
+    assert batch_rows[1][batch_columns["recipient_donor_fish_code"]] == "EGG-DONOR-1"
+    assert batch_rows[1][batch_columns["donor_preservation"]] == "CRYOPRESERVED"
+    assert batch_rows[1][batch_columns["donor_sample_info"]] == "Cryovial A"
+    assert batch_rows[1][batch_columns["n_manipulated"]] == "3"
+    assert batch_rows[1][batch_columns["pick_up_at"]] == "2026-09-01T10:00:00Z"
+    assert batch_rows[1][batch_columns["finished_inject_at"]] == "2026-09-01T11:00:00Z"
+    fish_columns = {name: index for index, name in enumerate(fish_register[0])}
+    observation_columns = {name: index for index, name in enumerate(fish_observations[0])}
+    assert fish_register[1][fish_columns["health_status"]] == "SICK"
+    assert fish_observations[1][observation_columns["health_status"]] == "SICK"
     assert timing[0] == [
         "stage_order",
         "stage_code",

@@ -407,20 +407,21 @@ describe("due and checkpoint workflows", () => {
         ?.click();
       await Promise.resolve();
     });
-    const outcome = document.querySelector("#active-outcome") as HTMLSelectElement;
-    await act(async () => {
-      setSelect?.call(outcome, "ALIVE");
-      outcome.dispatchEvent(new Event("change", { bubbles: true }));
-      await Promise.resolve();
-    });
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
-        .find((button) => button.textContent === "Confirm 1 observations")
+        .find((button) => button.textContent === "Set Alive for 15 staged embryos")
+        ?.click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("Confirm 15 observations");
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "Confirm 15 observations")
         ?.click();
       await Promise.resolve();
     });
 
-    expect((saved as { observations: unknown[] }).observations).toHaveLength(1);
+    expect((saved as { observations: unknown[] }).observations).toHaveLength(15);
     root.unmount();
   });
 
@@ -666,7 +667,7 @@ describe("due and checkpoint workflows", () => {
         conditions: { "embryo-1": "NORMAL" },
         notes: { "embryo-1": "Draft notes" },
         savedIds: status === "offline" ? { "embryo-1": "obs-1" } : {},
-        confirmedAt: "2026-08-23T01:00:00Z",
+        confirmedAt: new Date().toISOString(),
       });
       vi.spyOn(offline, "queuedWriteItems").mockResolvedValue(
         status === "pending" || status === "rejected"

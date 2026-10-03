@@ -1502,6 +1502,8 @@ export interface components {
             notes?: string | null;
             /** @description True when at least one active embryo in this experiment has no terminal exit reason. */
             readonly hasOpenEmbryos?: boolean;
+            /** @description Number of active injection lots in this experiment. */
+            readonly nInjectionLots?: number;
         };
         BatchInput: {
             /** @description Omit to let the server suggest `{dayNo}_{operator}_{treatmentGroup}` (FR-302). */
@@ -2017,7 +2019,6 @@ export interface components {
         KpiResponse: {
             stage1: {
                 nBatches: number;
-                nEggs: number;
                 nActivated: number;
                 nReachedShield: number;
                 nReachedDay1: number;
@@ -2109,11 +2110,17 @@ export interface components {
             stageLabel: string;
             /** @description Embryos that have actually reached this checkpoint's due time (BR-16). */
             riskSet: number;
-            alive: number;
+            /** @description Known alive embryos; null when the checkpoint has no observed outcomes. */
+            alive: number | null;
+            /** @description Observed previous-stage survivors included in this estimate. */
             nPrev: number;
+            /** @description Deaths observed in this estimate; missing checks are excluded. */
             nDead: number;
-            /** @example 0.4711 */
-            surv: number;
+            /**
+             * @description null when no checkpoint outcomes support an estimate.
+             * @example 0.4711
+             */
+            surv: number | null;
             pctOfDevelopment?: number | null;
         };
         DeviationSummary: {
@@ -4447,21 +4454,6 @@ export interface operations {
                                 nBoxes: number;
                                 emptyBoxes: number;
                             };
-                            batchPerformance: {
-                                batchId: string;
-                                batchCode: string;
-                                /** @enum {string} */
-                                status: "ELIGIBLE" | "NOT_ELIGIBLE" | "MISSING" | "MISSING_CONDITION";
-                                eligible: boolean;
-                                n: number;
-                                denominator: number;
-                                nNormal: number;
-                                nAbnormal: number;
-                                missingEmbryos: number;
-                                pctNormal: number | null;
-                            }[];
-                            /** @description Day 5 due is calculated per lot from activatedAt plus timing-profile expectedHpa for protocol stage order 26; future embryos without observations are excluded from missing counts. */
-                            day5Definition: string;
                             missingExitDate?: number;
                         };
                     };

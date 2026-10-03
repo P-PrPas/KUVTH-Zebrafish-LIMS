@@ -32,6 +32,7 @@ INDEX_TABLES = {
     "ix_fish_observation_fish_date": "fish_observation",
     "ix_observation_embryo_stage": "embryo_observation",
     "ix_audit_occurred_id": "audit_log",
+    "ix_fish_recipient_egg_lot": "clone_fish",
     "uq_embryo_live_well": "embryo",
 }
 
@@ -84,6 +85,11 @@ def convert(sql: str, upgrade: bool) -> str:
     sql = sql.replace(
         "ALTER TABLE request_idempotency\n    DROP COLUMN IF EXISTS lease_token;",
         "ALTER TABLE request_idempotency DROP COLUMN lease_token;",
+    )
+    sql = re.sub(
+        r"ALTER TABLE (\w+) DROP CONSTRAINT (ck_\w+);",
+        r"ALTER TABLE \1 DROP CHECK \2;",
+        sql,
     )
     for index_name, table_name in INDEX_TABLES.items():
         sql = sql.replace(
