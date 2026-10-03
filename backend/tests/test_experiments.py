@@ -320,6 +320,27 @@ def test_batch_read_model_reports_open_embryos(client, write_headers):
     assert client.get(f"/api/v1/batches/{batch['id']}").json()["hasOpenEmbryos"] is False
 
 
+def test_new_batch_is_not_completed_until_it_has_a_lot(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    listed = next(item for item in client.get("/api/v1/batches").json()["items"] if item["id"] == batch["id"])
+    assert listed["hasOpenEmbryos"] is False
+    assert listed["nInjectionLots"] == 0
+
+    response = client.post(
+        f"/api/v1/batches/{batch['id']}/injection-lots",
+        headers=headers(write_headers, 244),
+        json={
+            "lotNo": "1",
+            "donorCellLineId": donor["id"],
+            "activatedAt": "2026-08-20T00:00:00Z",
+            "nActivated": 1,
+        },
+    )
+    assert response.status_code == 201, response.text
+    listed = next(item for item in client.get("/api/v1/batches").json()["items"] if item["id"] == batch["id"])
+    assert listed["nInjectionLots"] == 1
+
+
 def test_embryo_patch_only_changes_a_unique_valid_well(client, write_headers):
     batch, donor = create_batch(client, write_headers)
     lot = client.post(

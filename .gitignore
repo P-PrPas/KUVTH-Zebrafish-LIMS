@@ -5,6 +5,8 @@
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+frontend/public/Logo/
+frontend/public/Banner/
 .cache/
 
 *.exe

@@ -1,8 +1,9 @@
-import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import {
+  clearObservationDraft,
   readObservationDraft,
   readObservationLocation,
   saveObservationDraft,
@@ -436,8 +437,9 @@ function ObservationRound({
       setDraftError(true);
     }
   };
-  useLayoutEffect(() => {
-    persistDraft();
+  useEffect(() => {
+    const timer = window.setTimeout(() => persistDraft(), 300);
+    return () => window.clearTimeout(timer);
   }, [
     operator,
     due,
@@ -520,9 +522,20 @@ function ObservationRound({
       )
     );
   });
+  const queuedCount = Object.keys(queuedIds).length;
+  const roundConfirmed =
+    orderedEmbryos.length > 0 &&
+    !hasDraft &&
+    orderedEmbryos.every((embryo) => isPersistentlyDead(embryo) || Boolean(savedIds[String(embryo.embryoId)]));
+  useEffect(() => {
+    if (entry && roundConfirmed && queuedCount === 0) {
+      clearObservationDraft(operator, String(due.injectionLotId));
+    }
+  }, [draftSavedAt, due.injectionLotId, entry, operator, queuedCount, roundConfirmed]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       if (!hasDraft) return;
+      persistDraft();
       event.preventDefault();
       event.returnValue = "";
     };
@@ -532,6 +545,12 @@ function ObservationRound({
   const bulkable = recordableEmbryos.filter((embryo) => {
     const id = String(embryo.embryoId);
     return !stageCodes[id] && !savedIds[id] && !queuedIds[id];
+  });
+  const stagedWithoutOutcome = recordableEmbryos.filter((embryo) => {
+    const id = String(embryo.embryoId);
+    return (
+      Boolean(stageCodes[id]) && !embryoOutcomes[id] && !savedIds[id] && !queuedIds[id] && !isPersistentlyDead(embryo)
+    );
   });
   const selectedCount = recordableEmbryos.filter((embryo) => {
     const id = String(embryo.embryoId);
@@ -543,7 +562,6 @@ function ObservationRound({
   }).length;
   const exceptionCount = recordableEmbryos.filter(hasException).length;
   const savedCount = Object.keys(savedIds).length;
-  const queuedCount = Object.keys(queuedIds).length;
   const activeEmbryo = orderedEmbryos.find((embryo) => String(embryo.embryoId) === selectedId) ?? null;
   const activeId = activeEmbryo ? String(activeEmbryo.embryoId) : "";
   const activeWell = activeEmbryo ? String(activeEmbryo.wellPosition ?? (thai ? "ไม่ระบุหลุม" : "Unassigned")) : "";
@@ -771,6 +789,14 @@ function ObservationRound({
     setLastBulk({ ids, stage: selectedStage });
     setSaveStatus(`${thai ? "ตั้งระยะให้แล้ว" : "Stage applied to"} ${ids.length} ${thai ? "ฟอง" : "blank embryos"}`);
   };
+  const applyAliveToStagedRows = () => {
+    const ids = stagedWithoutOutcome.map((embryo) => String(embryo.embryoId));
+    if (ids.length === 0) return;
+    setEmbryoOutcomes((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, "ALIVE"])) }));
+    setSaveStatus(
+      `${thai ? "ตั้งสถานะมีชีวิตให้แล้ว" : "Set Alive for"} ${ids.length} ${thai ? "ฟองที่เลือกระยะแล้ว" : "staged embryos"}`,
+    );
+  };
   const clearLatestBulk = () => {
     if (!lastBulk) return;
     setStageCodes((current) =>
@@ -792,6 +818,11 @@ function ObservationRound({
   };
   const leaveRound = () => {
     // Completed results belong to the server; keep only unfinished work for the next visit.
+    if (roundConfirmed && queuedCount === 0) {
+      clearObservationDraft(operator, String(due.injectionLotId));
+      onBack();
+      return;
+    }
     const keep = (values: Record<string, string>) =>
       Object.fromEntries(Object.entries(values).filter(([id]) => !savedIds[id]));
     try {
@@ -989,6 +1020,16 @@ function ObservationRound({
             onClick={applyStageToBlankRows}
           >
             {thai ? `ใช้กับฟองว่าง ${bulkable.length} ฟอง` : `Apply to ${bulkable.length} blank`}
+          </button>
+          <button
+            className="button button--secondary"
+            type="button"
+            disabled={stagedWithoutOutcome.length === 0}
+            onClick={applyAliveToStagedRows}
+          >
+            {thai
+              ? `ตั้งสถานะมีชีวิตให้ฟองที่เลือกระยะแล้ว ${stagedWithoutOutcome.length} ฟอง`
+              : `Set Alive for ${stagedWithoutOutcome.length} staged embryos`}
           </button>
           {lastBulk && (
             <button className="button button--secondary" type="button" onClick={clearLatestBulk}>
@@ -1253,7 +1294,8 @@ function ObservationRound({
                       <li key={String(item.id)}>
                         <strong>{String(item.stageLabel ?? item.stageCode)}</strong>
                         <span>
-                          {String(item.outcome)} · {String(item.condition)}
+                          {outcomeLabel(String(item.outcome ?? "ALIVE") as EmbryoOutcome, thai)} ·{" "}
+                          {conditionLabel(String(item.condition ?? "NORMAL"), thai)}
                         </span>
                         <small>
                           {new Date(String(item.observedAt)).toLocaleString()} ·{" "}

@@ -7,7 +7,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from ..domain.rules import (
-    DAY5_STAGE_ORDER,
     age_days_on,
     default_expected_hpa,
     round4,
@@ -33,7 +32,7 @@ ANALYTICS_FILTER_KEYS = (
 )
 GROUP_DIMENSIONS = {"site", "strain", "treatmentGroup", "operator"}
 FISH_GROUP_DIMENSIONS = {"condition", "strain", "treatmentGroup"}
-CONTROL_STAGE_ORDERS = {3, 19, 20, 22, 23, 24}
+CONTROL_STAGE_ORDERS = {3, 19, 20, 22, 23, 24, 25}
 FISH_CENSOR_STATUSES = {"ALIVE", "FROZEN", "DISCARDED"}
 FISH_STATUS_ORDER = ("ALIVE", "DEAD", "FROZEN", "DISCARDED")
 FISH_AGE_BINS = (
@@ -285,39 +284,49 @@ class Analytics:
         return self.due_at[key]
 
     def _stage_survival(self, embryos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        result, previous_alive, survival = [], 0, 1.0
+        result, previous_alive_ids, survival = [], set(), None
+        previous_checkpoint_observed = False
         now = utc_now()
         for order in range(1, 27):
-            risk = alive = 0
+            statuses = {}
             for embryo in embryos:
                 lot = self.state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
                 if not lot.get("activatedAt"):
                     continue
                 if self._due_at(lot, order) > now:
                     continue
-                risk += 1
-                alive += self._checkpoint_status(embryo, order) == "alive"
-            n_previous = alive if order == 1 else previous_alive
-            if order > 1 and n_previous:
-                # Keep the plotted estimate monotonic even when raw checkpoint
-                # counts rise after an observation gap or an explicit correction.
-                # Capping the ratio at 1 is enough: the product can only shrink.
-                survival *= min(1.0, alive / n_previous)
-            first_alive = int(result[0]["alive"]) if result else alive
+                statuses[str(embryo["id"])] = self._checkpoint_status(embryo, order)
+            risk = len(statuses)
+            known_ids = {embryo_id for embryo_id, status in statuses.items() if status != "blank"}
+            alive_ids = {embryo_id for embryo_id, status in statuses.items() if status == "alive"}
+            # At the first checkpoint, or when the earlier cohort was entirely
+            # unknown, start with the outcomes actually recorded at this stage.
+            denominator_ids = (
+                known_ids if order == 1 or not previous_checkpoint_observed else previous_alive_ids & known_ids
+            )
+            n_previous = len(denominator_ids)
+            alive = len(denominator_ids.intersection(alive_ids))
+            if n_previous:
+                # Missing observations are unknown, not deaths. Estimate only
+                # from outcomes known for embryos alive at the previous stage.
+                stage_survival = alive / n_previous
+                survival = stage_survival if survival is None else survival * min(1.0, stage_survival)
+            first_alive = int(result[0]["alive"] or 0) if result else alive
             result.append(
                 {
                     "stageOrder": order,
                     "stageCode": stage_code(order),
                     "stageLabel": stage_label(order),
                     "riskSet": risk,
-                    "alive": alive,
+                    "alive": alive if n_previous else None,
                     "nPrev": n_previous,
-                    "nDead": max(n_previous - alive, 0),
-                    "surv": survival,
+                    "nDead": n_previous - alive,
+                    "surv": survival if n_previous else None,
                     "pctOfDevelopment": alive * 100 / first_alive if first_alive else None,
                 }
             )
-            previous_alive = alive
+            previous_alive_ids = alive_ids
+            previous_checkpoint_observed = previous_checkpoint_observed or bool(known_ids)
         return result
 
     def _missing_stage_observations(self) -> int:
@@ -365,32 +374,16 @@ class Analytics:
             for item in self.state.entities["control-arm-counts"].values()
             if item.get("deletedAt") is None and item.get("batchId") in self.batches
         ]
-        orders = CONTROL_STAGE_ORDERS | {stage_number(str(item["stageCode"])) for item in controls}
-        rows = []
-        for order in sorted(orders):
-            direct = [
-                next(
-                    (
-                        item
-                        for item in self.observations.get(str(embryo["id"]), [])
-                        if stage_number(str(item["stageCode"])) == order
-                    ),
-                    None,
-                )
-                for embryo in self.embryos
-            ]
-            normal = sum(item is not None and item.get("condition") == "NORMAL" for item in direct)
-            abnormal = sum(item is not None and item.get("condition") == "ABNORMAL" for item in direct)
-            rows.append(self._control_row("SCNT", order, normal, abnormal))
         control_counts: defaultdict[tuple[str, int], list[int]] = defaultdict(lambda: [0, 0])
         for item in controls:
             counts = control_counts[(str(item["armType"]), stage_number(str(item["stageCode"])))]
             counts[0] += int(item["nNormal"])
             counts[1] += int(item["nAbnormal"])
-        rows.extend(
-            self._control_row(arm, order, counts[0], counts[1]) for (arm, order), counts in control_counts.items()
-        )
-        return sorted(rows, key=lambda item: (item["stageOrder"], item["armType"]))
+        return [
+            self._control_row(arm, order, *control_counts[(arm, order)])
+            for order in sorted(CONTROL_STAGE_ORDERS)
+            for arm in ("IVF", "NATURAL_BREEDING")
+        ]
 
     def kpi(self) -> dict[str, Any]:
         latest = [
@@ -412,11 +405,12 @@ class Analytics:
         }
         undetermined = len(self.fish) - sum(conditions.values())
         promoted = len(self._promoted_fish())
-        missing_eggs = sum(item.get("nEggs") is None for item in self.lots.values())
+        alive_fish = sum(item.get("status") == "ALIVE" for item in self.fish.values())
+        dead_fish = sum(item.get("status") == "DEAD" for item in self.fish.values())
+        classified_fish = alive_fish + dead_fish
         return {
             "stage1": {
                 "nBatches": len(self.batches),
-                "nEggs": sum(int(item.get("nEggs") or 0) for item in self.lots.values()),
                 "nActivated": activated,
                 "nReachedShield": self._reached_count(19),
                 "nReachedDay1": self._reached_count(22),
@@ -432,9 +426,11 @@ class Analytics:
                 "controlComparison": self._control_comparison(),
             },
             "stage2": {
-                "nFish": len(self.fish),
-                "nAlive": sum(item.get("status") == "ALIVE" for item in self.fish.values()),
-                "nDead": sum(item.get("status") == "DEAD" for item in self.fish.values()),
+                # These three dashboard totals must reconcile. Other terminal
+                # states remain visible in the supporting status composition.
+                "nFish": classified_fish,
+                "nAlive": alive_fish,
+                "nDead": dead_fish,
                 "nFrozen": sum(item.get("status") == "FROZEN" for item in self.fish.values()),
                 "nDiscarded": sum(item.get("status") == "DISCARDED" for item in self.fish.values()),
                 "nNormal": conditions["NORMAL"],
@@ -449,7 +445,7 @@ class Analytics:
                     "stage1Condition": len(self.embryos),
                     "stage1EverAbnormal": ever_abnormal,
                     "stage1NoAbnormalityRecorded": no_abnormality_recorded,
-                    "stage2Fish": len(self.fish),
+                    "stage2Fish": classified_fish,
                     "stage2PromotedFish": promoted,
                     "stage2ManualFish": len(self.fish) - promoted,
                     "aliveFishAge": len(alive_ages),
@@ -460,7 +456,7 @@ class Analytics:
                     "stage2Condition": undetermined,
                     "fishSex": sum(item.get("sex") not in {"M", "F"} for item in self.fish.values()),
                 },
-                {"latestEmbryoObservation": sum(item is None for item in latest), "nEggs": missing_eggs},
+                {"latestEmbryoObservation": sum(item is None for item in latest)},
             ),
         }
 
@@ -475,7 +471,9 @@ class Analytics:
                     "alive": point["alive"],
                     "riskSet": point["riskSet"],
                     "nDead": point["nDead"],
-                    "pctOfActivated": point["alive"] * 100 / activated if activated else None,
+                    "pctOfActivated": (
+                        point["alive"] * 100 / activated if activated and point["alive"] is not None else None
+                    ),
                 }
                 for point in self._stage_survival(self.embryos)
             ],
@@ -826,59 +824,6 @@ class Analytics:
             )
         box_rows.sort(key=lambda row: (-int(row["n"]), str(row["boxCode"])))
 
-        by_batch: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
-        for embryo in self.embryos:
-            lot = self.lots.get(str(embryo.get("injectionLotId")))
-            if lot and lot.get("batchId") in self.batches:
-                by_batch[str(lot["batchId"])].append(embryo)
-        now = utc_now()
-        batch_rows = []
-        for batch_id, batch in sorted(self.batches.items(), key=lambda item: str(item[1].get("batchCode") or item[0])):
-            day5_observations = []
-            due_embryos = 0
-            for embryo in by_batch.get(batch_id, []):
-                lot = self.lots.get(str(embryo.get("injectionLotId")))
-                observations = [
-                    item
-                    for item in self.observations.get(str(embryo.get("id")), [])
-                    if stage_number(str(item.get("stageCode", ""))) == DAY5_STAGE_ORDER
-                ]
-                if observations:
-                    day5_observations.append(max(observations, key=lambda item: str(item.get("observedAt", ""))))
-                    due_embryos += 1
-                elif lot and lot.get("activatedAt") and self._due_at(lot, DAY5_STAGE_ORDER) <= now:
-                    due_embryos += 1
-            n_normal = sum(item.get("condition") == "NORMAL" for item in day5_observations)
-            n_abnormal = sum(item.get("condition") == "ABNORMAL" for item in day5_observations)
-            denominator = n_normal + n_abnormal
-            if not day5_observations:
-                status = "MISSING" if due_embryos else "NOT_ELIGIBLE"
-            elif denominator == 0:
-                status = "MISSING_CONDITION"
-            else:
-                status = "ELIGIBLE"
-            batch_rows.append(
-                {
-                    "batchId": batch_id,
-                    "batchCode": str(batch.get("batchCode") or batch_id),
-                    "status": status,
-                    "eligible": status == "ELIGIBLE",
-                    "n": len(day5_observations),
-                    "denominator": denominator,
-                    "nNormal": n_normal,
-                    "nAbnormal": n_abnormal,
-                    "missingEmbryos": max(due_embryos - len(day5_observations), 0),
-                    "pctNormal": n_normal / denominator if denominator else None,
-                }
-            )
-        batch_rows.sort(
-            key=lambda row: (
-                not row["eligible"],
-                -(float(row["pctNormal"]) if row["pctNormal"] is not None else -1),
-                str(row["batchCode"]),
-            )
-        )
-
         known_sex = sex_counts["M"] + sex_counts["F"]
         return {
             "statusComposition": status_rows,
@@ -895,12 +840,6 @@ class Analytics:
             },
             "boxCensus": box_rows,
             "boxMeta": {"nBoxes": len(box_rows), "emptyBoxes": sum(row["empty"] for row in box_rows)},
-            "batchPerformance": batch_rows,
-            "day5Definition": (
-                "Day 5 uses each lot's activatedAt plus timing-profile expectedHpa "
-                "for protocol stage order 26; future embryos are not missing. "
-                "Performance is pct normal among embryos with known Day 5 condition."
-            ),
             "missingExitDate": missing_exit_date,
         }
 

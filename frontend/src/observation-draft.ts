@@ -16,8 +16,30 @@ export type ObservationWorkspaceDraft = {
 };
 const prefix = "chronofish.observation-draft.v1";
 const key = (operator: string, lot: string) => `${prefix}:${operator}:${lot}`;
+const draftTtlMs = 30 * 24 * 60 * 60 * 1000;
+
+function expired(value: { savedAt?: unknown; confirmedAt?: unknown }, now = Date.now()): boolean {
+  const timestamp = Date.parse(String(value.savedAt || value.confirmedAt || ""));
+  return Number.isFinite(timestamp) && now - timestamp > draftTtlMs;
+}
+
+function pruneExpiredObservationDrafts(operator: string): void {
+  const operatorPrefix = `${prefix}:${operator}:`;
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const storageKey = localStorage.key(index);
+    if (!storageKey?.startsWith(operatorPrefix) || storageKey.startsWith(`${prefix}:location:`)) continue;
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+      if (value && typeof value === "object" && expired(value)) localStorage.removeItem(storageKey);
+    } catch {
+      // Leave malformed entries for readObservationDraft to report as invalid.
+    }
+  }
+}
 
 export function readObservationDraft(operator: string, lot: string): ObservationWorkspaceDraft | null {
+  if (!operator) return null;
+  pruneExpiredObservationDrafts(operator);
   const raw = localStorage.getItem(key(operator, lot));
   if (!raw) return null;
   const value = JSON.parse(raw);
@@ -53,7 +75,13 @@ export function readObservationDraft(operator: string, lot: string): Observation
 
 export function saveObservationDraft(operator: string, draft: ObservationWorkspaceDraft): void {
   if (!operator) return;
+  pruneExpiredObservationDrafts(operator);
   localStorage.setItem(key(operator, String(draft.due.injectionLotId)), JSON.stringify(draft));
+}
+
+export function clearObservationDraft(operator: string, lot: string): void {
+  if (!operator || !lot) return;
+  localStorage.removeItem(key(operator, lot));
 }
 
 export function readObservationLocation(operator: string): ApiItem | null {

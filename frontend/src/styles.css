@@ -1337,7 +1337,6 @@ button.list-row:hover {
 }
 .age-distribution,
 .box-census,
-.batch-performance,
 .timing-summary,
 .control-summary {
   display: grid;
@@ -1367,31 +1366,6 @@ button.list-row:hover {
   height: 100%;
   border-radius: inherit;
   background: var(--primary);
-}
-.batch-performance__row {
-  display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line);
-}
-.batch-performance__row span {
-  display: grid;
-  gap: 2px;
-}
-.batch-performance__row small {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-.batch-performance__coverage {
-  display: block;
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-.batch-performance__partial {
-  color: var(--danger);
-  font-weight: 600;
 }
 .box-census__status {
   display: block;
@@ -3755,15 +3729,6 @@ button:disabled:hover {
     grid-template-columns: minmax(96px, 1fr) minmax(42px, 1fr) auto;
     gap: 6px;
     font-size: 0.84rem;
-  }
-  .batch-performance__row {
-    grid-template-columns: minmax(105px, 1fr) auto;
-    gap: 8px;
-    font-size: 0.88rem;
-  }
-  .batch-performance__row > strong {
-    grid-column: 2;
-    grid-row: 1;
   }
   .chart-mini-table {
     min-width: 390px;

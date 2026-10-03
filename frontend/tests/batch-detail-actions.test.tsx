@@ -83,7 +83,12 @@ describe("batch detail actions", () => {
       .find((label) => label.textContent?.startsWith("Donor cell line"))
       ?.querySelector("select") as HTMLSelectElement;
     const activated = Array.from(lotForm.querySelectorAll("label"))
-      .find((label) => label.textContent?.startsWith("Activated embryos"))
+      .find((label) => label.textContent?.startsWith("Number of activated embryos"))
+      ?.querySelector("input") as HTMLInputElement;
+    expect(activated.required).toBe(true);
+    expect(activated.min).toBe("1");
+    const manipulated = Array.from(lotForm.querySelectorAll("label"))
+      .find((label) => label.textContent?.startsWith("Number of manipulated embryos"))
       ?.querySelector("input") as HTMLInputElement;
     const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -92,15 +97,9 @@ describe("batch detail actions", () => {
       donor.dispatchEvent(new Event("change", { bubbles: true }));
       setValue?.call(activated, "2");
       activated.dispatchEvent(new Event("input", { bubbles: true }));
+      setValue?.call(manipulated, "4");
+      manipulated.dispatchEvent(new Event("input", { bubbles: true }));
       await settle();
-    });
-    await act(async () => {
-      (document.querySelectorAll(".well-grid .well")[0] as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      (document.querySelectorAll(".well-grid .well")[1] as HTMLButtonElement).click();
-      await Promise.resolve();
     });
     await act(async () => {
       lotForm.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
@@ -112,8 +111,11 @@ describe("batch detail actions", () => {
     expect(JSON.parse(String(createLot?.[1]?.body))).toMatchObject({
       donorCellLineId: "donor-1",
       nActivated: 2,
-      wellPositions: ["A1", "A2"],
+      nManipulated: 4,
     });
+    const lotPayload = JSON.parse(String(createLot?.[1]?.body));
+    expect(lotPayload).not.toHaveProperty("nEggs");
+    expect(lotPayload).not.toHaveProperty("wellPositions");
 
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
@@ -130,7 +132,9 @@ describe("batch detail actions", () => {
       copyInjectionLots: true,
     });
 
-    const additional = document.querySelector('input[type="number"][min="1"]') as HTMLInputElement;
+    const additional = Array.from(document.querySelectorAll("label"))
+      .find((label) => label.textContent?.startsWith("Additional embryos"))
+      ?.querySelector("input") as HTMLInputElement;
     await act(async () => {
       setValue?.call(additional, "2");
       additional.dispatchEvent(new Event("input", { bubbles: true }));
@@ -277,7 +281,7 @@ describe("batch detail actions", () => {
   it("renders populated experiment, lot, and plate-review details in Thai", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
         if (path.endsWith("/batches"))
           return json({
@@ -341,7 +345,9 @@ describe("batch detail actions", () => {
         ?.click();
       await settle();
     });
-    expect(document.querySelectorAll(".well-grid .well")).toHaveLength(96);
+    expect(document.querySelectorAll(".well-grid .well")).toHaveLength(0);
+    expect(document.body.textContent).toContain("หมายเลขลำดับของตัวอ่อนใน lot");
+    expect(document.body.textContent).toContain("B-1_2_1");
     expect(document.body.textContent).toContain("B-1");
     root.unmount();
   });
@@ -414,8 +420,27 @@ describe("batch detail actions", () => {
   });
 
   it("filters experiments by embryo status and opens a lot's historical editor", async () => {
-    const tracking = { id: "batch-1", batchCode: "TRACKING", experimentDate: "2026-09-01", hasOpenEmbryos: true };
-    const completed = { id: "batch-2", batchCode: "COMPLETED", experimentDate: "2026-09-02", hasOpenEmbryos: false };
+    const tracking = {
+      id: "batch-1",
+      batchCode: "TRACKING",
+      experimentDate: "2026-09-01",
+      hasOpenEmbryos: true,
+      nInjectionLots: 1,
+    };
+    const completed = {
+      id: "batch-2",
+      batchCode: "COMPLETED",
+      experimentDate: "2026-09-02",
+      hasOpenEmbryos: false,
+      nInjectionLots: 1,
+    };
+    const notStarted = {
+      id: "batch-3",
+      batchCode: "NOT-STARTED",
+      experimentDate: "2026-09-03",
+      hasOpenEmbryos: false,
+      nInjectionLots: 0,
+    };
     const detail = {
       ...completed,
       injectionLots: [{ id: "lot-2", lotNo: "2", donorCellLineId: "donor-1", activatedAt: "2026-09-02T01:00:00Z" }],
@@ -424,7 +449,7 @@ describe("batch detail actions", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input);
-        if (path.endsWith("/batches")) return json({ items: [tracking, completed] });
+        if (path.endsWith("/batches")) return json({ items: [tracking, completed, notStarted] });
         if (path.endsWith("/batches/batch-2")) return json(detail);
         if (path.includes("/injection-lots/lot-2/embryos")) return json({ items: [] });
         if (path.includes("?includeInactive=true")) return json({ items: [] });
@@ -441,6 +466,7 @@ describe("batch detail actions", () => {
     });
     expect(document.body.textContent).toContain("Tracking");
     expect(document.body.textContent).toContain("Completed");
+    expect(document.body.textContent).toContain("NOT-STARTED");
 
     await act(async () => {
       Array.from(document.querySelectorAll("button"))
@@ -450,6 +476,7 @@ describe("batch detail actions", () => {
     });
     expect(document.body.textContent).toContain("COMPLETED");
     expect(document.body.textContent).not.toContain("TRACKING");
+    expect(document.body.textContent).not.toContain("NOT-STARTED");
 
     await act(async () => {
       (document.querySelector(".list-row") as HTMLButtonElement).click();

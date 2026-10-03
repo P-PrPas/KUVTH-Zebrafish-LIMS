@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgeDistributionSummary,
-  BatchPerformanceSummary,
   BoxCensusSummary,
   ControlSummary,
   Dashboard,
@@ -112,7 +111,7 @@ describe("analytics dashboard", () => {
           },
           funnel: {
             items: [{ stageOrder: 1, stageLabel: "1-cell", alive: 3, riskSet: 3, nDead: 0, pctOfActivated: 1 }],
-            meta: meta(),
+            meta: meta(3, { missing: { stageCheckpoint: 2 } }),
           },
           survival: {
             items: [
@@ -145,7 +144,10 @@ describe("analytics dashboard", () => {
             ],
             meta: meta(),
           },
-          abnormalityOnset: { items: [{ stageOrder: 1, stageLabel: "1-cell", count: 1 }], meta: meta() },
+          abnormalityOnset: {
+            items: [{ stageOrder: 1, stageLabel: "1-cell", count: 1 }],
+            meta: meta(3, { missing: { firstAbnormality: 2 } }),
+          },
           fishSurvival: {
             items: [
               { ageDays: 0, atRisk: 1, alive: 1, surv: 1, condition: "NORMAL", strain: "AB", treatmentGroup: "SCNT" },
@@ -173,18 +175,6 @@ describe("analytics dashboard", () => {
                 },
               ],
               boxMeta: { nBoxes: 1, emptyBoxes: 1 },
-              batchPerformance: [
-                {
-                  batchId: "batch-1",
-                  batchCode: "B-1",
-                  status: "MISSING",
-                  n: 0,
-                  denominator: 0,
-                  missingEmbryos: 1,
-                  pctNormal: null,
-                },
-              ],
-              day5Definition: "Day 5 is calculated from each lot due time.",
             },
           },
           observationGaps: {
@@ -226,17 +216,22 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Bangkok time");
     expect(document.body.textContent).toContain("Timing profile version(s)");
     expect(document.body.textContent).toContain("Activated embryos");
+    expect(document.body.textContent).toContain("Experiment QC: IVF & NBD");
+    expect(document.body.textContent).not.toContain("SCNT / control comparison");
     expect(document.body.textContent).not.toContain("All fish in registry");
     expect(Array.from(document.querySelectorAll("h2")).every((heading) => !heading.textContent?.includes("(n="))).toBe(
       true,
     );
     expect(document.body.textContent).toContain("Some source data is incomplete");
+    expect(
+      document.querySelector(".report-panel--featured")?.querySelectorAll(".data-quality-alert--warning"),
+    ).toHaveLength(1);
     expect(document.body.textContent).toContain("Exploratory data only: n=3");
     expect(document.body.textContent).not.toContain("Lowest filtered survival is 100.00% at 1-cell");
     expect(document.body.textContent).not.toContain("Highest loss occurs at 1-cell: 0 of 3 embryos");
     expect(document.body.textContent).toContain("Source records");
     expect(document.body.textContent).toContain("View attrition by checkpoint");
-    expect(document.body.textContent).toContain("No abnormality recorded");
+    expect(document.body.textContent).toContain("Checks recorded; none abnormal");
     expect(document.querySelector("table caption")).not.toBeNull();
     expect(document.querySelector('[aria-label="Timing deviation from standard in hours"]')).toBeNull();
 
@@ -250,6 +245,14 @@ describe("analytics dashboard", () => {
     expect(new URLSearchParams(window.location.search).get("tab")).toBe("stage2");
     expect(new URLSearchParams(window.location.search).get("siteId")).toBe("site-1");
     expect(document.body.textContent).toContain("Fish survival by age");
+    expect(document.body.textContent).toContain("Fish with an Alive/Dead outcome");
+    expect(document.body.textContent).toContain("Living experimental fish");
+    expect(document.body.textContent).toContain("Dead experimental fish");
+    expect(document.body.textContent).not.toContain("Frozen fish");
+    expect(document.body.textContent).not.toContain("Discarded fish");
+    expect(document.body.textContent).toContain("Fish status in system");
+    expect(document.body.textContent).toContain("Sex distribution of experimental fish");
+    expect(document.body.textContent).not.toContain("Batches in scope");
     expect(document.body.textContent).toContain("View supporting fish composition and cohort quality");
     expect(document.body.textContent).toContain("1 fish have no recorded sex");
     expect(document.body.textContent).toContain("1 fish need a follow-up check");
@@ -497,18 +500,6 @@ describe("analytics dashboard", () => {
                 },
               ],
               boxMeta: { nBoxes: 1, emptyBoxes: 0 },
-              batchPerformance: [
-                {
-                  batchId: "batch-1",
-                  batchCode: "B-1",
-                  status: "ELIGIBLE",
-                  n: 3,
-                  denominator: 3,
-                  missingEmbryos: 1,
-                  pctNormal: 2 / 3,
-                },
-              ],
-              day5Definition: "Day 5 is based on the lot due time.",
             },
           },
           observationGaps: { items: [{ fishCode: "F-1", lastObservedOn: "2026-09-01", missedDays: 2 }], meta: meta(3) },
@@ -948,7 +939,7 @@ describe("analytics dashboard", () => {
     root.unmount();
   });
 
-  it("renders supporting composition, bins, box census, Day 5 guards and timing summaries", async () => {
+  it("renders supporting composition, bins, box census and timing summaries", async () => {
     expect(formatDeviationHours(8 / 60)).toBe("+8 min");
     expect(formatDeviationHours(-1.2)).toBe("−1 hr 12 min");
     expect(formatDeviationHours(0)).toBe("0 min");
@@ -980,14 +971,14 @@ describe("analytics dashboard", () => {
           />
           <AgeDistributionSummary
             rows={[
-              { bin: "0–14 days", n: 2, pct: 0.5 },
-              { bin: "15–31 days", n: 2, pct: 0.5 },
+              { bin: "0–14 days", minDays: 0, maxDays: 14, n: 2, pct: 0.5 },
+              { bin: "15–31 days", minDays: 15, maxDays: 31, n: 2, pct: 0.5 },
             ]}
             definition="Age in days at current follow-up date."
             thai={false}
           />
           <AgeDistributionSummary
-            rows={[{ bin: "0–14 days", n: 2, pct: 0.5 }]}
+            rows={[{ bin: "0–14 days", minDays: 0, maxDays: 14, n: 2, pct: 0.5 }]}
             definition="Age in days at current follow-up date."
             thai
           />
@@ -995,6 +986,7 @@ describe("analytics dashboard", () => {
             rows={[
               {
                 boxCode: "B1",
+                fishBoxId: "box-1",
                 n: 4,
                 pct: 1,
                 empty: false,
@@ -1003,27 +995,6 @@ describe("analytics dashboard", () => {
             ]}
             meta={{ nBoxes: 1, emptyBoxes: 0 }}
             thai={false}
-          />
-          <BatchPerformanceSummary
-            rows={[
-              {
-                batchId: "b1",
-                batchCode: "B1",
-                status: "ELIGIBLE",
-                denominator: 2,
-                n: 2,
-                missingEmbryos: 1,
-                pctNormal: 0.5,
-              },
-              { batchId: "b2", batchCode: "B2", status: "MISSING", denominator: 0, n: 0 },
-            ]}
-            definition="Day 5 denominator is known condition."
-            thai={false}
-          />
-          <BatchPerformanceSummary
-            rows={[{ batchId: "b1", batchCode: "B1", status: "NOT_ELIGIBLE", denominator: 0, n: 0 }]}
-            definition="Day 5 denominator is known condition."
-            thai
           />
           <ControlSummary
             points={[
@@ -1045,36 +1016,25 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Alive: 3 (60.00%)");
     expect(document.body.textContent).toContain("Not recorded: 1 (25.00%)");
     expect(document.body.textContent).toContain("0–14 days");
+    expect(Array.from(document.querySelectorAll(".age-distribution"))[1]?.textContent).toContain("0–14 วัน");
     expect(document.body.textContent).toContain("B1");
     expect(document.body.textContent).toContain("Alive 4");
-    expect(document.body.textContent).toContain("50.00% normal");
-    expect(document.body.textContent).toContain("known 2 · missing due 1");
-    expect(document.body.textContent).toContain("partial data");
-    expect(document.body.textContent).toContain("Data-quality warning: 1 batch has due observations missing");
-    expect(document.body.textContent).toContain("denominator below 5");
+    expect(document.body.textContent).toContain("Single-fish boxes");
+    expect(document.body.textContent).toContain("Shared boxes (>1 fish)");
     expect(document.body.textContent).toContain("Unknown (n=0)");
     expect(document.body.textContent).toContain("Median −1 hr 12 min");
     expect(document.body.textContent).toContain("อายุเป็นวัน ณ วันที่ติดตามล่าสุด");
-    expect(document.body.textContent).toContain("Day 5 ใช้เวลา due ของแต่ละล็อต");
     root.unmount();
   });
 
   it("distinguishes unavailable and incomplete supporting analytics from zero-valued results", async () => {
     const boxes = Array.from({ length: 9 }, (_, index) => ({
       boxCode: `B${index + 1}`,
+      fishBoxId: `box-${index + 1}`,
       n: index === 0 ? 0 : index,
       pct: index / 40,
       empty: index === 0,
       statusCounts: index === 1 ? undefined : { ALIVE: index },
-    }));
-    const batches = Array.from({ length: 9 }, (_, index) => ({
-      batchId: `batch-${index + 1}`,
-      batchCode: `Batch ${index + 1}`,
-      status: index === 0 ? "MISSING_CONDITION" : index === 1 ? "UNMAPPED" : "ELIGIBLE",
-      denominator: index < 2 ? 0 : 5,
-      n: index,
-      missingEmbryos: index < 2 ? 1 : 0,
-      pctNormal: index < 2 ? null : 0.8,
     }));
     const rootElement = document.createElement("div");
     document.body.append(rootElement);
@@ -1085,9 +1045,7 @@ describe("analytics dashboard", () => {
           <StackedComposition rows={[]} field="status" thai={false} />
           <AgeDistributionSummary rows={[]} thai={false} />
           <BoxCensusSummary rows={[]} thai={false} />
-          <BatchPerformanceSummary rows={[]} thai={false} />
           <BoxCensusSummary rows={boxes} thai={false} />
-          <BatchPerformanceSummary rows={batches} thai={false} />
           <TimingSummary
             rows={[
               {
@@ -1122,12 +1080,9 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("No composition data is available for this cohort.");
     expect(document.body.textContent).toContain("No fish ages are available for this cohort.");
     expect(document.body.textContent).toContain("No fish-box records are available for this cohort.");
-    expect(document.body.textContent).toContain("No batches are available for Day 5 comparison.");
-    expect(document.body.textContent).toContain("Showing 8 boxes; 1 more are in the full table.");
+    expect(document.body.textContent).toContain("B9");
+    expect(document.body.textContent).not.toContain("Showing 8 boxes");
     expect(document.body.textContent).toContain("No fish");
-    expect(document.body.textContent).toContain("Condition missing");
-    expect(document.body.textContent).toContain("Showing 8 of 9 batches; see the full table below.");
-    expect(document.body.textContent).toContain("Data-quality warning: 2 batches have due observations missing");
     expect(document.body.textContent).toContain("Median Unknown · IQR Unknown–+1 hr");
     expect(document.body.textContent).toContain("Unknown (n=5)");
     expect(document.body.textContent).toContain("Data quality: a downstream count exceeds its upstream count");

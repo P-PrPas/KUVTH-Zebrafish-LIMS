@@ -237,6 +237,13 @@ def _has_open_embryos(state: State, batch_id: str) -> bool:
     )
 
 
+def _injection_lot_count(state: State, batch_id: str) -> int:
+    return sum(
+        lot.get("batchId") == batch_id and lot.get("active") is not False and lot.get("deletedAt") is None
+        for lot in state.entities["injection-lots"].values()
+    )
+
+
 def _control_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = [
         {**copy.deepcopy(item), "stageLabel": stage_label(stage_number(str(item.get("stageCode") or "")))}
@@ -305,7 +312,13 @@ def build_experiments_router(store: Store) -> APIRouter:
                 )
                 if matching_lot is None:
                     continue
-            items.append({**copy.deepcopy(item), "hasOpenEmbryos": _has_open_embryos(state, str(item["id"]))})
+            items.append(
+                {
+                    **copy.deepcopy(item),
+                    "hasOpenEmbryos": _has_open_embryos(state, str(item["id"])),
+                    "nInjectionLots": _injection_lot_count(state, str(item["id"])),
+                }
+            )
         items.sort(key=lambda item: (str(item.get("experimentDate", "")), str(item.get("batchCode", ""))), reverse=True)
         try:
             offset = max(int(cursor or 0), 0)
@@ -349,6 +362,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             )
             lots.append(detail)
         result["injectionLots"] = sorted(lots, key=lambda item: str(item.get("lotNo", "")))
+        result["nInjectionLots"] = len(lots)
         return result
 
     @router.patch("/batches/{id}")
