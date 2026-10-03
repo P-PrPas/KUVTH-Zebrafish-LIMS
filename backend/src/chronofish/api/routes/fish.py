@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, Request
 from ...domain.rules import (
     age_days_on,
     condition_valid,
+    fish_health_status_valid,
     fish_outcome_valid,
     promotion_eligible_at,
     stage_label,
@@ -38,13 +39,22 @@ BANGKOK = ZoneInfo("Asia/Bangkok")
 SPECIMEN_KINDS = {"CL", "RT", "DC"}
 SPECIMEN_TYPES = {"WHOLE_EMBRYO", "CAUDAL_FIN_CLIP"}
 SPECIMEN_STORAGES = {"-20", "-80"}
-FISH_OBSERVATION_PATCH_FIELDS = {"observedOn", "outcome", "condition", "notes", "overrideReason", "correctionReason"}
+FISH_OBSERVATION_PATCH_FIELDS = {
+    "observedOn",
+    "outcome",
+    "condition",
+    "healthStatus",
+    "notes",
+    "overrideReason",
+    "correctionReason",
+}
 FISH_OBSERVATION_CREATE_FIELDS = {
     "clientUuid",
     "cloneFishId",
     "observedOn",
     "outcome",
     "condition",
+    "healthStatus",
     "notes",
     "overrideReason",
 }
@@ -198,6 +208,8 @@ def build_fish_router(store: Store) -> APIRouter:
                     "siteId": batch.get("siteId"),
                     "fishBoxId": item.get("fishBoxId"),
                     "status": "ALIVE",
+                    "recipientEggLotId": batch.get("recipientEggLotId"),
+                    "healthStatus": "UNDETERMINED",
                     "condition": "ABNORMAL"
                     if embryo.get("firstAbnormalStageCode")
                     else latest.get("condition", "NORMAL"),
@@ -295,7 +307,7 @@ def build_fish_router(store: Store) -> APIRouter:
         body = normalize(body)
 
         def operation(state: State):
-            for field in ("fishCode", "dob", "donorCellLineId"):
+            for field in ("fishCode", "dob", "donorCellLineId", "recipientEggLotId"):
                 if not body.get(field):
                     raise APIError(422, "validation_error", f"ต้องระบุ {field}")
             try:
@@ -310,6 +322,9 @@ def build_fish_router(store: Store) -> APIRouter:
             donor = state.entities["donor-cell-lines"].get(str(body["donorCellLineId"]))
             if not donor or donor.get("active") is False:
                 raise APIError(422, "validation_error", "ไม่พบ donorCellLineId ที่ active")
+            recipient = state.entities["recipient-egg-lots"].get(str(body["recipientEggLotId"]))
+            if not recipient or recipient.get("active") is False:
+                raise APIError(422, "validation_error", "ไม่พบ recipientEggLotId ที่ active")
             for field, resource in (("siteId", "sites"), ("fishBoxId", "fish-boxes")):
                 if body.get(field):
                     target = state.entities[resource].get(str(body[field]))
@@ -322,6 +337,8 @@ def build_fish_router(store: Store) -> APIRouter:
                 raise APIError(409, "conflict", "fishCode ซ้ำ")
             if body.get("condition") and not condition_valid(str(body["condition"])):
                 raise APIError(422, "validation_error", "condition ไม่ถูกต้อง")
+            if body.get("healthStatus") and not fish_health_status_valid(str(body["healthStatus"])):
+                raise APIError(422, "validation_error", "healthStatus ไม่ถูกต้อง")
             if body.get("sex") and body["sex"] not in SEX_VALUES:
                 raise APIError(422, "validation_error", "sex ไม่ถูกต้อง")
             fish_id, now = uuid7(), iso_now()
@@ -331,12 +348,14 @@ def build_fish_router(store: Store) -> APIRouter:
                 "fishCode": str(body["fishCode"]),
                 "dob": dob.isoformat(),
                 "donorCellLineId": body["donorCellLineId"],
+                "recipientEggLotId": body["recipientEggLotId"],
                 "siteId": body.get("siteId"),
                 "fishBoxId": body.get("fishBoxId"),
                 "remarks": body.get("remarks"),
                 "runningNo": state.next_fish_no,
                 "status": "ALIVE",
                 "condition": body.get("condition") or "NORMAL",
+                "healthStatus": body.get("healthStatus") or "UNDETERMINED",
                 "sex": body.get("sex") or "UNKNOWN",
                 "finClipped": False,
                 "active": True,
@@ -511,11 +530,15 @@ def build_fish_router(store: Store) -> APIRouter:
                     "ageDays": age_days_on(date.fromisoformat(fish["dob"]), observed_date),
                     "status": "ALIVE",
                     "condition": fish["condition"],
+                    "healthStatus": fish.get("healthStatus", "UNDETERMINED"),
                     "strain": donor.get("strain"),
                     "fishBoxCode": box.get("boxCode"),
                     "alreadyRecorded": recorded is not None,
                     "observationId": recorded.get("id") if recorded else None,
                     "recordedOutcome": recorded.get("outcome") if recorded else None,
+                    "recordedCondition": recorded.get("condition") if recorded else None,
+                    "recordedHealthStatus": recorded.get("healthStatus") if recorded else None,
+                    "recordedNotes": recorded.get("notes") if recorded else None,
                     "firstAbnormalOn": fish.get("firstAbnormalOn"),
                     "firstAbnormalAgeDays": fish.get("firstAbnormalAgeDays"),
                 }
@@ -563,6 +586,7 @@ def build_fish_router(store: Store) -> APIRouter:
                     or observed > datetime.now(BANGKOK).date()
                     or not fish_outcome_valid(str(item.get("outcome")))
                     or not condition_valid(str(item.get("condition")))
+                    or not fish_health_status_valid(str(item.get("healthStatus", "UNDETERMINED")))
                 ):
                     results.append(
                         {"clientUuid": client_id, "status": "rejected", "error": {"message": "วันที่หรือ enum ไม่ถูกต้อง"}}
@@ -591,6 +615,7 @@ def build_fish_router(store: Store) -> APIRouter:
                             "ageDays": existing["ageDays"],
                             "outcome": existing["outcome"],
                             "condition": existing["condition"],
+                            "healthStatus": existing.get("healthStatus", "UNDETERMINED"),
                         }
                     )
                     continue
@@ -621,6 +646,7 @@ def build_fish_router(store: Store) -> APIRouter:
                     "observedOn": observed.isoformat(),
                     "outcome": item["outcome"],
                     "condition": item["condition"],
+                    "healthStatus": item.get("healthStatus", "UNDETERMINED"),
                     "notes": item.get("notes"),
                     "overrideReason": item.get("overrideReason"),
                     "operatorId": request.headers.get("X-Operator-Id"),
@@ -673,11 +699,14 @@ def build_fish_router(store: Store) -> APIRouter:
                     **{
                         key: value
                         for key, value in payload.items()
-                        if key in {"observedOn", "outcome", "condition", "notes"}
+                        if key in {"observedOn", "outcome", "condition", "healthStatus", "notes"}
                     },
                 }
-                if not fish_outcome_valid(str(candidate.get("outcome"))) or not condition_valid(
-                    str(candidate.get("condition"))
+                candidate.setdefault("healthStatus", "UNDETERMINED")
+                if (
+                    not fish_outcome_valid(str(candidate.get("outcome")))
+                    or not condition_valid(str(candidate.get("condition")))
+                    or not fish_health_status_valid(str(candidate.get("healthStatus")))
                 ):
                     raise APIError(422, "validation_error", "invalid fish outcome or condition")
                 fish = state.entities["fish"].get(str(candidate["cloneFishId"]), {})

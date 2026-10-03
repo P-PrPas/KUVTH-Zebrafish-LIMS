@@ -14,7 +14,17 @@ type MasterResource =
   | "fish-boxes";
 const masterConfig: Record<
   MasterResource,
-  { label: string; fields: { key: string; label: string; type?: string; options?: string[]; required?: boolean }[] }
+  {
+    label: string;
+    fields: {
+      key: string;
+      label: string;
+      type?: string;
+      options?: string[];
+      required?: boolean;
+      placeholder?: string;
+    }[];
+  }
 > = {
   "experiment-groups": {
     label: "Experiment groups",
@@ -30,15 +40,18 @@ const masterConfig: Record<
     fields: [
       { key: "strain", label: "Strain", required: true },
       { key: "preparation", label: "Preparation", options: ["DISSOCIATED", "CHUNKS"], required: true },
+      { key: "preservation", label: "Preservation", options: ["FRESH", "CRYOPRESERVED"], required: true },
       { key: "batchCode", label: "Batch code" },
+      { key: "sampleInfo", label: "Cryovial / sample detail" },
     ],
   },
   "recipient-egg-lots": {
     label: "Recipient egg lots",
     fields: [
       { key: "breed", label: "Breed", required: true },
-      { key: "lotDate", label: "Lot date", type: "date" },
-      { key: "label", label: "Label", required: true },
+      { key: "lotDate", label: "Egg collection date", type: "date" },
+      { key: "donorFishCode", label: "Donor fish code" },
+      { key: "label", label: "Label", required: true, placeholder: "[E1...] YYYY-MM-DD" },
     ],
   },
   "csof-lots": { label: "CSOF lots", fields: [{ key: "lotCode", label: "Lot code", required: true }] },
@@ -72,9 +85,12 @@ const thaiField: Record<string, string> = {
   name: "ชื่อ",
   strain: "สายพันธุ์",
   preparation: "รูปแบบการเตรียม",
+  preservation: "การเก็บรักษา",
   batchCode: "รหัสชุด",
+  sampleInfo: "รายละเอียดตัวอย่าง/หลอดแช่แข็ง",
   breed: "สายพันธุ์",
-  lotDate: "วันที่รับชุด",
+  lotDate: "วันที่เก็บไข่",
+  donorFishCode: "รหัสปลาผู้ให้ไข่",
   label: "ชื่อเรียก",
   lotCode: "รหัสชุด",
   code: "รหัส",
@@ -405,7 +421,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     }
   };
   const fieldEditor = (
-    field: { key: string; label: string; type?: string; options?: string[]; required?: boolean },
+    field: { key: string; label: string; type?: string; options?: string[]; required?: boolean; placeholder?: string },
     value: string,
     onChange: (value: string) => void,
   ) => {
@@ -414,7 +430,20 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
         ? sites.map((site) => ({ value: String(site.id), label: String(site.code ?? site.name) }))
         : (field.options ?? []).map((option) => ({
             value: option,
-            label: option === "NATURAL_BREEDING" ? (thai ? "ผสมพันธุ์ตามธรรมชาติ" : "Natural breeding") : option,
+            label:
+              option === "NATURAL_BREEDING"
+                ? thai
+                  ? "ผสมพันธุ์ตามธรรมชาติ"
+                  : "Natural breeding"
+                : option === "FRESH"
+                  ? thai
+                    ? "สด"
+                    : "Fresh"
+                  : option === "CRYOPRESERVED"
+                    ? thai
+                      ? "แช่แข็งเก็บรักษา"
+                      : "Cryopreserved"
+                    : option,
           }));
     return options.length ? (
       <select required={field.required} value={value} onChange={(event) => onChange(event.target.value)}>
@@ -428,6 +457,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     ) : (
       <input
         required={field.required}
+        placeholder={field.placeholder}
         type={field.type ?? "text"}
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -464,6 +494,11 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
           <label key={field.key}>
             {label(field)}
             {fieldEditor(field, form[field.key] ?? "", (value) => setForm({ ...form, [field.key]: value }))}
+            {resource === "recipient-egg-lots" && field.key === "label" && (
+              <span className="field-hint">
+                {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
+              </span>
+            )}
           </label>
         ))}
         <button className="button button--primary" type="submit">
@@ -478,6 +513,11 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
               {label(field)}
               {fieldEditor(field, String(editing[field.key] ?? ""), (value) =>
                 setEditing({ ...editing, [field.key]: value }),
+              )}
+              {resource === "recipient-egg-lots" && field.key === "label" && (
+                <span className="field-hint">
+                  {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
+                </span>
               )}
             </label>
           ))}

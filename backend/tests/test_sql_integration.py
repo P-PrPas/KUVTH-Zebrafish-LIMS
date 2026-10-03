@@ -56,7 +56,7 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     donor = first.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"strain-{suffix}", "preparation": "DISSOCIATED"},
+        json={"strain": f"strain-{suffix}", "preparation": "DISSOCIATED", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = first.post(
         "/api/v1/treatment-groups",
@@ -188,7 +188,7 @@ def test_concurrent_batch_codes_and_live_wells_remain_unique():
     donor = client.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"well-{suffix}", "preparation": "CHUNKS"},
+        json={"strain": f"well-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = client.post(
         "/api/v1/treatment-groups",
@@ -246,7 +246,7 @@ def test_concurrent_promotions_allocate_unique_fish_numbers():
         donor = client.post(
             "/api/v1/donor-cell-lines",
             headers=_headers(),
-            json={"strain": f"fish-{suffix}", "preparation": "CHUNKS"},
+            json={"strain": f"fish-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
         ).json()
         treatment = client.post(
             "/api/v1/treatment-groups",
@@ -320,7 +320,7 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
     donor = client.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"observation-{suffix}", "preparation": "CHUNKS"},
+        json={"strain": f"observation-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = client.post(
         "/api/v1/treatment-groups",

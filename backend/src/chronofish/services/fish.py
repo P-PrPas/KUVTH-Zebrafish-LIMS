@@ -112,6 +112,7 @@ def recompute_fish(state: State, fish_id: str) -> None:
     }
     if latest:
         fish["condition"] = latest["condition"]
+        fish["healthStatus"] = latest.get("healthStatus", "UNDETERMINED")
         if latest["outcome"] in {"ALIVE", "NOT_OBSERVED"}:
             fish["status"] = "ALIVE"
             fish.pop("exitDate", None)

@@ -15,7 +15,10 @@ MASTER = {
     "experiment-groups": {"required": ("code", "name"), "unique": ("code",)},
     "sites": {"required": ("code", "name"), "unique": ("code",)},
     "operators": {"required": ("name",), "unique": ("name",), "references": {"siteId": "sites"}},
-    "donor-cell-lines": {"required": ("strain", "preparation"), "unique": ("strain", "preparation", "batchCode")},
+    "donor-cell-lines": {
+        "required": ("strain", "preparation", "preservation"),
+        "unique": ("strain", "preparation", "batchCode"),
+    },
     "recipient-egg-lots": {"required": ("breed", "label"), "unique": ("label",)},
     "csof-lots": {"required": ("lotCode",), "unique": ("lotCode",)},
     "treatment-groups": {"required": ("code", "armType"), "unique": ("code",)},
@@ -33,10 +36,19 @@ def _validate(state: State, resource: str, item: dict[str, Any], current_id: str
             if not isinstance(value, str) or len(value) > limit or (field != "description" and not value.strip()):
                 raise APIError(422, "validation_error", f"{field} is invalid (maximum {limit} characters)")
     missing = next((field for field in spec["required"] if not str(item.get(field, "")).strip()), None)
-    if missing:
+    if missing and not (resource == "donor-cell-lines" and current_id and missing == "preservation"):
         raise APIError(422, "validation_error", f"ต้องระบุ {missing}")
     if resource == "donor-cell-lines" and item.get("preparation") not in {"DISSOCIATED", "CHUNKS"}:
         raise APIError(422, "validation_error", "preparation ต้องเป็น DISSOCIATED หรือ CHUNKS")
+    if resource == "donor-cell-lines" and item.get("preservation") not in {"FRESH", "CRYOPRESERVED"}:
+        if not (current_id and item.get("preservation") is None):
+            raise APIError(422, "validation_error", "preservation ต้องเป็น FRESH หรือ CRYOPRESERVED")
+    if resource == "donor-cell-lines" and any(
+        len(str(item.get(field) or "")) > limit for field, limit in (("sampleInfo", 1000), ("batchCode", 100))
+    ):
+        raise APIError(422, "validation_error", "sampleInfo หรือ batchCode ยาวเกินกำหนด")
+    if resource == "recipient-egg-lots" and len(str(item.get("donorFishCode") or "")) > 150:
+        raise APIError(422, "validation_error", "donorFishCode ยาวเกินกำหนด")
     if resource == "treatment-groups" and item.get("armType") not in {"SCNT", "NATURAL_BREEDING", "IVF"}:
         raise APIError(422, "validation_error", "armType ไม่ถูกต้อง")
     for field, referenced in spec.get("references", {}).items():

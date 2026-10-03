@@ -1178,6 +1178,8 @@ export interface components {
         /** @enum {string} */
         Condition: "NORMAL" | "ABNORMAL" | "UNDETERMINED";
         /** @enum {string} */
+        FishHealthStatus: "HEALTHY" | "WEAK" | "SICK" | "DISABLED" | "AGED" | "UNDETERMINED";
+        /** @enum {string} */
         FishStatus: "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
         /** @enum {string} */
         Sex: "M" | "F" | "UNKNOWN";
@@ -1268,6 +1270,10 @@ export interface components {
             /** @example AB */
             strain: string;
             preparation: components["schemas"]["Preparation"];
+            /** @enum {string|null} */
+            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             /** @example AB240426_e48h */
             batchCode?: string | null;
             active: boolean;
@@ -1275,6 +1281,10 @@ export interface components {
         DonorCellLineInput: {
             strain: string;
             preparation: components["schemas"]["Preparation"];
+            /** @enum {string} */
+            preservation: "FRESH" | "CRYOPRESERVED";
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             batchCode?: string | null;
             /** @default true */
             active: boolean;
@@ -1282,6 +1292,10 @@ export interface components {
         DonorCellLinePatchInput: {
             strain?: string;
             preparation?: components["schemas"]["Preparation"];
+            /** @enum {string|null} */
+            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             batchCode?: string | null;
             active?: boolean;
         };
@@ -1292,6 +1306,7 @@ export interface components {
             breed: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             /** @example TAB Taiwan 29-04-2025 */
             label: string;
             active: boolean;
@@ -1300,6 +1315,7 @@ export interface components {
             breed: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             label: string;
             /** @default true */
             active: boolean;
@@ -1308,6 +1324,7 @@ export interface components {
             breed?: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             label?: string;
             active?: boolean;
         };
@@ -1542,6 +1559,7 @@ export interface components {
              */
             activatedAt?: string | null;
             nEggs?: number | null;
+            nManipulated?: number | null;
             nActivated: number;
             notes?: string | null;
         };
@@ -1559,6 +1577,7 @@ export interface components {
             /** Format: date-time */
             activatedAt: string;
             nEggs?: number | null;
+            nManipulated?: number | null;
             /** @description This many embryo records are created immediately (FR-308). */
             nActivated: number;
             /** @description Optional, in sequence order; entry i is the well of embryo i+1. */
@@ -1578,6 +1597,7 @@ export interface components {
             /** Format: date-time */
             activatedAt: string;
             nEggs?: number | null;
+            nManipulated?: number | null;
             nActivated: number;
             wellPositions?: string[] | null;
             notes?: string | null;
@@ -1671,6 +1691,18 @@ export interface components {
                 /** Format: date-time */
                 priorObservedAt?: string | null;
                 priorNotes?: string | null;
+                history?: {
+                    /** Format: uuid */
+                    id: string;
+                    stageCode: string;
+                    stageLabel: string;
+                    /** Format: date-time */
+                    observedAt: string;
+                    outcome: components["schemas"]["EmbryoOutcome"];
+                    condition: components["schemas"]["Condition"];
+                    notes?: string | null;
+                    operatorName?: string | null;
+                }[];
                 firstAbnormalStageLabel?: string | null;
             }[];
         };
@@ -1763,6 +1795,7 @@ export interface components {
             ageDays: number;
             status: components["schemas"]["FishStatus"];
             condition: components["schemas"]["Condition"];
+            healthStatus: components["schemas"]["FishHealthStatus"];
             strain?: string | null;
             /** Format: date */
             firstAbnormalOn?: string | null;
@@ -1776,6 +1809,10 @@ export interface components {
              */
             observationId?: string | null;
             recordedOutcome?: components["schemas"]["FishOutcome"] | null;
+            recordedCondition?: components["schemas"]["Condition"] | null;
+            recordedHealthStatus?: components["schemas"]["FishHealthStatus"] | null;
+            /** @description Existing observation note for this fish/date, used to prefill the daily note editor. */
+            recordedNotes?: string | null;
         };
         FishObservationInput: {
             /** Format: uuid */
@@ -1786,6 +1823,7 @@ export interface components {
             observedOn: string;
             outcome: components["schemas"]["FishOutcome"];
             condition: components["schemas"]["Condition"];
+            healthStatus: components["schemas"]["FishHealthStatus"];
             notes?: string | null;
             /** @description Required by the server when the observation is backdated (BR-07, BR-19). */
             overrideReason?: string | null;
@@ -1795,6 +1833,7 @@ export interface components {
             observedOn?: string;
             outcome?: components["schemas"]["FishOutcome"];
             condition?: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             notes?: string | null;
             /** @description Audit reason for correcting the observation. */
             overrideReason: string;
@@ -1866,12 +1905,15 @@ export interface components {
             /** Format: uuid */
             donorCellLineId: string;
             /** Format: uuid */
+            recipientEggLotId?: string | null;
+            /** Format: uuid */
             siteId?: string | null;
             /** Format: uuid */
             fishBoxId?: string | null;
             fishBoxCode?: string | null;
             status: components["schemas"]["FishStatus"];
             condition: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             /** Format: date */
             firstAbnormalOn?: string | null;
             firstAbnormalAgeDays?: number | null;
@@ -1890,10 +1932,13 @@ export interface components {
             /** Format: uuid */
             donorCellLineId: string;
             /** Format: uuid */
+            recipientEggLotId: string;
+            /** Format: uuid */
             siteId?: string | null;
             /** Format: uuid */
             fishBoxId?: string | null;
             condition?: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             sex?: components["schemas"]["Sex"];
             remarks?: string | null;
             /** @description Required by the server when manually registering an older fish (BR-07). */

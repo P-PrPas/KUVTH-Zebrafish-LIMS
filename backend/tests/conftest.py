@@ -52,7 +52,9 @@ def master_data(client: TestClient, write_headers: dict[str, str], unique_key: C
         return response.json()
 
     site = create("/api/v1/sites", {"code": "KU", "name": "KU Lab"})
-    donor = create("/api/v1/donor-cell-lines", {"strain": "AB", "preparation": "CHUNKS"})
+    donor = create(
+        "/api/v1/donor-cell-lines", {"strain": "AB", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"}
+    )
     treatment = create("/api/v1/treatment-groups", {"code": "SCNT", "armType": "SCNT"})
     return {
         "site": site,

@@ -501,7 +501,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   const [editing, setEditing] = useState(false);
   const [showLotForm, setShowLotForm] = useState(false);
   const [lot, setLot] = useState({
-    lotNo: "1",
+    lotNo: "",
     donorCellLineId: "",
     activatedAt: dateTimeInput(""),
     enuPowerPct: "",
@@ -510,6 +510,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     enuStartAt: "",
     enuFinishAt: "",
     nEggs: "",
+    nManipulated: "",
     nActivated: "1",
     notes: "",
     wellPositions: "",
@@ -522,6 +523,8 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       .then(async (value) => {
         setDetail(value);
         const lots = (value.injectionLots as ApiItem[] | undefined) ?? [];
+        const nextLotNo = Math.max(0, ...lots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
+        setLot((current) => ({ ...current, lotNo: current.lotNo || String(nextLotNo) }));
         const loaded = await Promise.all(
           lots.map(
             async (item: ApiItem) =>
@@ -619,6 +622,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         enuPulseUs: lot.enuPulseUs ? Number(lot.enuPulseUs) : null,
         enuLed: lot.enuLed ? Number(lot.enuLed) : null,
         nEggs: lot.nEggs ? Number(lot.nEggs) : null,
+        nManipulated: lot.nManipulated ? Number(lot.nManipulated) : null,
         nActivated: Number(lot.nActivated),
         wellPositions: positions,
       };
@@ -664,6 +668,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         load();
       }
       setTemplateId(null);
+      const lots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
+      const nextLotNo =
+        Math.max(0, ...[...lots, optimistic].map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
+      setLot((current) => ({ ...current, lotNo: String(nextLotNo) }));
     } catch (e) {
       setDetail(previousDetail);
       setMessage((e as Error).message);
@@ -682,6 +690,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       enuStartAt: "",
       enuFinishAt: "",
       nEggs: String(item.nEggs ?? ""),
+      nManipulated: String(item.nManipulated ?? ""),
       nActivated: "1",
       notes: String(item.notes ?? ""),
       wellPositions: "",
@@ -889,6 +898,15 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
             <label>
               {thai ? "หมายเลขชุดตัวอ่อน" : "Lot number"}
               <input required value={lot.lotNo} onChange={(event) => setLotValue("lotNo", event.target.value)} />
+              <small>
+                {templateId
+                  ? thai
+                    ? "ใช้หมายเลขของแม่แบบ หรือแก้ไขได้"
+                    : "Uses the template number; you can change it."
+                  : thai
+                    ? "แนะนำหมายเลขถัดไปให้อัตโนมัติ และแก้ไขได้"
+                    : "Next number is suggested automatically and can be changed."}
+              </small>
             </label>
             <label>
               {thai ? "สายเซลล์ผู้ให้" : "Donor cell line"}
@@ -951,10 +969,21 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           </div>
           <details className="workflow-disclosure">
             <summary>
-              {thai ? "ค่าการกระตุ้นและตำแหน่งหลุม (กรอกเมื่อจำเป็น)" : "ENU and well-position details (optional)"}
+              {thai
+                ? "การจัดการตัวอ่อน / ENU และตำแหน่งหลุม (ไม่บังคับ)"
+                : "Embryo manipulation / ENU and well-position details (optional)"}
             </summary>
             <div className="workflow-disclosure__body">
               <div className="form-card--inline">
+                <label>
+                  {thai ? "จำนวนตัวอ่อนที่จัดการ" : "Manipulated embryos"}
+                  <input
+                    type="number"
+                    min="0"
+                    value={lot.nManipulated}
+                    onChange={(event) => setLotValue("nManipulated", event.target.value)}
+                  />
+                </label>
                 <label>
                   ENU pulse µs
                   <input

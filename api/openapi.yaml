@@ -2058,6 +2058,9 @@ components:
     Condition:
       type: string
       enum: [NORMAL, ABNORMAL, UNDETERMINED]
+    FishHealthStatus:
+      type: string
+      enum: [HEALTHY, WEAK, SICK, DISABLED, AGED, UNDETERMINED]
     FishStatus:
       type: string
       enum: [ALIVE, DEAD, FROZEN, DISCARDED]
@@ -2167,14 +2170,18 @@ components:
         id: { type: string, format: uuid }
         strain: { type: string, examples: [AB] }
         preparation: { $ref: '#/components/schemas/Preparation' }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], examples: [AB240426_e48h] }
         active: { type: boolean }
     DonorCellLineInput:
       type: object
-      required: [strain, preparation]
+      required: [strain, preparation, preservation]
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
+        preservation: { type: string, enum: [FRESH, CRYOPRESERVED] }
+        sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean, default: true }
     DonorCellLinePatchInput:
@@ -2183,6 +2190,8 @@ components:
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean }
 
@@ -2193,6 +2202,7 @@ components:
         id: { type: string, format: uuid }
         breed: { type: string, examples: [TAB Taiwan] }
         lotDate: { type: [string, 'null'], format: date }
+        donorFishCode: { type: [string, 'null'], maxLength: 150 }
         label: { type: string, examples: ['TAB Taiwan 29-04-2025'] }
         active: { type: boolean }
     RecipientEggLotInput:
@@ -2201,6 +2211,7 @@ components:
       properties:
         breed: { type: string, minLength: 1, maxLength: 100 }
         lotDate: { type: [string, 'null'], format: date }
+        donorFishCode: { type: [string, 'null'], maxLength: 150 }
         label: { type: string, minLength: 1, maxLength: 200 }
         active: { type: boolean, default: true }
     RecipientEggLotPatchInput:
@@ -2209,6 +2220,7 @@ components:
       properties:
         breed: { type: string, minLength: 1, maxLength: 100 }
         lotDate: { type: [string, 'null'], format: date }
+        donorFishCode: { type: [string, 'null'], maxLength: 150 }
         label: { type: string, minLength: 1, maxLength: 200 }
         active: { type: boolean }
 
@@ -2442,6 +2454,7 @@ components:
           format: date-time
           description: T0 for everything downstream (BR-01); null only for a copied draft template.
         nEggs: { type: [integer, 'null'] }
+        nManipulated: { type: [integer, 'null'], minimum: 0 }
         nActivated: { type: integer }
         notes: { type: [string, 'null'] }
     InjectionLotInput:
@@ -2457,6 +2470,7 @@ components:
         enuFinishAt: { type: [string, 'null'], format: date-time }
         activatedAt: { type: string, format: date-time }
         nEggs: { type: [integer, 'null'], minimum: 0 }
+        nManipulated: { type: [integer, 'null'], minimum: 0 }
         nActivated:
           type: integer
           minimum: 0
@@ -2479,6 +2493,7 @@ components:
         enuFinishAt: { type: [string, 'null'], format: date-time }
         activatedAt: { type: string, format: date-time }
         nEggs: { type: [integer, 'null'], minimum: 0 }
+        nManipulated: { type: [integer, 'null'], minimum: 0 }
         nActivated: { type: integer, minimum: 0, maximum: 96 }
         wellPositions:
           type: [array, 'null']
@@ -2590,6 +2605,20 @@ components:
               priorObservationId: { type: [string, 'null'], format: uuid }
               priorObservedAt: { type: [string, 'null'], format: date-time }
               priorNotes: { type: [string, 'null'] }
+              history:
+                type: array
+                items:
+                  type: object
+                  required: [id, stageCode, stageLabel, observedAt, outcome, condition]
+                  properties:
+                    id: { type: string, format: uuid }
+                    stageCode: { type: string }
+                    stageLabel: { type: string }
+                    observedAt: { type: string, format: date-time }
+                    outcome: { $ref: '#/components/schemas/EmbryoOutcome' }
+                    condition: { $ref: '#/components/schemas/Condition' }
+                    notes: { type: [string, 'null'] }
+                    operatorName: { type: [string, 'null'] }
               firstAbnormalStageLabel: { type: [string, 'null'] }
 
     EmbryoObservationInput:
@@ -2665,7 +2694,7 @@ components:
 
     RollCallEntry:
       type: object
-      required: [fishId, fishCode, ageDays, status, condition, alreadyRecorded]
+      required: [fishId, fishCode, ageDays, status, condition, healthStatus, alreadyRecorded]
       properties:
         fishId: { type: string, format: uuid }
         fishCode: { type: string, examples: ['No.6_Clone3-AB cell-16'] }
@@ -2673,6 +2702,7 @@ components:
         ageDays: { type: integer, examples: [329] }
         status: { $ref: '#/components/schemas/FishStatus' }
         condition: { $ref: '#/components/schemas/Condition' }
+        healthStatus: { $ref: '#/components/schemas/FishHealthStatus' }
         strain: { type: [string, 'null'] }
         firstAbnormalOn: { type: [string, 'null'], format: date }
         firstAbnormalAgeDays: { type: [integer, 'null'] }
@@ -2688,16 +2718,22 @@ components:
           oneOf:
             - $ref: '#/components/schemas/FishOutcome'
             - type: 'null'
+        recordedCondition: { oneOf: [ { $ref: '#/components/schemas/Condition' }, { type: 'null' } ] }
+        recordedHealthStatus: { oneOf: [ { $ref: '#/components/schemas/FishHealthStatus' }, { type: 'null' } ] }
+        recordedNotes:
+          type: [string, 'null']
+          description: Existing observation note for this fish/date, used to prefill the daily note editor.
 
     FishObservationInput:
       type: object
-      required: [clientUuid, cloneFishId, observedOn, outcome, condition]
+      required: [clientUuid, cloneFishId, observedOn, outcome, condition, healthStatus]
       properties:
         clientUuid: { type: string, format: uuid }
         cloneFishId: { type: string, format: uuid }
         observedOn: { type: string, format: date }
         outcome: { $ref: '#/components/schemas/FishOutcome' }
         condition: { $ref: '#/components/schemas/Condition' }
+        healthStatus: { $ref: '#/components/schemas/FishHealthStatus' }
         notes: { type: [string, 'null'] }
         overrideReason:
           type: [string, 'null']
@@ -2712,6 +2748,7 @@ components:
         observedOn: { type: string, format: date }
         outcome: { $ref: '#/components/schemas/FishOutcome' }
         condition: { $ref: '#/components/schemas/Condition' }
+        healthStatus: { $ref: '#/components/schemas/FishHealthStatus' }
         notes: { type: [string, 'null'] }
         overrideReason:
           type: string
@@ -2780,11 +2817,13 @@ components:
           description: Computed live from dob, never stored (BR-11, DC-04).
         strain: { type: string }
         donorCellLineId: { type: string, format: uuid }
+        recipientEggLotId: { type: [string, 'null'], format: uuid }
         siteId: { type: [string, 'null'], format: uuid }
         fishBoxId: { type: [string, 'null'], format: uuid }
         fishBoxCode: { type: [string, 'null'] }
         status: { $ref: '#/components/schemas/FishStatus' }
         condition: { $ref: '#/components/schemas/Condition' }
+        healthStatus: { $ref: '#/components/schemas/FishHealthStatus' }
         firstAbnormalOn: { type: [string, 'null'], format: date }
         firstAbnormalAgeDays: { type: [integer, 'null'] }
         sex: { $ref: '#/components/schemas/Sex' }
@@ -2794,14 +2833,16 @@ components:
         remarks: { type: [string, 'null'] }
     CloneFishInput:
       type: object
-      required: [fishCode, dob, donorCellLineId]
+      required: [fishCode, dob, donorCellLineId, recipientEggLotId]
       properties:
         fishCode: { type: string, minLength: 1, maxLength: 150 }
         dob: { type: string, format: date }
         donorCellLineId: { type: string, format: uuid }
+        recipientEggLotId: { type: string, format: uuid }
         siteId: { type: [string, 'null'], format: uuid }
         fishBoxId: { type: [string, 'null'], format: uuid }
         condition: { $ref: '#/components/schemas/Condition' }
+        healthStatus: { $ref: '#/components/schemas/FishHealthStatus' }
         sex: { $ref: '#/components/schemas/Sex' }
         remarks: { type: [string, 'null'] }
         overrideReason:

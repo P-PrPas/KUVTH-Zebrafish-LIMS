@@ -626,7 +626,7 @@ describe("due and checkpoint workflows", () => {
     });
 
     expect(document.body.textContent).toContain("Saved by Operator unavailable");
-    expect(document.body.textContent).toContain("Observation time is captured automatically");
+    expect(document.body.textContent).toContain("Leave time blank to use now");
     const correctionReason = Array.from(document.querySelectorAll("label"))
       .find((label) => label.textContent?.startsWith("Correction reason"))
       ?.querySelector("input") as HTMLInputElement;
