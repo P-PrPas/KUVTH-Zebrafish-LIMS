@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -424,6 +425,7 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
 
 def test_sql_store_round_trips_feedback_fields():
     suffix = uuid7()[-12:]
+    lab_today = datetime.now(ZoneInfo("Asia/Bangkok")).date().isoformat()
     store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
     client = _client(store)
     try:
@@ -464,7 +466,7 @@ def test_sql_store_round_trips_feedback_fields():
             headers=_headers(),
             json={
                 "batchCode": f"RT-{suffix}",
-                "experimentDate": date.today().isoformat(),
+                "experimentDate": lab_today,
                 "siteId": site["id"],
                 "operatorId": DEMO_OPERATOR_ID,
                 "protocolId": PROTOCOL_ID,
@@ -492,7 +494,7 @@ def test_sql_store_round_trips_feedback_fields():
             headers=_headers(),
             json={
                 "fishCode": f"ROUNDTRIP-{suffix}",
-                "dob": date.today().isoformat(),
+                "dob": lab_today,
                 "donorCellLineId": donor["id"],
                 "recipientEggLotId": recipient["id"],
                 "siteId": site["id"],
@@ -510,7 +512,7 @@ def test_sql_store_round_trips_feedback_fields():
                     {
                         "clientUuid": uuid7(),
                         "cloneFishId": fish_id,
-                        "observedOn": date.today().isoformat(),
+                        "observedOn": lab_today,
                         "outcome": "ALIVE",
                         "condition": "NORMAL",
                         "healthStatus": "SICK",
