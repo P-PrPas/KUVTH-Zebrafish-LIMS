@@ -21,6 +21,8 @@ Set `BOOTSTRAP_ADMIN_EMAIL` to the invited `@ku.th` address of the first admin, 
 
 Admins may select any active operator to record work on their behalf. A member can record work only after an admin links their account to one operator; the server rejects a different operator in either the request header or batch body. Sign-in code requests return the same accepted response for invited and unknown addresses. Delivery runs after the response; check server logs if mail does not arrive. An invitation that creates an account but fails to send email appears in the admin list and can be resent there.
 
+Members may view and record observations in another operator's experiment. They may edit experiment metadata, including notes, only when that experiment belongs to their linked operator. Duplicating another operator's experiment creates a new experiment under the member's linked operator; the original is unchanged. Admins may edit and duplicate experiments for any operator.
+
 The API is not a TLS terminator. Production traffic must reach it through an HTTPS reverse proxy or private VPN, with the proxy enforcing the approved IP/CIDR allowlist. Set `IP_ALLOWLIST` as a second control when the API can be reached outside that proxy. Do not trust arbitrary forwarded headers from public clients.
 
 ## Build and deploy

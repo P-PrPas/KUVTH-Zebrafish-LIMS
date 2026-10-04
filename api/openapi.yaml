@@ -972,6 +972,7 @@ paths:
     patch:
       tags: [Experiments]
       summary: Update a batch
+      description: Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
       operationId: updateBatch
       parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
@@ -985,6 +986,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Batch' }
+        '403': { description: Member is not linked to the batch operator }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /batches/{id}/duplicate:
@@ -992,7 +994,10 @@ paths:
     post:
       tags: [Experiments]
       summary: Create a new batch by copying this one
-      description: Copies everything except dates and times (FR-305) — enucleation settings repeat almost every run.
+      description: |
+        Copies batch settings except dates and times (FR-305). For a member,
+        the new batch belongs to their linked operator even when the source
+        belongs to someone else. Admin copies retain the source operator.
       operationId: duplicateBatch
       parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:

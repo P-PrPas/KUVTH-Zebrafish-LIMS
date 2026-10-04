@@ -50,6 +50,11 @@ class AuthService:
     def deliver_code(self, email: str) -> None:
         try:
             self._deliver_code(email)
+        except APIError as error:
+            if error.status == 429:
+                LOGGER.info("Sign-in code request throttled")
+            else:
+                LOGGER.exception("Sign-in code delivery failed")
         except Exception:
             LOGGER.exception("Sign-in code delivery failed")
 

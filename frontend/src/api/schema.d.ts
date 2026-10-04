@@ -664,7 +664,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a batch */
+        /**
+         * Update a batch
+         * @description Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
+         */
         patch: operations["updateBatch"];
         trace?: never;
     };
@@ -681,7 +684,9 @@ export interface paths {
         put?: never;
         /**
          * Create a new batch by copying this one
-         * @description Copies everything except dates and times (FR-305) — enucleation settings repeat almost every run.
+         * @description Copies batch settings except dates and times (FR-305). For a member,
+         *     the new batch belongs to their linked operator even when the source
+         *     belongs to someone else. Admin copies retain the source operator.
          */
         post: operations["duplicateBatch"];
         delete?: never;
@@ -3972,6 +3977,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Batch"];
                 };
+            };
+            /** @description Member is not linked to the batch operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["NotFound"];
         };
