@@ -37,10 +37,21 @@ def test_default_driver_is_memory_only_for_dev_and_test(monkeypatch, app_env):
     assert load_config().db_driver == "memory"
 
 
+def test_auth_secret_is_required_outside_development_and_test(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DB_DRIVER", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db")
+    monkeypatch.delenv("AUTH_SECRET", raising=False)
+
+    with pytest.raises(ValueError, match="AUTH_SECRET is required"):
+        load_config()
+
+
 def test_default_driver_is_postgres_when_app_env_is_unset(monkeypatch):
     monkeypatch.delenv("APP_ENV", raising=False)
     monkeypatch.delenv("DB_DRIVER", raising=False)
     monkeypatch.setenv("DATABASE_URL", "postgresql://db")
+    monkeypatch.setenv("AUTH_SECRET", "test-only-secret")
 
     assert load_config().db_driver == "postgres"
 

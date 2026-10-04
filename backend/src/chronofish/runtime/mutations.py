@@ -46,6 +46,8 @@ def audit(
             "newValues": copy.deepcopy(new),
             "operatorId": request.headers.get("X-Operator-Id"),
             "deviceId": request.headers.get("X-Device-Id"),
+            "actorUserId": getattr(request.state, "user", {}).get("id"),
+            "actorEmail": getattr(request.state, "user", {}).get("email"),
             "occurredAt": iso_now(),
         }
     )

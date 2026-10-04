@@ -24,6 +24,7 @@ describe("API write context", () => {
       "X-Operator-Id": "operator-a",
       "X-Device-Id": "device-a",
       "X-Idempotency-Key": "request-a",
+      "X-Actor-User-Id": "01900000-0000-7000-8000-000000000099",
     });
   });
 

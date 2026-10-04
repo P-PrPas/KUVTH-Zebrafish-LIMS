@@ -217,7 +217,10 @@ def test_rate_limit_client_bookkeeping_is_bounded(client):
 
 
 def test_write_context_headers_are_required(client):
-    response = client.post("/api/v1/sites", json={"code": "A", "name": "A"})
+    actor_id = client.get("/api/v1/auth/me").json()["user"]["id"]
+    response = client.post(
+        "/api/v1/sites", headers={"X-Actor-User-Id": actor_id}, json={"code": "A", "name": "A"}
+    )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_context"
 

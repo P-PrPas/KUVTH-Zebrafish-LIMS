@@ -1,7 +1,8 @@
 import { deviceId, mutationHeaders, operatorId, request } from "./api/client";
+import { cachedUser } from "./auth";
 import { uuidv7 } from "./uuidv7";
 
-export type QueueStatus = "pending" | "rejected";
+export type QueueStatus = "pending" | "rejected" | "auth-required";
 export type QueuedWrite = {
   path: string;
   method: string;
@@ -10,6 +11,8 @@ export type QueuedWrite = {
   key: string;
   operatorId: string;
   deviceId: string;
+  actorUserId?: string;
+  actorEmail?: string;
   createdAt: number;
   attempt: number;
   nextAttempt: number;
@@ -20,7 +23,7 @@ export type QueuedWrite = {
 export type QueuedWriteRecord = { id: IDBValidKey; value: QueuedWrite };
 
 const databaseName = "chronofish";
-const databaseVersion = 2;
+const databaseVersion = 3;
 const storeName = "writes";
 
 export type JitterSource = () => number;
@@ -36,13 +39,14 @@ export function nextAttemptAt(attempt: number, now = Date.now(), random: JitterS
 }
 
 export function queuedHeaders(
-  item: Pick<QueuedWrite, "operatorId" | "deviceId" | "key" | "contentType">,
+  item: Pick<QueuedWrite, "operatorId" | "deviceId" | "key" | "contentType" | "actorUserId">,
 ): Record<string, string> {
   return {
     "Content-Type": item.contentType || "application/json",
     "X-Operator-Id": item.operatorId,
     "X-Device-Id": item.deviceId,
     "X-Idempotency-Key": item.key,
+    "X-Actor-User-Id": item.actorUserId ?? "",
   };
 }
 
@@ -57,8 +61,15 @@ function withoutClientUuid(value: unknown): unknown {
   );
 }
 
-export function writeIdentity(path: string, method: string, body: unknown, operator = "", device = ""): string {
-  return `${operator}\0${device}\0${method.toUpperCase()} ${path} ${JSON.stringify(withoutClientUuid(body))}`;
+export function writeIdentity(
+  path: string,
+  method: string,
+  body: unknown,
+  operator = "",
+  device = "",
+  actor = "",
+): string {
+  return `${actor}\0${operator}\0${device}\0${method.toUpperCase()} ${path} ${JSON.stringify(withoutClientUuid(body))}`;
 }
 
 function openQueue(): Promise<IDBDatabase> {
@@ -100,8 +111,9 @@ async function persistQueuedWrite(item: QueuedWrite): Promise<QueuedWrite> {
   try {
     const existing = (await records(db)).find(
       ({ value }) =>
-        value.status === "pending" &&
-        (value.identity ?? writeIdentity(value.path, value.method, value.body, value.operatorId, value.deviceId)) ===
+        (value.status === "pending" || value.status === "auth-required") &&
+        (value.identity ??
+          writeIdentity(value.path, value.method, value.body, value.operatorId, value.deviceId, value.actorUserId)) ===
           item.identity,
     );
     if (existing) return existing.value;
@@ -123,7 +135,9 @@ const activeWrites = new Map<string, Promise<QueuedWrite>>();
 export function queueWrite(item: QueuedWrite): Promise<QueuedWrite> {
   const stored = {
     ...item,
-    identity: item.identity ?? writeIdentity(item.path, item.method, item.body, item.operatorId, item.deviceId),
+    identity:
+      item.identity ??
+      writeIdentity(item.path, item.method, item.body, item.operatorId, item.deviceId, item.actorUserId),
   };
   const existing = activeWrites.get(stored.identity);
   if (existing) return existing;
@@ -133,15 +147,61 @@ export function queueWrite(item: QueuedWrite): Promise<QueuedWrite> {
 }
 
 export async function queueCount(): Promise<number> {
-  return countByStatus("pending");
+  const userId = cachedUser()?.id;
+  return countQueueForActor(userId);
+}
+
+export async function queueCountForOtherAccounts(actorUserId: string): Promise<number> {
+  return countUnownedOrForeign(actorUserId, false);
+}
+
+export async function unassignedQueueCount(): Promise<number> {
+  return countUnownedOrForeign("", true);
+}
+
+async function countUnownedOrForeign(actorUserId: string, unassignedOnly: boolean): Promise<number> {
+  if (!window.indexedDB) return 0;
+  let db: IDBDatabase | undefined;
+  try {
+    db = await openQueue();
+    return (await records(db)).filter(({ value }) => {
+      const unresolved = value.status === "pending" || value.status === "auth-required" || value.status === "rejected";
+      if (!unresolved) return false;
+      if (unassignedOnly) return !value.actorUserId;
+      return Boolean(value.actorUserId && value.actorUserId !== actorUserId);
+    }).length;
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
+  }
+}
+
+export async function countQueueForActor(actorUserId?: string): Promise<number> {
+  if (!window.indexedDB) return 0;
+  let db: IDBDatabase | undefined;
+  try {
+    db = await openQueue();
+    return (await records(db)).filter(
+      ({ value }) =>
+        (value.status === "pending" || value.status === "auth-required") &&
+        (actorUserId === undefined || value.actorUserId === actorUserId),
+    ).length;
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
+  }
 }
 
 export async function rejectedQueueCount(): Promise<number> {
   return countByStatus("rejected");
 }
 
-export async function rejectedQueueItems(): Promise<QueuedWriteRecord[]> {
-  return (await queuedWriteItems()).filter(({ value }) => value.status === "rejected");
+export async function rejectedQueueItems(actorUserId?: string): Promise<QueuedWriteRecord[]> {
+  return (await queuedWriteItems()).filter(
+    ({ value }) => value.status === "rejected" && (actorUserId === undefined || value.actorUserId === actorUserId),
+  );
 }
 
 export async function queuedWriteItems(): Promise<QueuedWriteRecord[]> {
@@ -197,6 +257,8 @@ export async function putQueue(
   method = "POST",
 ): Promise<ApiQueueResult> {
   const key = uuidv7();
+  const actor = cachedUser();
+  if (!actor) throw new Error("AUTHENTICATION_REQUIRED");
   const headers = mutationHeaders(key);
   const item: QueuedWrite = {
     path,
@@ -206,11 +268,13 @@ export async function putQueue(
     key,
     operatorId: headers["X-Operator-Id"],
     deviceId: headers["X-Device-Id"],
+    actorUserId: actor.id,
+    actorEmail: actor.email,
     createdAt: Date.now(),
     attempt: 0,
     nextAttempt: Date.now(),
     status: "pending",
-    identity: writeIdentity(path, method, body, headers["X-Operator-Id"], headers["X-Device-Id"]),
+    identity: writeIdentity(path, method, body, headers["X-Operator-Id"], headers["X-Device-Id"], actor.id),
   };
   // Durable intent is written before any network attempt. A tab close between
   // fetch() and IndexedDB used to lose the mutation (and its idempotency key).
@@ -231,11 +295,11 @@ export async function putQueue(
 
 export type ApiQueueResult = { queued?: boolean; key?: string; [key: string]: unknown };
 
-export async function retryRejected(): Promise<void> {
+export async function retryRejected(actorUserId = cachedUser()?.id): Promise<void> {
   if (!("indexedDB" in window)) return;
   const db = await openQueue();
   for (const record of await records(db)) {
-    if (record.value.status === "rejected")
+    if (record.value.status === "rejected" && record.value.actorUserId === actorUserId)
       await updateQueued(db, record.key, {
         ...record.value,
         status: "pending",
@@ -252,12 +316,19 @@ let activeDrain: Promise<void> | undefined;
 
 async function drainQueueInternal(force: boolean): Promise<void> {
   if (!navigator.onLine || !("indexedDB" in window)) return;
+  const actorUserId = cachedUser()?.id;
+  if (!actorUserId) return;
   try {
     const db = await openQueue();
     try {
       for (const record of await records(db)) {
         const item = record.value;
-        if (item.status !== "pending" || (!force && item.nextAttempt > Date.now())) continue;
+        if (
+          (item.status !== "pending" && item.status !== "auth-required") ||
+          item.actorUserId !== actorUserId ||
+          (!force && item.nextAttempt > Date.now())
+        )
+          continue;
         try {
           await transmit(db, record);
         } catch (error) {
@@ -307,6 +378,15 @@ async function transmit(db: IDBDatabase, record: { key: IDBValidKey; value: Queu
     return result;
   } catch (error) {
     const status = (error as Error & { status?: number }).status;
+    if (status === 401) {
+      await updateQueued(db, record.key, {
+        ...item,
+        status: "auth-required",
+        lastError: "Sign in again to sync this work",
+      });
+      window.dispatchEvent(new CustomEvent("chronofish:queue-auth-required", { detail: item }));
+      return { queued: true, key: item.key };
+    }
     if (status && status >= 400 && status < 500 && status !== 429) {
       await updateQueued(db, record.key, { ...item, status: "rejected", lastError: (error as Error).message });
       window.dispatchEvent(
@@ -337,12 +417,29 @@ async function responseValue(response: Response): Promise<ApiQueueResult> {
   }
 }
 
-export function startQueueSync(refresh: () => void): () => void {
-  const tick = () => void drainQueue().then(refresh);
+export function startQueueSync(refresh: () => void, actorUserId?: string): () => void {
+  let lastSyncReport = 0;
+  const reportSync = () => {
+    const current = cachedUser();
+    if (!current || (actorUserId && current.id !== actorUserId) || !navigator.onLine) return;
+    if (Date.now() - lastSyncReport < 30_000) return;
+    lastSyncReport = Date.now();
+    void countQueueForActor(current.id).then((pendingCount) =>
+      request("/auth/devices/sync-status", {
+        method: "POST",
+        headers: { "X-Device-Id": deviceId(), "X-Actor-User-Id": current.id },
+        body: JSON.stringify({ pendingCount }),
+      }).catch(() => undefined),
+    );
+  };
+  const tick = () => void drainQueue().then(refresh).then(reportSync);
   const timer = window.setInterval(tick, 5_000);
+  const reportTimer = window.setInterval(reportSync, 30_000);
   window.addEventListener("online", tick);
+  reportSync();
   return () => {
     window.clearInterval(timer);
+    window.clearInterval(reportTimer);
     window.removeEventListener("online", tick);
   };
 }

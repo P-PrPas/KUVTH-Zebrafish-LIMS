@@ -188,6 +188,11 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
             const recordId = String(item.recordId ?? "—");
             const operatorId = String(item.operatorId ?? "—");
             const operator = item.operatorName ? String(item.operatorName) : thai ? "ผู้ปฏิบัติงาน" : "Operator";
+            const actorEmail = item.actorEmail
+              ? String(item.actorEmail)
+              : thai
+                ? "\u0e23\u0e32\u0e22\u0e01\u0e32\u0e23\u0e40\u0e14\u0e34\u0e21"
+                : "Legacy record";
             const occurredAt = String(item.occurredAt ?? "");
             const displayedAt = formatBangkokDateTime(occurredAt) || "—";
             const readableAction = actionLabel(action, thai);
@@ -203,7 +208,7 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
                       <time dateTime={occurredAt}>{displayedAt}</time> · <span className="mono">{recordId}</span>
                     </small>
                   </span>
-                  <span className="pill">{operator}</span>
+                  <span className="pill">{actorEmail}</span>
                 </summary>
                 <div className="audit-detail">
                   <dl className="audit-meta">
@@ -220,6 +225,18 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
                     <div>
                       <dt>{t.record}</dt>
                       <dd className="mono">{recordId}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.accountActor}</dt>
+                      <dd>
+                        {actorEmail}
+                        {typeof item.actorUserId === "string" && (
+                          <>
+                            <br />
+                            <span className="mono">{item.actorUserId}</span>
+                          </>
+                        )}
+                      </dd>
                     </div>
                     <div>
                       <dt>{t.operator}</dt>

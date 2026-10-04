@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .api.routes.analytics import build_analytics_router
 from .api.routes.audit import build_audit_router
+from .api.routes.auth import build_auth_router
 from .api.routes.experiments import build_experiments_router
 from .api.routes.exports import build_export_router
 from .api.routes.fish import build_fish_router
@@ -21,6 +22,8 @@ from .api.routes.observations import build_observations_router
 from .api.routes.timing import build_timing_router
 from .config import Config, load_config
 from .runtime.errors import APIError, error_response
+from .services.auth import SESSION_COOKIE, AuthService
+from .services.mail import Mailer, SMTPMailer
 from .store import MemoryStore, Store
 
 LOGGER = logging.getLogger("chronofish.http")
@@ -28,7 +31,7 @@ MAX_REQUEST_BYTES = 10 * 1024 * 1024
 MAX_RATE_LIMIT_CLIENTS = 10_000
 
 
-def create_app(config: Config | None = None, store: Store | None = None) -> FastAPI:
+def create_app(config: Config | None = None, store: Store | None = None, mailer: Mailer | None = None) -> FastAPI:
     config = config or load_config()
     if store is None:
         if config.db_driver != "memory":
@@ -41,14 +44,17 @@ def create_app(config: Config | None = None, store: Store | None = None) -> Fast
         title="KUVTH Zebrafish LIMS API", version=__version__, docs_url=None, redoc_url=None, openapi_url=None
     )
     app.state.store = store
+    auth = AuthService(config, store, mailer or SMTPMailer(config))
+    app.state.auth = auth
     if close_store := getattr(store, "close", None):
         app.router.add_event_handler("shutdown", close_store)
     if config.allowed_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=list(config.allowed_origins),
+            allow_credentials=True,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key"],
+            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key", "X-Actor-User-Id"],
         )
 
     hits: OrderedDict[str, deque[float]] = OrderedDict()
@@ -118,10 +124,49 @@ def create_app(config: Config | None = None, store: Store | None = None) -> Fast
             return secure(error_response(error))
         media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
         expected_media_type = "text/csv" if request.url.path == "/api/v1/timing-profiles/csv" else "application/json"
-        if (request.method in {"POST", "PUT", "PATCH"} or content_length) and media_type != expected_media_type:
+        body_required = request.method in {"POST", "PUT", "PATCH"} and request.url.path != "/api/v1/auth/logout"
+        if (body_required or content_length) and media_type != expected_media_type:
             return secure(
                 error_response(APIError(400, "invalid_request", f"Content-Type must be {expected_media_type}"))
             )
+        path = request.url.path
+        is_public = path in {
+            "/api/v1/health",
+            "/api/v1/auth/request-code",
+            "/api/v1/auth/verify-code",
+            "/api/v1/auth/logout",
+        }
+        if not is_public and request.method != "OPTIONS" and path.startswith("/api/v1/"):
+            user = auth.authenticate(request.cookies.get(SESSION_COOKIE))
+            if not user:
+                return secure(error_response(APIError(401, "authentication_required", "Sign in to continue")))
+            request.state.user = user
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not path.startswith("/api/v1/auth/"):
+                actor_id = request.headers.get("X-Actor-User-Id", "")
+                if actor_id != user["id"]:
+                    return secure(
+                        error_response(
+                            APIError(401, "actor_mismatch", "Sign in again as the account that recorded this work")
+                        )
+                    )
+            admin_only = path.startswith("/api/v1/auth/admin/")
+            master_resources = {
+                "sites",
+                "operators",
+                "donor-cell-lines",
+                "recipient-egg-lots",
+                "csof-lots",
+                "experiment-groups",
+                "treatment-groups",
+                "fish-boxes",
+                "protocols",
+                "timing-profiles",
+            }
+            resource = path.removeprefix("/api/v1/").split("/", 1)[0]
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"} and resource in master_resources:
+                admin_only = True
+            if admin_only and user["role"] != "admin":
+                return secure(error_response(APIError(403, "admin_required", "Admin access is required")))
         try:
             response = await call_next(request)
         except APIError as error:
@@ -142,6 +187,7 @@ def create_app(config: Config | None = None, store: Store | None = None) -> Fast
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    app.include_router(build_auth_router(auth))
     app.include_router(build_master_router(store))
     app.include_router(build_timing_router(store))
     app.include_router(build_experiments_router(store))

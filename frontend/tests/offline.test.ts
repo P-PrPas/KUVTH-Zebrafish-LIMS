@@ -22,6 +22,7 @@ describe("offline retry policy", () => {
       "X-Operator-Id": "operator-a",
       "X-Device-Id": "device-a",
       "X-Idempotency-Key": "key-a",
+      "X-Actor-User-Id": "",
     });
   });
 
