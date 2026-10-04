@@ -215,6 +215,7 @@ def build_observations_router(store: Store) -> APIRouter:
         siteId: str | None = None,
         operatorId: str | None = None,
         batchId: str | None = None,
+        experimentGroupId: str | None = None,
         treatmentGroupId: str | None = None,
         donorCellLineId: str | None = None,
         strain: str | None = None,
@@ -244,6 +245,8 @@ def build_observations_router(store: Store) -> APIRouter:
                 and batch.get("operatorId") != operatorId
                 or batchId
                 and batch.get("id") != batchId
+                or experimentGroupId
+                and batch.get("experimentGroupId") != experimentGroupId
                 or treatmentGroupId
                 and batch.get("treatmentGroupId") != treatmentGroupId
                 or donorCellLineId
@@ -320,6 +323,14 @@ def build_observations_router(store: Store) -> APIRouter:
         ]
         embryos = []
         for embryo in all_embryos:
+            history = sorted(
+                (
+                    item
+                    for item in state.observations.values()
+                    if item.get("embryoId") == embryo.get("id") and item.get("deletedAt") is None
+                ),
+                key=lambda item: (str(item.get("observedAt", "")), str(item.get("id", ""))),
+            )
             terminal = _terminal_embryo_observation(state, str(embryo["id"]))
             if embryo.get("exitReason") and not terminal:
                 continue
@@ -333,6 +344,24 @@ def build_observations_router(store: Store) -> APIRouter:
                     "isDead": terminal is not None,
                     "priorOutcome": (prior or {}).get("outcome"),
                     "priorStageCode": (prior or {}).get("stageCode"),
+                    "priorObservationId": (prior or {}).get("id"),
+                    "priorObservedAt": (prior or {}).get("observedAt"),
+                    "priorNotes": (prior or {}).get("notes"),
+                    "history": [
+                        {
+                            "id": item.get("id"),
+                            "stageCode": item.get("stageCode"),
+                            "stageLabel": stage_label(stage_number(str(item.get("stageCode", "")))),
+                            "observedAt": item.get("observedAt"),
+                            "outcome": item.get("outcome"),
+                            "condition": item.get("condition"),
+                            "notes": item.get("notes"),
+                            "operatorName": state.entities["operators"]
+                            .get(str(item.get("operatorId")), {})
+                            .get("name"),
+                        }
+                        for item in history
+                    ],
                     "firstAbnormalStageLabel": stage_label(stage_number(str(embryo.get("firstAbnormalStageCode", ""))))
                     if embryo.get("firstAbnormalStageCode")
                     else None,

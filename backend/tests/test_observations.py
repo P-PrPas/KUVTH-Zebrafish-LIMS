@@ -195,6 +195,8 @@ def test_checkpoint_entry_supports_independent_embryo_stages(client, write_heade
     assert entry["stages"][0]["stageCode"] == "stage_01_1C"
     assert entry["embryos"][0]["priorStageCode"] == "stage_05_16C"
     assert entry["embryos"][0]["defaultCondition"] == "ABNORMAL"
+    assert entry["embryos"][0]["history"][0]["stageCode"] == "stage_05_16C"
+    assert entry["embryos"][0]["history"][0]["condition"] == "ABNORMAL"
 
 
 def test_uat_t02_saves_all_fifteen_alive_observations(client, write_headers):

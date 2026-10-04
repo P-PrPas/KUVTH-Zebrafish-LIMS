@@ -16,7 +16,7 @@
 INSERT INTO site (id, code, name, active, created_at, updated_at)
 SELECT * FROM (VALUES
     ('10000000-0000-7000-8000-000000000001', 'KU',  'Kasetsart University',    TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00'),
-    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Mahasarakham University', TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
+    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Michigan State University', TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
 ) AS v(id, code, name, active, created_at, updated_at)
 WHERE NOT EXISTS (SELECT 1 FROM site WHERE site.code = v.code);
 
@@ -28,6 +28,16 @@ SELECT * FROM (VALUES
     ('20000000-0000-7000-8000-000000000004', '10000000-0000-7000-8000-000000000001', 'Toon', TRUE, TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
 ) AS v(id, site_id, name, active, created_at, updated_at)
 WHERE NOT EXISTS (SELECT 1 FROM operator WHERE operator.name = v.name);
+
+-- A parent programme keeps related experiment batches together in the current
+-- experiment-group model.  It is reference data, not an individual run.
+INSERT INTO experiment_group (id, code, name, description, active, created_at, updated_at)
+SELECT * FROM (VALUES
+    ('25000000-0000-7000-8000-000000000001', 'SCNT_CLONING', 'SCNT cloning programme',
+     'Parent group for related SCNT cloning experiment batches.', TRUE,
+     TIMESTAMP '2026-01-01 00:00:00', TIMESTAMP '2026-01-01 00:00:00')
+) AS v(id, code, name, description, active, created_at, updated_at)
+WHERE NOT EXISTS (SELECT 1 FROM experiment_group WHERE experiment_group.code_norm = LOWER(TRIM(v.code)));
 
 -- Three strains x two preparations.  batch_code is left NULL here; the lab
 -- adds dated cell batches (e.g. 'AB240426_e48h') as they prepare them.

@@ -5,6 +5,8 @@
 frontend/node_modules/
 frontend/dist/
 frontend/coverage/
+frontend/public/Logo/
+frontend/public/Banner/
 .cache/
 
 *.exe
@@ -12,6 +14,7 @@ frontend/coverage/
 coverage.out
 
 __pycache__/
+backend/uv.lock
 *.py[cod]
 *.egg-info/
 .coverage

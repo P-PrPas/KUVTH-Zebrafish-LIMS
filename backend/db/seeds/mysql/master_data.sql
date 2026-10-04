@@ -3,13 +3,17 @@
 
 INSERT IGNORE INTO site (id, code, name, active, created_at, updated_at) VALUES
     ('10000000-0000-7000-8000-000000000001', 'KU',  'Kasetsart University',    TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
-    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Mahasarakham University', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+    ('10000000-0000-7000-8000-000000000002', 'MSU', 'Michigan State University', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
 
 INSERT IGNORE INTO operator (id, site_id, name, active, created_at, updated_at) VALUES
     ('20000000-0000-7000-8000-000000000001', '10000000-0000-7000-8000-000000000001', 'Jan',  TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
     ('20000000-0000-7000-8000-000000000002', '10000000-0000-7000-8000-000000000001', 'June', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
     ('20000000-0000-7000-8000-000000000003', '10000000-0000-7000-8000-000000000001', 'Bee',  TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),
     ('20000000-0000-7000-8000-000000000004', '10000000-0000-7000-8000-000000000001', 'Toon', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
+
+INSERT IGNORE INTO experiment_group (id, code, name, description, active, created_at, updated_at) VALUES
+    ('25000000-0000-7000-8000-000000000001', 'SCNT_CLONING', 'SCNT cloning programme',
+     'Parent group for related SCNT cloning experiment batches.', TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00');
 
 INSERT IGNORE INTO donor_cell_line (id, strain, preparation, batch_code, active, created_at, updated_at) VALUES
     ('30000000-0000-7000-8000-000000000001', 'AB',    'DISSOCIATED', NULL, TRUE, '2026-01-01 00:00:00', '2026-01-01 00:00:00'),

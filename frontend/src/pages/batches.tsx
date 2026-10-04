@@ -2,6 +2,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
+import { saveObservationLocation } from "../observation-draft";
 import { putQueue, type QueuedWrite } from "../offline";
 import { dateTimeLocalToRFC3339, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
 import { type AppText, text } from "../types";
@@ -19,15 +20,28 @@ const masterName = (items: ApiItem[] | undefined, id: unknown) => {
   return String(item?.name ?? item?.strain ?? item?.label ?? item?.lotCode ?? item?.code ?? "");
 };
 
+type ExperimentStatus = "all" | "tracking" | "completed";
+
+const experimentStatus = (item: ApiItem): Exclude<ExperimentStatus, "all"> =>
+  item.hasOpenEmbryos === false && Number(item.nInjectionLots ?? 0) > 0 ? "completed" : "tracking";
+
 export function Batches({ t }: { t: AppText }) {
   const [dashboardFilters] = useState(parseFilters);
   const [items, setItems] = useState<ApiItem[]>([]);
+  const [groups, setGroups] = useState<ApiItem[]>([]);
+  const [groupId, setGroupId] = useState(dashboardFilters.experimentGroupId ?? "");
+  const [statusFilter, setStatusFilter] = useState<ExperimentStatus>("all");
+  useEffect(() => {
+    void get("/experiment-groups?includeInactive=true")
+      .then((data) => setGroups(data.items ?? []))
+      .catch((e: Error) => setMessage(e.message));
+  }, []);
   const [selected, setSelected] = useState<ApiItem | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const load = useCallback(() => {
-    void get(withFilters("/batches", dashboardFilters))
+    void get(withFilters("/batches", { ...dashboardFilters, experimentGroupId: groupId || undefined }))
       .then((data) => {
         const filtered = (data.items ?? []).filter(
           (item) => !dashboardFilters.batchId || String(item.id) === dashboardFilters.batchId,
@@ -36,7 +50,7 @@ export function Batches({ t }: { t: AppText }) {
         if (dashboardFilters.batchId && filtered.length === 1) setSelected(filtered[0]);
       })
       .catch((e: Error) => setMessage(e.message));
-  }, [dashboardFilters]);
+  }, [dashboardFilters, groupId]);
   useEffect(load, [load]);
   useEffect(() => {
     const refresh = () => load();
@@ -56,10 +70,13 @@ export function Batches({ t }: { t: AppText }) {
   }, [load]);
   if (selected) return <BatchDetail batch={selected} t={t} onBack={() => setSelected(null)} />;
   const thai = t === text.th;
-  const visibleItems = items.filter((item) =>
-    `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
-      .toLocaleLowerCase()
-      .includes(search.trim().toLocaleLowerCase()),
+  const visibleItems = items.filter(
+    (item) =>
+      (!groupId || item.experimentGroupId === groupId) &&
+      (statusFilter === "all" || experimentStatus(item) === statusFilter) &&
+      `${item.batchCode ?? ""} ${item.experimentDate ?? ""}`
+        .toLocaleLowerCase()
+        .includes(search.trim().toLocaleLowerCase()),
   );
   const addQueued = (batch: ApiItem) => {
     setItems((current) => [{ ...batch, id: `queued-${Date.now()}`, queued: true }, ...current]);
@@ -74,6 +91,7 @@ export function Batches({ t }: { t: AppText }) {
         </button>
         <BatchForm
           t={t}
+          initialGroupId={groups.find((group) => group.id === groupId && group.active !== false) ? groupId : ""}
           onSaved={() => {
             setShowForm(false);
             load();
@@ -100,6 +118,17 @@ export function Batches({ t }: { t: AppText }) {
       </div>
       <div className="record-toolbar">
         <label>
+          {thai ? "โครงการวิจัย" : "Experiment group"}
+          <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+            <option value="">{thai ? "ทุกโครงการวิจัย" : "All experiment groups"}</option>
+            {groups.map((group) => (
+              <option key={String(group.id)} value={String(group.id)}>
+                {String(group.code)} · {String(group.name)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           {thai ? "ค้นหาการทดลอง" : "Find an experiment"}
           <input
             type="search"
@@ -108,6 +137,28 @@ export function Batches({ t }: { t: AppText }) {
             placeholder={thai ? "รหัสการทดลอง หรือวันที่ YYYY-MM-DD" : "Experiment code or YYYY-MM-DD"}
           />
         </label>
+        <fieldset className="status-filter">
+          <legend>{thai ? "สถานะการทดลอง" : "Experiment status"}</legend>
+          <div className="tabs" role="group" aria-label={thai ? "กรองสถานะการทดลอง" : "Filter experiment status"}>
+            {(
+              [
+                ["all", thai ? "ทั้งหมด" : "All"],
+                ["tracking", thai ? "กำลังติดตาม" : "Tracking"],
+                ["completed", thai ? "จบแล้ว" : "Completed"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                className={statusFilter === value ? "tab tab--active" : "tab"}
+                type="button"
+                aria-pressed={statusFilter === value}
+                key={value}
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
         <p className="muted" role="status">
           {thai
             ? `แสดง ${visibleItems.length} จาก ${items.length} การทดลอง`
@@ -132,6 +183,7 @@ export function Batches({ t }: { t: AppText }) {
               <span>
                 <strong>{String(item.batchCode)}</strong>
                 <small>
+                  {masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่เชื่อมโยง" : "Ungrouped")} ·{" "}
                   {String(item.experimentDate)} · {thai ? "โปรไฟล์เวลา" : "profile"}{" "}
                   {item.timingProfileVersion != null
                     ? String(item.timingProfileVersion)
@@ -140,7 +192,17 @@ export function Batches({ t }: { t: AppText }) {
                       : "pinned to this experiment"}
                 </small>
               </span>
-              <span className="pill">{item.queued ? t.queued : thai ? "กำลังดำเนินการ" : "active"}</span>
+              <span className="pill">
+                {item.queued
+                  ? t.queued
+                  : experimentStatus(item) === "tracking"
+                    ? thai
+                      ? "กำลังติดตาม"
+                      : "Tracking"
+                    : thai
+                      ? "จบแล้ว"
+                      : "Completed"}
+              </span>
             </button>
           ))}
         </div>
@@ -152,11 +214,13 @@ export function Batches({ t }: { t: AppText }) {
 function BatchForm({
   t,
   batch,
+  initialGroupId = "",
   onSaved,
   onQueued,
 }: {
   t: AppText;
   batch?: ApiItem;
+  initialGroupId?: string;
   onSaved: () => void;
   onQueued?: (batch: ApiItem) => void;
 }) {
@@ -168,6 +232,7 @@ function BatchForm({
     siteId: String(batch?.siteId ?? ""),
     operatorId: String(batch?.operatorId ?? operatorId()),
     protocolId: String(batch?.protocolId ?? ""),
+    experimentGroupId: String(batch?.experimentGroupId ?? initialGroupId),
     treatmentGroupId: String(batch?.treatmentGroupId ?? ""),
     recipientEggLotId: String(batch?.recipientEggLotId ?? ""),
     csofLotId: String(batch?.csofLotId ?? ""),
@@ -180,6 +245,7 @@ function BatchForm({
     sites: [],
     operators: [],
     protocols: [],
+    "experiment-groups": [],
     "treatment-groups": [],
     "recipient-egg-lots": [],
     "csof-lots": [],
@@ -187,7 +253,15 @@ function BatchForm({
   const [error, setError] = useState("");
   useEffect(() => {
     void Promise.all(
-      ["sites", "operators", "protocols", "treatment-groups", "recipient-egg-lots", "csof-lots"].map((resource) =>
+      [
+        "sites",
+        "operators",
+        "protocols",
+        "experiment-groups",
+        "treatment-groups",
+        "recipient-egg-lots",
+        "csof-lots",
+      ].map((resource) =>
         get(`/${resource}${batch ? "?includeInactive=true" : ""}`).then(
           (data) => [resource, data.items ?? []] as [string, ApiItem[]],
         ),
@@ -211,6 +285,7 @@ function BatchForm({
       ...form,
       dayNo: form.dayNo ? Number(form.dayNo) : null,
       batchCode: form.batchCode || null,
+      experimentGroupId: form.experimentGroupId || null,
       recipientEggLotId: form.recipientEggLotId || null,
       csofLotId: form.csofLotId || null,
       clutchCode: form.clutchCode || null,
@@ -232,7 +307,7 @@ function BatchForm({
     }
   };
   return (
-    <form className="task-surface form-card" onSubmit={submit}>
+    <form className="task-surface form-card batch-form" onSubmit={submit}>
       <h1>{batch ? (thai ? "แก้ไขข้อมูลการทดลอง" : "Edit experiment") : thai ? "เริ่มการทดลองใหม่" : "New experiment"}</h1>
       <p className="muted">
         {thai
@@ -244,7 +319,23 @@ function BatchForm({
           <span aria-hidden="true">01</span>
           {thai ? "ข้อมูลรอบทดลอง" : "Experiment details"}
         </legend>
-        <div className="form-card--inline">
+        <div className="form-card--inline batch-form__fields batch-form__fields--details">
+          <label>
+            {thai ? "โครงการวิจัย" : "Experiment group"}
+            <select value={form.experimentGroupId} onChange={(event) => set("experimentGroupId", event.target.value)}>
+              <option value="">{thai ? "ยังไม่เชื่อมโยง" : "Ungrouped"}</option>
+              {masters["experiment-groups"].map((item) => (
+                <option key={String(item.id)} value={String(item.id)}>
+                  {String(item.code)} · {String(item.name)}
+                </option>
+              ))}
+            </select>
+            <small>
+              {thai
+                ? "สร้างโครงการวิจัยได้ที่ข้อมูลอ้างอิงและระบบ → ข้อมูลตั้งต้น"
+                : "Manage groups in Reference & system → Master data."}
+            </small>
+          </label>
           <label>
             {thai ? "ลำดับวันทดลอง" : "Day no."}
             <input
@@ -282,7 +373,7 @@ function BatchForm({
           <span aria-hidden="true">02</span>
           {thai ? "ผู้รับผิดชอบและแผนการทดลอง" : "Team and protocol"}
         </legend>
-        <div className="form-card--inline">
+        <div className="form-card--inline batch-form__fields batch-form__fields--team">
           <label>
             {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
             <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
@@ -322,9 +413,9 @@ function BatchForm({
             </select>
           </label>
           <label>
-            {thai ? "กลุ่มการทดลอง" : "Treatment group"}
+            {thai ? "แขนการทดลอง" : "Treatment group"}
             <select required value={form.treatmentGroupId} onChange={(e) => set("treatmentGroupId", e.target.value)}>
-              <option value="">{thai ? "เลือกกลุ่มการทดลอง" : "Select treatment"}</option>
+              <option value="">{thai ? "เลือกแขนการทดลอง" : "Select treatment"}</option>
               {(masters["treatment-groups"] ?? []).map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
                   {String(item.code ?? item.name)}
@@ -337,7 +428,7 @@ function BatchForm({
       <details className="workflow-disclosure">
         <summary>{thai ? "ข้อมูลตัวอย่างและเงื่อนไขเพิ่มเติม (ไม่บังคับ)" : "Sample and environment details (optional)"}</summary>
         <div className="workflow-disclosure__body">
-          <div className="form-card--inline">
+          <div className="form-card--inline batch-form__fields batch-form__fields--optional">
             <label>
               {thai ? "ชุดไข่ผู้รับ" : "Recipient egg lot"}
               <select value={form.recipientEggLotId} onChange={(e) => set("recipientEggLotId", e.target.value)}>
@@ -350,7 +441,7 @@ function BatchForm({
               </select>
             </label>
             <label>
-              {thai ? "ชุดน้ำยา CSOF" : "CSOF lot"}
+              {thai ? "อาหารเลี้ยงไข่ (Egg holding medium)" : "Egg holding medium"}
               <select value={form.csofLotId} onChange={(e) => set("csofLotId", e.target.value)}>
                 <option value="">{thai ? "ยังไม่เชื่อมโยง" : "Not linked"}</option>
                 {(masters["csof-lots"] ?? []).map((item) => (
@@ -360,12 +451,8 @@ function BatchForm({
                 ))}
               </select>
             </label>
-            <label>
-              {thai ? "รหัสชุดไข่ (Clutch)" : "Clutch code"}
-              <input value={form.clutchCode} onChange={(e) => set("clutchCode", e.target.value)} />
-            </label>
           </div>
-          <div className="form-card--inline">
+          <div className="form-card--inline batch-form__fields batch-form__fields--optional">
             <label>
               {thai ? "ลำดับซ้ำ" : "Replicate no."}
               <input
@@ -373,17 +460,6 @@ function BatchForm({
                 min="1"
                 value={form.replicateNo}
                 onChange={(e) => set("replicateNo", e.target.value)}
-              />
-            </label>
-            <label>
-              {thai ? "อุณหภูมิเลี้ยง (°C)" : "Incubation °C"}
-              <input
-                type="number"
-                min="0"
-                max="50"
-                step="0.1"
-                value={form.incubationTempC}
-                onChange={(e) => set("incubationTempC", e.target.value)}
               />
             </label>
             <label>
@@ -410,7 +486,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   const [editing, setEditing] = useState(false);
   const [showLotForm, setShowLotForm] = useState(false);
   const [lot, setLot] = useState({
-    lotNo: "1",
+    lotNo: "",
     donorCellLineId: "",
     activatedAt: dateTimeInput(""),
     enuPowerPct: "",
@@ -418,10 +494,9 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     enuLed: "",
     enuStartAt: "",
     enuFinishAt: "",
-    nEggs: "",
+    nManipulated: "",
     nActivated: "1",
     notes: "",
-    wellPositions: "",
   });
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [masters, setMasters] = useState<Record<string, ApiItem[]>>({});
@@ -471,6 +546,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     return () => window.removeEventListener("chronofish:queue-rejected", rejected);
   }, [batch.id, load]);
   const setLotValue = (key: string, value: string) => setLot((current) => ({ ...current, [key]: value }));
+  const existingLots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
+  const fallbackNextLotNo = Math.max(0, ...existingLots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
+  const nextLotNo = String(detail?.nextLotNo ?? fallbackNextLotNo);
+  const currentLotNo = templateId ? lot.lotNo : nextLotNo;
   const duplicate = async () => {
     const requestedDate = window.prompt(thai ? "วันที่ทดลอง (ปปปป-ดด-วว)" : "Experiment date (YYYY-MM-DD)", today());
     if (!requestedDate) return;
@@ -504,38 +583,37 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   };
   const createLot = async (event: FormEvent) => {
     event.preventDefault();
-    const positions = lot.wellPositions
-      .split(/[ ,\n]+/)
-      .map((value) => value.trim())
-      .filter(Boolean);
+    const nActivated = Number(lot.nActivated);
     const optimisticId = templateId ?? `queued-lot-${Date.now()}`;
     const optimistic = {
       ...lot,
+      lotNo: currentLotNo,
       id: optimisticId,
       batchId: batch.id,
-      nActivated: Number(lot.nActivated),
+      nActivated,
       activatedAt: dateTimeLocalToRFC3339(lot.activatedAt),
       queued: true,
     };
     const previousDetail = detail;
     try {
+      const lotFields: Record<string, string> = { ...lot };
+      delete lotFields.lotNo;
       const payload = {
-        ...lot,
+        ...lotFields,
         activatedAt: dateTimeLocalToRFC3339(lot.activatedAt),
         enuStartAt: lot.enuStartAt ? dateTimeLocalToRFC3339(lot.enuStartAt) : null,
         enuFinishAt: lot.enuFinishAt ? dateTimeLocalToRFC3339(lot.enuFinishAt) : null,
         enuPowerPct: lot.enuPowerPct ? Number(lot.enuPowerPct) : null,
         enuPulseUs: lot.enuPulseUs ? Number(lot.enuPulseUs) : null,
         enuLed: lot.enuLed ? Number(lot.enuLed) : null,
-        nEggs: lot.nEggs ? Number(lot.nEggs) : null,
-        nActivated: Number(lot.nActivated),
-        wellPositions: positions,
+        nManipulated: lot.nManipulated ? Number(lot.nManipulated) : null,
+        nActivated,
       };
       if (
         !window.confirm(
           thai
-            ? `${templateId ? "กระตุ้น" : "สร้าง"} ชุด ${lot.lotNo} ที่มีตัวอ่อน ${payload.nActivated} ตัวหรือไม่?`
-            : `${templateId ? "Activate" : "Create"} lot ${lot.lotNo} with ${payload.nActivated} embryos?`,
+            ? `${templateId ? "กระตุ้น" : "สร้าง"} ชุด ${currentLotNo} ที่มีตัวอ่อน ${payload.nActivated} ตัวหรือไม่?`
+            : `${templateId ? "Activate" : "Create"} lot ${currentLotNo} with ${payload.nActivated} embryos?`,
         )
       )
         return;
@@ -546,6 +624,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           current
             ? {
                 ...current,
+                nextLotNo: templateId ? current.nextLotNo : String(Number(current.nextLotNo ?? currentLotNo) + 1),
                 injectionLots: templateId
                   ? ((current.injectionLots as ApiItem[] | undefined) ?? []).map((item) =>
                       item.id === templateId ? optimistic : item,
@@ -556,11 +635,12 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         );
         setEmbryos((current) => ({
           ...current,
-          [optimisticId]: positions.map((wellPosition, index) => ({
+          [optimisticId]: Array.from({ length: Math.min(Math.max(nActivated, 0), 96) }, (_, index) => ({
             id: `${optimisticId}-${index + 1}`,
             injectionLotId: optimisticId,
             embryoCode: `${String(detail?.batchCode ?? batch.batchCode)}_${lot.lotNo}_${index + 1}`,
-            wellPosition,
+            seqInLot: index + 1,
+            wellPosition: null,
             queued: true,
           })),
         }));
@@ -588,12 +668,11 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       enuPowerPct: String(item.enuPowerPct ?? ""),
       enuPulseUs: String(item.enuPulseUs ?? ""),
       enuLed: String(item.enuLed ?? ""),
-      enuStartAt: "",
-      enuFinishAt: "",
-      nEggs: String(item.nEggs ?? ""),
+      enuStartAt: item.enuStartAt ? dateTimeInput(String(item.enuStartAt)) : "",
+      enuFinishAt: item.enuFinishAt ? dateTimeInput(String(item.enuFinishAt)) : "",
+      nManipulated: String(item.nManipulated ?? ""),
       nActivated: "1",
       notes: String(item.notes ?? ""),
-      wellPositions: "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -671,20 +750,19 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   };
   const preview = Array.from(
     { length: Math.min(Math.max(Number(lot.nActivated) || 0, 0), 96) },
-    (_, index) => `${String(detail?.batchCode ?? batch.batchCode)}_${lot.lotNo}_${index + 1}`,
+    (_, index) => `${String(detail?.batchCode ?? batch.batchCode)}_${currentLotNo}_${index + 1}`,
   );
-  const selectedWells = lot.wellPositions
-    .split(/[ ,\n]+/)
-    .map((value) => value.trim().toUpperCase())
-    .filter((value, index, values) => wells.includes(value) && values.indexOf(value) === index)
-    .slice(0, preview.length);
-  const toggleWell = (well: string) => {
-    const next = selectedWells.includes(well)
-      ? selectedWells.filter((value) => value !== well)
-      : selectedWells.length < preview.length
-        ? [...selectedWells, well]
-        : selectedWells;
-    setLotValue("wellPositions", next.join(", "));
+  const openHistoricalCheckpoint = (item: ApiItem) => {
+    saveObservationLocation(operatorId(), {
+      injectionLotId: item.id,
+      batchCode: detail?.batchCode ?? batch.batchCode,
+      lotNo: item.lotNo,
+      stageCode: "stage_01_1C",
+      stageLabel: thai ? "ระยะเริ่มต้น" : "Activated",
+      stageOrder: 1,
+      historical: true,
+    });
+    window.location.hash = "due";
   };
   const thai = t === text.th;
   const displayMaster = (items: ApiItem[] | undefined, id: unknown) =>
@@ -724,6 +802,18 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         </div>
       </div>
       <div className="record-facts">
+        <div className="record-fact">
+          <span>{thai ? "สถานะ" : "Status"}</span>
+          <strong>
+            {experimentStatus(detail ?? batch) === "tracking"
+              ? thai
+                ? "กำลังติดตาม"
+                : "Tracking"
+              : thai
+                ? "จบแล้ว"
+                : "Completed"}
+          </strong>
+        </div>
         <div className="record-fact">
           <span>{thai ? "วันที่ทดลอง" : "Experiment date"}</span>
           <strong>{String(detail?.experimentDate ?? batch.experimentDate ?? "—")}</strong>
@@ -772,8 +862,21 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           </h2>
           <div className="form-card--inline">
             <label>
-              {thai ? "หมายเลขชุดตัวอ่อน" : "Lot number"}
-              <input required value={lot.lotNo} onChange={(event) => setLotValue("lotNo", event.target.value)} />
+              {thai ? "หมายเลขชุดตัวอ่อน (สร้างอัตโนมัติ)" : "Lot number (automatic)"}
+              <input
+                aria-label={thai ? "หมายเลขชุดตัวอ่อน (สร้างอัตโนมัติ)" : "Lot number (automatic)"}
+                readOnly
+                value={currentLotNo}
+              />
+              <small>
+                {templateId
+                  ? thai
+                    ? "ใช้หมายเลขลำดับที่จองไว้ให้การทดลองและวันที่นี้"
+                    : "Uses the sequence number reserved for this experiment and date."
+                  : thai
+                    ? "ระบบนับต่อจาก Code of Egg หรือรหัส clutch ในวันเดียวกัน; หากไม่ได้เชื่อมรหัส จะเริ่มนับแยกในการทดลองนี้"
+                    : "Numbers continue for the same Code of Egg or clutch code on the same date; without a linked code, numbering is isolated to this experiment."}
+              </small>
             </label>
             <label>
               {thai ? "สายเซลล์ผู้ให้" : "Donor cell line"}
@@ -793,7 +896,25 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
               </select>
             </label>
             <label>
-              {thai ? "เวลาเริ่มกระตุ้น" : "Activated at"}
+              {thai ? "เวลาเริ่มกระบวนการ (รับปลา)" : "Process start (Pick up)"}
+              <input
+                type="datetime-local"
+                value={lot.enuStartAt}
+                onChange={(event) => setLotValue("enuStartAt", event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="form-card--inline">
+            <label>
+              {thai ? "เวลาเสร็จสิ้นการฉีด" : "Finished inject time"}
+              <input
+                type="datetime-local"
+                value={lot.enuFinishAt}
+                onChange={(event) => setLotValue("enuFinishAt", event.target.value)}
+              />
+            </label>
+            <label>
+              {thai ? "เวลาเริ่มกระตุ้น" : "Activated time"}
               <input
                 required
                 type="datetime-local"
@@ -801,97 +922,66 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 onChange={(event) => setLotValue("activatedAt", event.target.value)}
               />
             </label>
-          </div>
-          <div className="form-card--inline">
             <label>
-              {thai ? "จำนวนไข่ตั้งต้น" : "Eggs"}
+              {thai ? "จำนวนตัวอ่อนที่กระตุ้น" : "Number of activated embryos"}
               <input
                 type="number"
-                min="0"
-                value={lot.nEggs}
-                onChange={(event) => setLotValue("nEggs", event.target.value)}
-              />
-            </label>
-            <label>
-              {thai ? "จำนวนตัวอ่อนที่กระตุ้น" : "Activated embryos"}
-              <input
-                required
-                type="number"
-                min="0"
+                min="1"
                 max="96"
+                required
                 value={lot.nActivated}
                 onChange={(event) => setLotValue("nActivated", event.target.value)}
               />
             </label>
-            <label>
-              {thai ? "กำลัง ENU (%)" : "ENU power %"}
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={lot.enuPowerPct}
-                onChange={(event) => setLotValue("enuPowerPct", event.target.value)}
-              />
-            </label>
           </div>
-          <details className="workflow-disclosure">
-            <summary>
-              {thai ? "ค่าการกระตุ้นและตำแหน่งหลุม (กรอกเมื่อจำเป็น)" : "ENU and well-position details (optional)"}
-            </summary>
-            <div className="workflow-disclosure__body">
-              <div className="form-card--inline">
-                <label>
-                  ENU pulse µs
-                  <input
-                    type="number"
-                    min="0"
-                    value={lot.enuPulseUs}
-                    onChange={(event) => setLotValue("enuPulseUs", event.target.value)}
-                  />
-                </label>
-                <label>
-                  ENU LED
-                  <input
-                    type="number"
-                    min="0"
-                    value={lot.enuLed}
-                    onChange={(event) => setLotValue("enuLed", event.target.value)}
-                  />
-                </label>
-                <label>
-                  ENU start at
-                  <input
-                    type="datetime-local"
-                    value={lot.enuStartAt}
-                    onChange={(event) => setLotValue("enuStartAt", event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="form-card--inline">
-                <label>
-                  ENU finish at
-                  <input
-                    type="datetime-local"
-                    value={lot.enuFinishAt}
-                    onChange={(event) => setLotValue("enuFinishAt", event.target.value)}
-                  />
-                </label>
-                <label>
-                  Notes
-                  <input value={lot.notes} onChange={(event) => setLotValue("notes", event.target.value)} />
-                </label>
-              </div>
+          <fieldset className="form-section">
+            <legend>{thai ? "กำจัดนิวเคลียส (Enucleation)" : "Enucleation"}</legend>
+            <div className="form-card--inline batch-form__fields batch-form__fields--optional">
               <label>
-                Well positions (comma or newline separated)
-                <textarea
-                  rows={2}
-                  value={lot.wellPositions}
-                  placeholder="A1, A2, A3"
-                  onChange={(event) => setLotValue("wellPositions", event.target.value)}
+                {thai ? "จำนวนตัวอ่อนที่จัดการ" : "Number of manipulated embryos"}
+                <input
+                  type="number"
+                  min="0"
+                  max="96"
+                  value={lot.nManipulated}
+                  onChange={(event) => setLotValue("nManipulated", event.target.value)}
                 />
               </label>
+              <label>
+                {thai ? "กำลังเลเซอร์ (%)" : "% Laser power"}
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={lot.enuPowerPct}
+                  onChange={(event) => setLotValue("enuPowerPct", event.target.value)}
+                />
+              </label>
+              <label>
+                Laser pulse (µs)
+                <input
+                  type="number"
+                  min="0"
+                  value={lot.enuPulseUs}
+                  onChange={(event) => setLotValue("enuPulseUs", event.target.value)}
+                />
+              </label>
+              <label>
+                % LED
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={lot.enuLed}
+                  onChange={(event) => setLotValue("enuLed", event.target.value)}
+                />
+              </label>
+              <label>
+                Notes
+                <input value={lot.notes} onChange={(event) => setLotValue("notes", event.target.value)} />
+              </label>
             </div>
-          </details>
+          </fieldset>
           <button className="button button--primary" type="submit">
             {templateId ? (thai ? "เปิดใช้งานแม่แบบ" : "Activate template") : thai ? "สร้าง lot" : "Create lot"}
           </button>
@@ -901,33 +991,19 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         <details className="workflow-disclosure">
           <summary>
             {thai
-              ? `ตรวจตำแหน่งบนแผ่น 96 หลุม · ${preview.length} ตัวอ่อน`
-              : `Review 96-well placement · ${preview.length} embryos`}
+              ? `หมายเลขลำดับของตัวอ่อนใน lot · ${preview.length} ตัว`
+              : `Running numbers in this lot · ${preview.length} embryos`}
           </summary>
           <div className="workflow-disclosure__body">
-            <h2>{thai ? "ตัวอย่างรหัสและตำแหน่งหลุม" : "96-well code preview"}</h2>
-            <p className="muted">{preview.length} code(s); verify positions before saving.</p>
-            <div className="well-grid well-grid--plate">
-              {wells.map((well) => {
-                const embryoIndex = selectedWells.indexOf(well);
-                return (
-                  <button
-                    type="button"
-                    className="well"
-                    aria-pressed={embryoIndex >= 0}
-                    key={well}
-                    onClick={() => toggleWell(well)}
-                  >
-                    <strong>{well}</strong>
-                    <small>{embryoIndex >= 0 ? preview[embryoIndex] : "Available"}</small>
-                  </button>
-                );
-              })}
-            </div>
+            <p className="muted">
+              {thai
+                ? "หมายเลขลำดับจะสร้างอัตโนมัติภายในแต่ละ lot; ระบุตำแหน่งหลุมได้หลังสร้าง lot"
+                : "The sequence is assigned automatically within each lot; physical well positions can be recorded after creation."}
+            </p>
             <ol className="well-list--mobile">
               {preview.map((code, index) => (
                 <li key={code}>
-                  <strong>{selectedWells[index] ?? "Unassigned"}</strong> {code}
+                  <strong>{index + 1}</strong> {code}
                 </li>
               ))}
             </ol>
@@ -947,17 +1023,28 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 {formatBangkokDateTime(String(item.activatedAt ?? ""))}
               </p>
             </div>
-            {item.activatedAt && String(item.id).startsWith("queued-") ? (
-              <span className="pill">{thai ? "รอซิงก์ก่อนเพิ่มตัวอ่อน" : "Sync pending"}</span>
-            ) : item.activatedAt ? (
-              <button className="button button--secondary" type="button" onClick={() => addEmbryos(String(item.id))}>
-                {thai ? `เพิ่มตัวอ่อน ${count} ตัว` : `Add ${count} embryos`}
-              </button>
-            ) : (
-              <button className="button button--primary" type="button" onClick={() => useTemplate(item)}>
-                {thai ? "เปิดใช้แม่แบบชุดนี้" : "Activate template"}
-              </button>
-            )}
+            <div className="button-row">
+              {Boolean(item.activatedAt) && !String(item.id).startsWith("queued-") && (
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  onClick={() => openHistoricalCheckpoint(item)}
+                >
+                  {thai ? "ดู/แก้ไขผลตรวจ" : "View / edit results"}
+                </button>
+              )}
+              {item.activatedAt && String(item.id).startsWith("queued-") ? (
+                <span className="pill">{thai ? "รอซิงก์ก่อนเพิ่มตัวอ่อน" : "Sync pending"}</span>
+              ) : item.activatedAt ? (
+                <button className="button button--secondary" type="button" onClick={() => addEmbryos(String(item.id))}>
+                  {thai ? `เพิ่มตัวอ่อน ${count} ตัว` : `Add ${count} embryos`}
+                </button>
+              ) : (
+                <button className="button button--primary" type="button" onClick={() => useTemplate(item)}>
+                  {thai ? "เปิดใช้แม่แบบชุดนี้" : "Activate template"}
+                </button>
+              )}
+            </div>
           </div>
           {Boolean(item.activatedAt) && (
             <label className="form-card--inline">
@@ -981,7 +1068,8 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
               <table>
                 <thead>
                   <tr>
-                    <th>{thai ? "หลุม" : "Well"}</th>
+                    <th>{thai ? "หมายเลขลำดับ" : "Running no."}</th>
+                    <th>{thai ? "ตำแหน่งหลุม" : "Physical well"}</th>
                     <th>{thai ? "รหัสตัวอ่อน" : "Embryo"}</th>
                     <th>{thai ? "จัดการ" : "Action"}</th>
                   </tr>
@@ -989,6 +1077,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 <tbody>
                   {(embryos[String(item.id)] ?? []).map((embryo) => (
                     <tr key={String(embryo.id)}>
+                      <td>{Number(embryo.seqInLot ?? 0)}</td>
                       <td>
                         <select
                           aria-label={`${thai ? "หลุมของ" : "Well for"} ${String(embryo.embryoCode)}`}
