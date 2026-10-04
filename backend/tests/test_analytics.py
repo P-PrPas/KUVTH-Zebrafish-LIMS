@@ -613,6 +613,10 @@ def test_fish_supporting_analysis_reports_composition_age_and_box_boundaries(cli
         "Unassigned": 1,
     }
     box_rows = {row["boxCode"]: row for row in supporting["boxCensus"]}
+    # Frozen/discarded fish are outside the census, so its percentages still sum to 100%.
+    assert box_rows["B1"]["pct"] == pytest.approx(2 / 3)
+    assert box_rows["Unassigned"]["pct"] == pytest.approx(1 / 3)
+    assert sum(row["pct"] for row in supporting["boxCensus"]) == pytest.approx(1)
     assert box_rows["B1"]["statusCounts"] == {"ALIVE": 1, "DEAD": 1, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
     assert box_rows["B2"]["statusCounts"] == {"ALIVE": 0, "DEAD": 0, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
     assert box_rows["B2"]["empty"] is True
