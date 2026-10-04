@@ -497,7 +497,7 @@ describe("analytics dashboard", () => {
                 {
                   boxCode: "A1",
                   n: 1,
-                  pct: 1 / 3,
+                  pct: 1,
                   empty: false,
                   statusCounts: { ALIVE: 1, FROZEN: 0, DISCARDED: 0 },
                 },

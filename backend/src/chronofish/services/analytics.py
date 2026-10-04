@@ -782,6 +782,8 @@ class Analytics:
             if status not in FISH_STATUS_ORDER:
                 status = "UNKNOWN"
             box_status_counts[box_id][status] += 1
+        # Percentages share the census denominator so the displayed boxes sum to 100%.
+        box_total = sum(box_counts.values())
         cohort_restricted = any(
             self.query.get(key)
             for key in ("batchId", "operatorId", "treatmentGroupId", "donorCellLineId", "strain", "dateFrom", "dateTo")
@@ -805,7 +807,7 @@ class Analytics:
                 "fishBoxId": str(box.get("id")),
                 "boxCode": str(box.get("boxCode") or box.get("id")),
                 "n": box_counts.get(str(box.get("id")), 0),
-                "pct": box_counts.get(str(box.get("id")), 0) / total if total else None,
+                "pct": box_counts.get(str(box.get("id")), 0) / box_total if box_total else None,
                 "empty": box_counts.get(str(box.get("id")), 0) == 0,
                 "statusCounts": box_status_counts[str(box.get("id"))],
             }
@@ -817,7 +819,7 @@ class Analytics:
                     "fishBoxId": None,
                     "boxCode": "Unassigned",
                     "n": box_counts[""],
-                    "pct": box_counts[""] / total if total else None,
+                    "pct": box_counts[""] / box_total if box_total else None,
                     "empty": False,
                     "statusCounts": box_status_counts[""],
                 }
