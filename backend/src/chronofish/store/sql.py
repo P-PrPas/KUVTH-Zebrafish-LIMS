@@ -422,7 +422,7 @@ class SQLStore:
                     {"id": FISH_SEQUENCE_ID},
                 ).scalar_one()
                 state = self._load_state(connection)
-                operator_id, device_id, key = validate_write_context(request, state)
+                operator_id, device_id, key = validate_write_context(request, state, body)
                 previous = (
                     connection.execute(
                         text(

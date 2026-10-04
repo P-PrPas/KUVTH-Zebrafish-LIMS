@@ -27,7 +27,14 @@ const members = [
     syncDevices: [{ deviceId: "device-stale", pendingCount: 3, lastReportedAt: "2025-01-01T00:00:00Z", stale: true }],
   },
   { id: "member-3", email: "disabled@ku.th", role: "admin", active: false, syncDevices: [] },
-  { id: "member-4", email: "unknown-sync@ku.th", role: "member", active: true, syncDevices: [] },
+  {
+    id: "member-4",
+    email: "unknown-sync@ku.th",
+    role: "member",
+    active: true,
+    verifiedAt: "2026-01-01T00:00:00Z",
+    syncDevices: [],
+  },
 ];
 const sessions = [
   { id: "session-1", deviceId: "ipad-1", createdAt: "2026-01-01T00:00:00Z", lastSeenAt: "2026-01-02T00:00:00Z" },
@@ -80,7 +87,7 @@ function card(email: string): HTMLElement {
 describe("admin member management", () => {
   beforeEach(() => {
     get.mockReset();
-    request.mockReset().mockResolvedValue(undefined);
+    request.mockReset().mockResolvedValue({ json: async () => ({ emailSent: true }) });
     get.mockImplementation((path: string) => {
       if (path === "/auth/admin/users") return Promise.resolve({ items: members });
       if (path === "/operators") return Promise.resolve({ items: [{ id: "operator-1", name: "Researcher One" }] });
@@ -134,6 +141,21 @@ describe("admin member management", () => {
       body: JSON.stringify({ senderEmail: "lab@ku.th" }),
     });
     expect(rendered.element.textContent).toContain("Sender email saved.");
+    await rendered.unmount();
+  });
+
+  it("shows resend guidance when the account was created but email failed", async () => {
+    request.mockResolvedValueOnce({ json: async () => ({ emailSent: false }) });
+    const rendered = await renderPage(<Members language="en" />);
+    await settle();
+    await enterValue(rendered.element.querySelector<HTMLInputElement>("#invite-email")!, "failed@ku.th");
+    await act(async () => {
+      rendered.element
+        .querySelector(".members-invite form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(rendered.element.textContent).toContain("Use Resend invitation in the member list.");
     await rendered.unmount();
   });
 

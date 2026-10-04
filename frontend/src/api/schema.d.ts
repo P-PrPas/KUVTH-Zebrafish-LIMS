@@ -2521,21 +2521,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A code was sent when the address is invited and active */
+            /** @description Same response for invited, unknown, and rate-limited addresses; delivery is queued */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Cooldown or per-email hourly limit reached */
+            /** @description Global per-IP API rate limit reached */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Email delivery is not configured or unavailable */
+            /** @description Email delivery is not configured */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2723,12 +2723,17 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Member invited and invitation email sent */
+            /** @description Member created; emailSent reports whether invitation delivery succeeded */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        user: components["schemas"]["AuthUser"];
+                        emailSent: boolean;
+                    };
+                };
             };
             /** @description Admin role required */
             403: {

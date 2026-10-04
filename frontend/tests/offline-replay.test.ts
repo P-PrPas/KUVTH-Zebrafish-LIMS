@@ -32,7 +32,12 @@ describe("browser offline replay", () => {
 
     localStorage.setItem(
       "chronofish.auth_user",
-      JSON.stringify({ id: "01900000-0000-7000-8000-000000000098", email: "other@ku.th", role: "member" }),
+      JSON.stringify({
+        id: "01900000-0000-7000-8000-000000000098",
+        email: "other@ku.th",
+        role: "member",
+        operatorId: "operator-a",
+      }),
     );
     await putQueue("/batches", { batchCode: "ACCOUNT-B" });
     await queueWrite({

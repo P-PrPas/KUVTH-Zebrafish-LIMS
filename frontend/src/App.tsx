@@ -319,8 +319,9 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             <span>{t.operator}</span>
             <select
               id="operator-select"
-              aria-label={t.chooseOperator}
+              aria-label={isAdmin ? t.chooseOperator : t.operator}
               value={currentOperator}
+              disabled={!isAdmin}
               onChange={(event) => {
                 sessionStorage.setItem("chronofish.operator_id", event.target.value);
                 window.location.reload();
@@ -334,7 +335,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               ))}
             </select>
           </label>
-          {!currentOperator && (
+          {!currentOperator && isAdmin && (
             <span className="sr-only" role="status">
               {t.operatorRequired}
             </span>
@@ -412,10 +413,18 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
         )}
         {writePage && !currentOperator && (
           <div className="operator-gate" role="alert">
-            <strong>{t.operatorRequired}</strong>
-            <button type="button" onClick={() => document.getElementById("operator-select")?.focus()}>
-              {t.chooseOperator}
-            </button>
+            <strong>
+              {isAdmin
+                ? t.operatorRequired
+                : language === "th"
+                  ? "บัญชีนี้ยังไม่เชื่อมกับผู้ปฏิบัติงาน กรุณาติดต่อผู้ดูแลระบบ"
+                  : "Ask an administrator to link your account to an operator before recording work."}
+            </strong>
+            {isAdmin && (
+              <button type="button" onClick={() => document.getElementById("operator-select")?.focus()}>
+                {t.chooseOperator}
+              </button>
+            )}
           </div>
         )}
         {formErrors.length > 0 && (

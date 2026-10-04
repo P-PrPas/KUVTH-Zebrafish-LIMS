@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from ...runtime.errors import APIError
@@ -42,8 +42,9 @@ def build_auth_router(auth: AuthService) -> APIRouter:
     router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
     @router.post("/request-code", status_code=202)
-    def request_code(body: dict[str, Any]) -> dict[str, str]:
-        auth.request_code(body)
+    def request_code(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
+        email = auth.validate_code_request(body)
+        background_tasks.add_task(auth.deliver_code, email)
         return {"status": "If this email is invited, a sign-in code has been sent."}
 
     @router.post("/verify-code")
@@ -107,7 +108,8 @@ def build_auth_router(auth: AuthService) -> APIRouter:
 
     @router.post("/admin/users", status_code=201)
     def invite_user(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-        return {"user": auth.invite(body, _actor(request))}
+        user, email_sent = auth.invite(body, _actor(request))
+        return {"user": user, "emailSent": email_sent}
 
     @router.post("/admin/users/{user_id}/invite", status_code=202)
     def resend_invitation(request: Request, user_id: str) -> dict[str, str]:

@@ -34,6 +34,7 @@ def client(store: MemoryStore) -> TestClient:
         5,
         session_cookie_secure=False,
         app_base_url="http://testserver",
+        bootstrap_admin_email="peerapas.c@ku.th",
     )
     mailer = RecordingMailer()
     with TestClient(create_app(config, store, mailer)) as test_client:
