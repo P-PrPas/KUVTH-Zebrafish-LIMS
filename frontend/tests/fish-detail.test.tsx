@@ -310,4 +310,66 @@ describe("fish record detail", () => {
     expect(document.body.textContent).toContain("A-01");
     root.unmount();
   });
+
+  it("shows readable Thai prompts when correcting a legacy frozen observation", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path.includes("/fish/roll-call")) return json({ items: [] });
+        if (path.includes("/fish?"))
+          return json({ items: [{ id: "fish-1", fishCode: "F-001", status: "ALIVE", condition: "NORMAL" }] });
+        if (path.endsWith("/fish/fish-1"))
+          return json({
+            id: "fish-1",
+            fishCode: "F-001",
+            status: "ALIVE",
+            condition: "NORMAL",
+            observations: [{ id: "observation-1", observedOn: "2026-09-01", outcome: "FROZEN", condition: "NORMAL" }],
+            specimens: [],
+          });
+        return json({ items: [] });
+      }),
+    );
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+
+    await act(async () => {
+      root.render(<Fish t={text.th} />);
+      await settle();
+    });
+    await act(async () => {
+      (document.getElementById("fish-tab-registry") as HTMLButtonElement).click();
+      await settle();
+    });
+    await act(async () => {
+      (document.querySelector(".list-row") as HTMLButtonElement).click();
+      await settle();
+    });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "แก้ไขผล")
+        ?.click();
+      await settle();
+    });
+
+    expect(document.body.textContent).toContain("ผลเดิม: แช่แข็ง — เลือกมีชีวิตหรือตายใหม่");
+    expect(document.body.textContent).toContain("เลือกผลการตรวจ");
+
+    const correction = Array.from(document.querySelectorAll("form")).find((form) =>
+      form.textContent?.includes("แก้ไขผล"),
+    ) as HTMLFormElement;
+    const reason = correction.querySelector("input") as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setValue?.call(reason, "ตรวจทานบันทึกเดิม");
+      reason.dispatchEvent(new Event("input", { bubbles: true }));
+      correction.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await settle();
+    });
+
+    expect(document.body.textContent).toContain("เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย");
+    root.unmount();
+  });
 });

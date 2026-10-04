@@ -952,11 +952,7 @@ function FishDetail({
     event.preventDefault();
     if (!editing || !reason.trim() || !detail) return;
     if (!outcomes.includes(String(editing.outcome) as FishOutcome)) {
-      setError(
-        thai
-          ? "à¹€à¸¥à¸·à¸­à¸à¸œà¸¥à¸—à¸µà¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡: à¸¡à¸µà¸Šà¸µà¸§à¸´à¸•à¸«à¸£à¸·à¸­à¸•à¸²à¸¢"
-          : "Choose Alive or Dead as the corrected outcome.",
-      );
+      setError(thai ? "เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย" : "Choose Alive or Dead as the corrected outcome.");
       return;
     }
     const previous = detail;
@@ -1162,7 +1158,7 @@ function FishDetail({
               {!outcomes.includes(String(editing.recordedOutcome) as FishOutcome) && (
                 <p className="field-hint">
                   {thai
-                    ? `à¸œà¸¥à¹€à¸”à¸´à¸¡: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)} — à¹€à¸¥à¸·à¸­à¸à¸¡à¸µà¸Šà¸µà¸§à¸´à¸•à¸«à¸£à¸·à¸­à¸•à¸²à¸¢à¹ƒà¸«à¸¡à¹ˆ`
+                    ? `ผลเดิม: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)} — เลือกมีชีวิตหรือตายใหม่`
                     : `Previously recorded: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)}. Choose Alive or Dead to correct it.`}
                 </p>
               )}
@@ -1178,7 +1174,7 @@ function FishDetail({
                   }}
                 >
                   <option value="" disabled>
-                    {thai ? "à¹€à¸¥à¸·à¸­à¸à¸œà¸¥à¸à¸²à¸£à¸•à¸£à¸§à¸ˆ" : "Select corrected outcome"}
+                    {thai ? "เลือกผลการตรวจ" : "Select corrected outcome"}
                   </option>
                   {outcomes.map((value) => (
                     <option key={value} value={value}>

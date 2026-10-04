@@ -14,6 +14,7 @@ frontend/public/Banner/
 coverage.out
 
 __pycache__/
+backend/uv.lock
 *.py[cod]
 *.egg-info/
 .coverage
