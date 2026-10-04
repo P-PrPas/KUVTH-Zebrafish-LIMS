@@ -12,9 +12,13 @@ from ...runtime.values import iso_now, normalize, uuid7
 from ...store import Store
 
 MASTER = {
+    "experiment-groups": {"required": ("code", "name"), "unique": ("code",)},
     "sites": {"required": ("code", "name"), "unique": ("code",)},
     "operators": {"required": ("name",), "unique": ("name",), "references": {"siteId": "sites"}},
-    "donor-cell-lines": {"required": ("strain", "preparation"), "unique": ("strain", "preparation", "batchCode")},
+    "donor-cell-lines": {
+        "required": ("strain", "preparation", "preservation"),
+        "unique": ("strain", "preparation", "batchCode"),
+    },
     "recipient-egg-lots": {"required": ("breed", "label"), "unique": ("label",)},
     "csof-lots": {"required": ("lotCode",), "unique": ("lotCode",)},
     "treatment-groups": {"required": ("code", "armType"), "unique": ("code",)},
@@ -24,11 +28,34 @@ MASTER = {
 
 def _validate(state: State, resource: str, item: dict[str, Any], current_id: str = "") -> None:
     spec = MASTER[resource]
+    if resource == "experiment-groups":
+        for field, limit in (("code", 50), ("name", 200), ("description", 2000)):
+            value = item.get(field)
+            if field == "description" and value is None:
+                continue
+            if not isinstance(value, str) or len(value) > limit or (field != "description" and not value.strip()):
+                raise APIError(422, "validation_error", f"{field} is invalid (maximum {limit} characters)")
+    # Keep unrelated patches possible for pre-000011 rows; their lost value cannot be inferred safely.
+    legacy_missing_preservation = (
+        resource == "donor-cell-lines"
+        and bool(current_id)
+        and state.entities[resource].get(current_id, {}).get("preservation") is None
+        and item.get("preservation") is None
+    )
     missing = next((field for field in spec["required"] if not str(item.get(field, "")).strip()), None)
-    if missing:
+    if missing and not (legacy_missing_preservation and missing == "preservation"):
         raise APIError(422, "validation_error", f"ต้องระบุ {missing}")
     if resource == "donor-cell-lines" and item.get("preparation") not in {"DISSOCIATED", "CHUNKS"}:
         raise APIError(422, "validation_error", "preparation ต้องเป็น DISSOCIATED หรือ CHUNKS")
+    if resource == "donor-cell-lines" and item.get("preservation") not in {"FRESH", "CRYOPRESERVED"}:
+        if not legacy_missing_preservation:
+            raise APIError(422, "validation_error", "preservation ต้องเป็น FRESH หรือ CRYOPRESERVED")
+    if resource == "donor-cell-lines" and any(
+        len(str(item.get(field) or "")) > limit for field, limit in (("sampleInfo", 1000), ("batchCode", 100))
+    ):
+        raise APIError(422, "validation_error", "sampleInfo หรือ batchCode ยาวเกินกำหนด")
+    if resource == "recipient-egg-lots" and len(str(item.get("donorFishCode") or "")) > 150:
+        raise APIError(422, "validation_error", "donorFishCode ยาวเกินกำหนด")
     if resource == "treatment-groups" and item.get("armType") not in {"SCNT", "NATURAL_BREEDING", "IVF"}:
         raise APIError(422, "validation_error", "armType ไม่ถูกต้อง")
     for field, referenced in spec.get("references", {}).items():
@@ -38,7 +65,7 @@ def _validate(state: State, resource: str, item: dict[str, Any], current_id: str
                 raise APIError(422, "validation_error", f"{field} references an inactive or missing {referenced}")
     unique = spec["unique"]
     for item_id, existing in state.entities[resource].items():
-        if item_id == current_id or existing.get("active") is False:
+        if item_id == current_id or (existing.get("active") is False and resource != "experiment-groups"):
             continue
         if all(
             str(existing.get(field, "")).strip().casefold() == str(item.get(field, "")).strip().casefold()
@@ -105,6 +132,8 @@ def build_master_router(store: Store) -> APIRouter:
                     }
                     if body.get("active") is False:
                         updated["deletedAt"] = iso_now()
+                    elif current_resource == "experiment-groups" and body.get("active") is True:
+                        updated["deletedAt"] = None
                     _validate(state, current_resource, updated, item_id)
                     state.entities[current_resource][item_id] = updated
                     audit(state, request, "UPDATE", current_resource, item_id, old, updated)

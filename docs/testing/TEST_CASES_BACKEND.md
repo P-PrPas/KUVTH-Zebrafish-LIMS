@@ -364,17 +364,17 @@
 
 | ID | Test | Setup / Input | Expected | Ref | St |
 |---|---|---|---|---|---|
-| BE-EXP-050 | `test_lot_requires_lot_no_donor_activated_at_and_n_activated` | ขาดทีละตัว | 422 | FR-307 | ➕ |
-| BE-EXP-051 | `test_lot_no_must_be_a_string_within_20_characters` | 21 ตัว / ตัวเลข | 422 | FR-307 | 🆕 |
+| BE-EXP-050 | `test_lot_requires_donor_activated_at_and_n_activated` | ขาด donor, activatedAt หรือ nActivated | 422 | FR-307 | ✅ |
+| BE-EXP-051 | `test_batch_lot_and_embryos_are_created_atomically` | ส่ง `lotNo` เอง | เซิร์ฟเวอร์สร้างเลขลำดับให้อัตโนมัติ | FR-307 | 🆕 |
 | BE-EXP-052 | `test_lot_rejects_fractional_counts_without_leaving_partial_data` | `nActivated=5.5` | 422 และไม่มี lot/embryo ถูกสร้าง | FR-307 | ✅ |
-| BE-EXP-053 | `test_n_activated_bounds_are_zero_to_96` | −1, 97 | 422; 0 และ 96 ยอมรับ | FR-308 | ➕ |
+| BE-EXP-053 | `test_lot_rejects_out_of_range_embryo_counts_without_partial_data` | `nActivated=0`, 97 | 422 และไม่มี lot/embryo ถูกสร้าง | FR-308 | ✅ |
 | BE-EXP-054 | `test_enu_numeric_bounds` | `enuPowerPct=101`, `enuPulseUs=-1`, `enuLed=-1`, `nEggs=-1` | 422 "ค่าจำนวนอยู่นอกช่วงที่กำหนด" | FR-307 | ➕ |
 | BE-EXP-055 | `test_enu_after_activation_is_warning_not_rejection` | `enuFinishAt` > `activatedAt` | 201 พร้อม `warnings[0]` | FR-307 | ✅ |
 | BE-EXP-056 | `test_enu_finish_before_start_is_rejected` | finish ≤ start | 422 | FR-307 | ➕ |
 | BE-EXP-057 | `test_well_positions_must_be_unique_and_in_a1_to_h12` | `["A0"]`, `["I1"]`, `["A13"]`, ซ้ำกัน, ไม่ใช่ list, จำนวนเกิน `nActivated` | 422 ทุกกรณี | FR-310 | ➕ |
 | BE-EXP-058 | `test_well_positions_are_assigned_in_sequence_order` | 3 well กับ 5 ตัวอ่อน | ตัวอ่อน 1–3 ได้ well ตามลำดับ, 4–5 เป็น `null` | FR-310 | ➕ |
-| BE-EXP-059 | `test_duplicate_lot_no_within_a_batch_is_rejected` | lotNo ซ้ำในหมายเลข batch เดียวกัน (ต่างตัวพิมพ์) | 409 "lotNo ซ้ำใน batch" | FR-307 | ➕ |
-| BE-EXP-060 | `test_same_lot_no_is_allowed_in_a_different_batch` | lotNo `L1` ใน 2 batch | สำเร็จทั้งคู่ | FR-307 | 🆕 |
+| BE-EXP-059 | `test_batch_lot_and_embryos_are_created_atomically` | สร้าง lot ต่อเนื่องในการทดลองและวันเดียวกัน | ได้เลข lot ลำดับถัดไปอัตโนมัติ | FR-307 | ✅ |
+| BE-EXP-060 | `test_batch_lot_and_embryos_are_created_atomically` | ใช้ Code of Egg เดิมใน batch ใหม่วันถัดไป | เริ่มเลข lot ใหม่ที่ `1` | FR-307 | ✅ |
 | BE-EXP-061 | `test_lot_creation_on_a_missing_batch_returns_404` | batch id มั่ว | 404 | FR-307 | 🆕 |
 | BE-EXP-062 | `test_uat_batch_three_lots_create_fifteen_embryos_without_partial_lots` | 1 batch, 3 lot × 5 | 15 embryo, รหัสเรียงลำดับ, ไม่มี lot ที่ค้างครึ่ง | T-01 | ✅ |
 | BE-EXP-063 | `test_activating_a_template_twice_is_rejected` | activate lot ที่มี `activatedAt` แล้ว | 409 `invalid_state` | FR-309 | ✅ |

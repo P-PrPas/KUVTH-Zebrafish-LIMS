@@ -9,30 +9,55 @@ type MasterResource =
   | "donor-cell-lines"
   | "recipient-egg-lots"
   | "csof-lots"
+  | "experiment-groups"
   | "treatment-groups"
   | "fish-boxes";
 const masterConfig: Record<
   MasterResource,
-  { label: string; fields: { key: string; label: string; type?: string; options?: string[]; required?: boolean }[] }
+  {
+    label: string;
+    fields: {
+      key: string;
+      label: string;
+      type?: string;
+      options?: string[];
+      required?: boolean;
+      placeholder?: string;
+    }[];
+  }
 > = {
+  "experiment-groups": {
+    label: "Experiment groups",
+    fields: [
+      { key: "code", label: "Code", required: true },
+      { key: "name", label: "Name", required: true },
+      { key: "description", label: "Description" },
+    ],
+  },
   operators: { label: "Operators", fields: [{ key: "name", label: "Name", required: true }] },
   "donor-cell-lines": {
-    label: "Donor cell lines",
+    label: "Donor cells",
     fields: [
       { key: "strain", label: "Strain", required: true },
-      { key: "preparation", label: "Preparation", options: ["DISSOCIATED", "CHUNKS"], required: true },
+      { key: "preparation", label: "Types of Specimen", options: ["DISSOCIATED", "CHUNKS"], required: true },
+      { key: "preservation", label: "Preservation", options: ["FRESH", "CRYOPRESERVED"], required: true },
       { key: "batchCode", label: "Batch code" },
+      { key: "sampleInfo", label: "Cryovial / sample detail" },
     ],
   },
   "recipient-egg-lots": {
     label: "Recipient egg lots",
     fields: [
       { key: "breed", label: "Breed", required: true },
-      { key: "lotDate", label: "Lot date", type: "date" },
-      { key: "label", label: "Label", required: true },
+      { key: "lotDate", label: "Egg stripping date", type: "date" },
+      { key: "donorFishCode", label: "Donor fish code" },
+      { key: "label", label: "Label", required: true, placeholder: "[E1...] YYYY-MM-DD" },
     ],
   },
-  "csof-lots": { label: "CSOF lots", fields: [{ key: "lotCode", label: "Lot code", required: true }] },
+  "csof-lots": {
+    label: "Egg holding medium",
+    fields: [{ key: "lotCode", label: "Lot code", required: true, placeholder: "[medium name] YYYY-NN" }],
+  },
   "treatment-groups": {
     label: "Treatment groups",
     fields: [
@@ -50,24 +75,29 @@ const masterConfig: Record<
   },
 };
 const thaiResource: Record<MasterResource, string> = {
+  "experiment-groups": "โครงการวิจัย",
   operators: "ผู้ปฏิบัติงาน",
-  "donor-cell-lines": "สายเซลล์ผู้ให้",
+  "donor-cell-lines": "เซลล์ผู้ให้",
   "recipient-egg-lots": "ชุดไข่ผู้รับ",
-  "csof-lots": "ชุดน้ำยา CSOF",
-  "treatment-groups": "กลุ่มการทดลอง",
+  "csof-lots": "อาหารเลี้ยงไข่ (Egg holding medium)",
+  "treatment-groups": "แขนการทดลอง",
   "fish-boxes": "ตู้ปลา",
 };
 const thaiField: Record<string, string> = {
+  description: "คำอธิบาย",
   name: "ชื่อ",
   strain: "สายพันธุ์",
-  preparation: "รูปแบบการเตรียม",
+  preparation: "รูปแบบตัวอย่าง (Types of Specimen)",
+  preservation: "การเก็บรักษา",
   batchCode: "รหัสชุด",
+  sampleInfo: "รายละเอียดตัวอย่าง/หลอดแช่แข็ง",
   breed: "สายพันธุ์",
-  lotDate: "วันที่รับชุด",
+  lotDate: "วันที่รีดไข่",
+  donorFishCode: "รหัสปลาผู้ให้ไข่",
   label: "ชื่อเรียก",
   lotCode: "รหัสชุด",
   code: "รหัส",
-  armType: "ประเภทกลุ่ม",
+  armType: "ประเภทแขนการทดลอง",
   boxCode: "รหัสตู้ปลา",
   siteId: "สถานที่",
 };
@@ -394,7 +424,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     }
   };
   const fieldEditor = (
-    field: { key: string; label: string; type?: string; options?: string[]; required?: boolean },
+    field: { key: string; label: string; type?: string; options?: string[]; required?: boolean; placeholder?: string },
     value: string,
     onChange: (value: string) => void,
   ) => {
@@ -403,7 +433,20 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
         ? sites.map((site) => ({ value: String(site.id), label: String(site.code ?? site.name) }))
         : (field.options ?? []).map((option) => ({
             value: option,
-            label: option === "NATURAL_BREEDING" ? (thai ? "ผสมพันธุ์ตามธรรมชาติ" : "Natural breeding") : option,
+            label:
+              option === "NATURAL_BREEDING"
+                ? thai
+                  ? "ผสมพันธุ์ตามธรรมชาติ"
+                  : "Natural breeding"
+                : option === "FRESH"
+                  ? thai
+                    ? "สด"
+                    : "Fresh"
+                  : option === "CRYOPRESERVED"
+                    ? thai
+                      ? "แช่แข็งเก็บรักษา"
+                      : "Cryopreserved"
+                    : option,
           }));
     return options.length ? (
       <select required={field.required} value={value} onChange={(event) => onChange(event.target.value)}>
@@ -417,18 +460,32 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     ) : (
       <input
         required={field.required}
+        placeholder={field.placeholder}
         type={field.type ?? "text"}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     );
   };
+  const formatHint = (field: { key: string }) => {
+    const hint =
+      resource === "recipient-egg-lots" && field.key === "label"
+        ? thai
+          ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD"
+          : "Requested format: [E1...] YYYY-MM-DD"
+        : resource === "csof-lots" && field.key === "lotCode"
+          ? thai
+            ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN"
+            : "Requested format: [medium name] YYYY-NN"
+          : null;
+    return hint ? <span className="field-hint">{hint}</span> : null;
+  };
   const label = (field: { key: string; label: string }) => (thai ? (thaiField[field.key] ?? field.label) : field.label);
   return (
     <section className="master-catalog task-surface">
       <div>
         <p className="eyebrow">{thai ? "รายการที่ใช้ซ้ำ" : "REUSABLE REFERENCE LISTS"}</p>
-        <h2>{thai ? "บุคลากร วัสดุ และกลุ่มทดลอง" : "People, materials and experiment groups"}</h2>
+        <h2>{thai ? "บุคลากร วัสดุ และโครงการวิจัย" : "People, materials and experiment groups"}</h2>
         <p className="task-intro">
           {thai
             ? "เลือกประเภทข้อมูลหนึ่งรายการเพื่อเพิ่ม แก้ไข หรือเลิกใช้ โดยประวัติเดิมจะไม่ถูกลบ"
@@ -453,6 +510,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
           <label key={field.key}>
             {label(field)}
             {fieldEditor(field, form[field.key] ?? "", (value) => setForm({ ...form, [field.key]: value }))}
+            {formatHint(field)}
           </label>
         ))}
         <button className="button button--primary" type="submit">
@@ -468,6 +526,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
               {fieldEditor(field, String(editing[field.key] ?? ""), (value) =>
                 setEditing({ ...editing, [field.key]: value }),
               )}
+              {formatHint(field)}
             </label>
           ))}
           <div className="button-row">

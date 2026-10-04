@@ -22,7 +22,7 @@ import { type ApiItem, type Language, type Page, text } from "./types";
 
 type NavItem = { page: Page; label: string; icon: string; group: "primary" | "research" | "system" };
 
-const productName = "KUVTH Zebrafish LIMS";
+const productName = "KUVACB AqLIMS";
 
 function pageForWrite(path: string): Page {
   if (path.startsWith("/observations/embryo")) return "due";
@@ -84,8 +84,8 @@ function App() {
   const t = text[language];
   const navItems: NavItem[] = [
     { page: "dashboard", label: t.dashboard, icon: "dashboard", group: "primary" },
-    { page: "due", label: t.due, icon: "due", group: "primary" },
     { page: "batches", label: t.batches, icon: "batches", group: "primary" },
+    { page: "due", label: t.due, icon: "due", group: "primary" },
     { page: "fish", label: t.fish, icon: "fish", group: "primary" },
     { page: "promotions", label: t.promotions, icon: "promotions", group: "research" },
     { page: "controls", label: t.controls, icon: "controls", group: "research" },
@@ -204,13 +204,13 @@ function App() {
         <a
           className="brand-lockup"
           href="#dashboard"
-          aria-label={language === "th" ? "KUVACB · ผลการทดลอง" : "KUVACB · Research results"}
+          aria-label={language === "th" ? "KUVACB · สรุปผลการทดลอง" : "KUVACB · Experiment dashboard"}
         >
           <span className="brand-logo">
             <img src="/brand/kuvacb-logo.png" width="1095" height="351" alt="KUVACB" />
           </span>
           <span className="brand-copy">
-            <span className="brand">Zebrafish LIMS</span>
+            <span className="brand">KUVACB AqLIMS</span>
             <span className="tagline">
               {language === "th" ? "ระบบบันทึกงานวิจัยปลาม้าลาย" : "Zebrafish research workspace"}
             </span>
@@ -218,7 +218,7 @@ function App() {
         </a>
         <nav aria-label={language === "th" ? "เมนูหลัก" : "Main navigation"} className="sidebar-nav">
           <div className="nav-group nav-group--primary">
-            <p className="nav-group__label">{language === "th" ? "งานหลัก" : "Core work"}</p>
+            <p className="nav-group__label">{language === "th" ? "งาน" : "Task"}</p>
             {renderNav(navItems.filter((item) => item.group === "primary"))}
           </div>
           <details className="nav-disclosure nav-disclosure--desktop" open>

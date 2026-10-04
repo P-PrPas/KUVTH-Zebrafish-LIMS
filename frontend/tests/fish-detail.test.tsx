@@ -249,7 +249,7 @@ describe("fish record detail", () => {
     root.unmount();
   });
 
-  it("renders Thai identity, observation, and specimen details for a clone fish", async () => {
+  it("renders Thai fish details and legacy correction prompts", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -270,7 +270,13 @@ describe("fish record detail", () => {
             condition: "NORMAL",
             fishBoxId: "box-1",
             observations: [
-              { id: "observation-1", observedOn: "2026-09-01", outcome: "ALIVE", condition: "NORMAL", ageDays: 30 },
+              {
+                id: "observation-1",
+                observedOn: "2026-09-01",
+                outcome: "FROZEN",
+                condition: "NORMAL",
+                ageDays: 30,
+              },
             ],
             specimens: [
               {
@@ -302,6 +308,29 @@ describe("fish record detail", () => {
       (document.querySelector(".list-row") as HTMLButtonElement).click();
       await settle();
     });
+    await act(async () => {
+      Array.from(document.querySelectorAll("button"))
+        .find((button) => button.textContent === "แก้ไขผล")
+        ?.click();
+      await settle();
+    });
+
+    expect(document.body.textContent).toContain("ผลเดิม: แช่แข็ง — เลือกมีชีวิตหรือตายใหม่");
+    expect(document.body.textContent).toContain("เลือกผลการตรวจ");
+
+    const correction = Array.from(document.querySelectorAll("form")).find((form) =>
+      form.textContent?.includes("แก้ไขผล"),
+    ) as HTMLFormElement;
+    const reason = correction.querySelector("input") as HTMLInputElement;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    await act(async () => {
+      setValue?.call(reason, "ตรวจทานบันทึกเดิม");
+      reason.dispatchEvent(new Event("input", { bubbles: true }));
+      correction.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await settle();
+    });
+    expect(document.body.textContent).toContain("เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย");
+
     await act(async () => {
       (document.getElementById("fish-detail-tab-specimens") as HTMLButtonElement).click();
       await Promise.resolve();

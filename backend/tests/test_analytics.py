@@ -71,9 +71,10 @@ def test_dashboard_endpoints_return_complete_shapes(client, write_headers):
         assert response.status_code == 200, (endpoint, response.text)
         assert isinstance(response.json()["items"], list)
         assert {"filters", "sampleSize", "denominators", "unknown", "missing"} <= set(response.json()["meta"])
-    assert {"statusComposition", "ageDistribution", "sexComposition", "boxCensus", "batchPerformance"} <= set(
+    assert {"statusComposition", "ageDistribution", "sexComposition", "boxCensus"} <= set(
         client.get("/api/v1/analytics/fish-survival").json()["supporting"]
     )
+    assert "batchPerformance" not in client.get("/api/v1/analytics/fish-survival").json()["supporting"]
 
 
 def test_dashboard_bundle_uses_one_consistent_snapshot(client, store, monkeypatch):
@@ -125,11 +126,11 @@ def test_analytics_fixture_matches_manual_counts_and_shared_filters(client, writ
         "batchId": batch["id"],
     }
     kpi = client.get("/api/v1/analytics/kpi", params=filters).json()
-    assert {key: kpi["stage1"][key] for key in ("nBatches", "nEggs", "nActivated")} == {
+    assert {key: kpi["stage1"][key] for key in ("nBatches", "nActivated")} == {
         "nBatches": 1,
-        "nEggs": 5,
         "nActivated": 3,
     }
+    assert "nEggs" not in kpi["stage1"]
     assert kpi["stage1"]["nPromoted"] == 0
     assert kpi["stage1"]["pctNormal"] == pytest.approx(2 / 3)
     assert kpi["stage1"]["pctAbnormal"] == pytest.approx(1 / 3)
@@ -165,9 +166,11 @@ def test_analytics_fixture_matches_manual_counts_and_shared_filters(client, writ
     assert stage_22["surv"] == pytest.approx(2 / 3)
     assert survival["meta"]["missing"]["stageCheckpoint"] > 0
 
-    timing = client.get("/api/v1/analytics/timing-deviation", params={**filters, "groupBy": ["operator"]}).json()
-    assert {item["operatorId"] for item in timing["items"]} == {batch["operatorId"]}
-    assert {item["stageOrder"] for item in timing["items"]} == {19, 22}
+    timing = client.get("/api/v1/analytics/timing-deviation", params={**filters, "groupBy": ["treatmentGroup"]}).json()
+    assert [(item["treatmentGroup"], item["stageOrder"], item["n"]) for item in timing["items"]] == [
+        ("SCNT", 19, 3),
+        ("SCNT", 22, 2),
+    ]
 
     abnormality = client.get("/api/v1/analytics/abnormality-onset", params=filters).json()
     assert abnormality["items"] == [{"stageOrder": 19, "stageLabel": "Shield", "count": 1}]
@@ -191,7 +194,8 @@ def test_stage1_survival_does_not_increase_when_raw_alive_rises_after_a_gap(clie
         stage_19["outcome"] = "DEAD"
 
     rows = client.get("/api/v1/analytics/survival").json()["items"]
-    assert all(current["surv"] <= previous["surv"] for previous, current in zip(rows, rows[1:], strict=False))
+    known_survival = [item["surv"] for item in rows if item["surv"] is not None]
+    assert all(current <= previous for previous, current in zip(known_survival, known_survival[1:], strict=False))
     stage_19_row = next(item for item in rows if item["stageOrder"] == 19)
     stage_22_row = next(item for item in rows if item["stageOrder"] == 22)
     assert (stage_19_row["alive"], stage_19_row["nPrev"]) == (1, 3)
@@ -205,7 +209,12 @@ def test_manual_fish_is_not_counted_as_promoted_and_uses_unknown_metadata(client
     fish_response = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 520),
-        json={"fishCode": "manual-analytics", "dob": today, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "manual-analytics",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     )
     assert fish_response.status_code == 201, fish_response.text
     assert client.get("/api/v1/fish", params={"batchId": _batch["id"]}).json()["items"] == []
@@ -224,6 +233,52 @@ def test_manual_fish_is_not_counted_as_promoted_and_uses_unknown_metadata(client
     assert fish_survival["items"][0]["treatmentGroup"] == "ALL"
 
 
+def test_stage2_total_reconciles_alive_and_dead_and_keeps_other_statuses_in_composition(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    today = datetime.now(BANGKOK).date().isoformat()
+    for index, outcome in enumerate(("ALIVE", "DEAD", "FROZEN", "DISCARDED")):
+        fish = client.post(
+            "/api/v1/fish",
+            headers=headers(write_headers, 550 + index),
+            json={
+                "fishCode": f"kpi-status-{index}",
+                "dob": today,
+                "donorCellLineId": donor["id"],
+                "recipientEggLotId": batch["recipientEggLotId"],
+            },
+        )
+        assert fish.status_code == 201, fish.text
+        observation = client.post(
+            "/api/v1/observations/fish",
+            headers=headers(write_headers, 560 + index),
+            json={
+                "observations": [
+                    {
+                        "clientUuid": f"01900000-0000-7000-8000-{560 + index:012d}",
+                        "cloneFishId": fish.json()["id"],
+                        "observedOn": today,
+                        "outcome": outcome,
+                        "condition": "NORMAL",
+                    }
+                ]
+            },
+        )
+        assert observation.status_code == 200, observation.text
+
+    result = client.get("/api/v1/analytics/kpi").json()
+    assert {key: result["stage2"][key] for key in ("nFish", "nAlive", "nDead")} == {
+        "nFish": 2,
+        "nAlive": 1,
+        "nDead": 1,
+    }
+    assert result["meta"]["denominators"]["stage2Fish"] == 2
+    statuses = {
+        row["status"]: row["n"]
+        for row in client.get("/api/v1/analytics/fish-survival").json()["supporting"]["statusComposition"]
+    }
+    assert statuses["FROZEN"] == statuses["DISCARDED"] == 1
+
+
 def test_zero_denominator_and_missing_checkpoint_are_explicit(client, write_headers):
     empty_kpi = client.get("/api/v1/analytics/kpi").json()
     assert empty_kpi["stage1"]["pctNormal"] is None
@@ -239,9 +294,11 @@ def test_zero_denominator_and_missing_checkpoint_are_explicit(client, write_head
         json={"lotNo": "missing", "donorCellLineId": donor["id"], "activatedAt": activated, "nActivated": 1},
     ).json()
     survival = client.get("/api/v1/analytics/survival").json()
-    assert survival["items"][0]["surv"] == 1
+    assert survival["items"][0]["riskSet"] == 1
+    assert survival["items"][0]["alive"] is None
+    assert survival["items"][0]["surv"] is None
     assert survival["items"][1]["nPrev"] == 0
-    assert survival["items"][1]["surv"] == 1
+    assert survival["items"][1]["surv"] is None
     assert survival["items"][1]["pctOfDevelopment"] is None
     assert survival["meta"]["missing"]["stageCheckpoint"] >= len(lot["embryos"])
     abnormality = client.get("/api/v1/analytics/abnormality-onset").json()
@@ -542,27 +599,33 @@ def test_fish_supporting_analysis_reports_composition_age_and_box_boundaries(cli
         "DISCARDED": 1,
     }
     assert {row["sex"]: row["n"] for row in supporting["sexComposition"]} == {"M": 2, "F": 2, "UNKNOWN": 1}
-    assert [row["n"] for row in supporting["ageDistribution"]] == [2, 1, 1, 0, 1]
+    assert [row["n"] for row in supporting["ageDistribution"]] == [4, 1, 0, 0, 0, 0, 0]
     assert supporting["ageDistribution"][0]["minDays"] == 0
-    assert supporting["ageDistribution"][0]["maxDays"] == 6
-    assert supporting["ageDistribution"][1]["minDays"] == 7
-    assert supporting["ageDistribution"][1]["maxDays"] == 13
-    assert supporting["ageDistribution"][-1]["minDays"] == 28
+    assert supporting["ageDistribution"][0]["maxDays"] == 14
+    assert supporting["ageDistribution"][1]["minDays"] == 15
+    assert supporting["ageDistribution"][1]["maxDays"] == 31
+    assert supporting["ageDistribution"][-1]["minDays"] == 730
     assert supporting["ageDistribution"][-1]["maxDays"] is None
     assert {row["boxCode"]: row["n"] for row in supporting["boxCensus"]} == {
         "B1": 2,
-        "B2": 2,
+        "B2": 0,
         "B3": 0,
         "Unassigned": 1,
     }
     box_rows = {row["boxCode"]: row for row in supporting["boxCensus"]}
+    # Frozen/discarded fish are outside the census, so its percentages still sum to 100%.
+    assert box_rows["B1"]["pct"] == pytest.approx(2 / 3)
+    assert box_rows["Unassigned"]["pct"] == pytest.approx(1 / 3)
+    assert sum(row["pct"] for row in supporting["boxCensus"]) == pytest.approx(1)
     assert box_rows["B1"]["statusCounts"] == {"ALIVE": 1, "DEAD": 1, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
+    assert box_rows["B2"]["statusCounts"] == {"ALIVE": 0, "DEAD": 0, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
+    assert box_rows["B2"]["empty"] is True
     assert box_rows["B3"]["statusCounts"] == {"ALIVE": 0, "DEAD": 0, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
-    assert supporting["boxMeta"] == {"nBoxes": 4, "emptyBoxes": 1}
+    assert supporting["boxMeta"] == {"nBoxes": 4, "emptyBoxes": 2}
     assert supporting["missingExitDate"] == 3
 
 
-def test_fish_supporting_day5_reports_eligibility_and_condition_denominator(client, store):
+def test_fish_supporting_payload_omits_removed_day5_performance(client, store):
     now = datetime.now(UTC).replace(microsecond=0)
     today = now.astimezone(BANGKOK).date()
     old_activation = (now - timedelta(days=2)).isoformat().replace("+00:00", "Z")
@@ -675,32 +738,12 @@ def test_fish_supporting_day5_reports_eligibility_and_condition_denominator(clie
             },
         }
 
-    rows = {
-        row["batchCode"]: row
-        for row in client.get("/api/v1/analytics/fish-survival").json()["supporting"]["batchPerformance"]
-    }
-    assert rows["OLD"] == {
-        "batchId": "old-batch",
-        "batchCode": "OLD",
-        "status": "ELIGIBLE",
-        "eligible": True,
-        "n": 2,
-        "denominator": 2,
-        "nNormal": 1,
-        "nAbnormal": 1,
-        "missingEmbryos": 1,
-        "pctNormal": 0.5,
-    }
-    assert rows["FUTURE"]["status"] == "MISSING"
-    assert rows["FUTURE"]["missingEmbryos"] == 1
-    assert rows["FUTURE"]["pctNormal"] is None
-    assert rows["NOT-READY"]["status"] == "NOT_ELIGIBLE"
-    assert rows["NOT-READY"]["missingEmbryos"] == 0
-    definition = client.get("/api/v1/analytics/fish-survival").json()["supporting"]["day5Definition"]
-    assert "activatedAt" in definition and "expectedHpa" in definition
+    supporting = client.get("/api/v1/analytics/fish-survival").json()["supporting"]
+    assert "batchPerformance" not in supporting
+    assert "day5Definition" not in supporting
 
 
-def test_nullable_egg_count_is_reported_without_breaking_kpi(client, write_headers):
+def test_egg_count_is_not_reported_as_missing_after_removing_it_from_the_entry_form(client, write_headers):
     batch, donor = create_batch(client, write_headers)
     response = client.post(
         f"/api/v1/batches/{batch['id']}/injection-lots",
@@ -716,11 +759,11 @@ def test_nullable_egg_count_is_reported_without_breaking_kpi(client, write_heade
     assert response.status_code == 201, response.text
     kpi = client.get("/api/v1/analytics/kpi")
     assert kpi.status_code == 200, kpi.text
-    assert kpi.json()["stage1"]["nEggs"] == 0
-    assert kpi.json()["meta"]["missing"]["nEggs"] == 1
+    assert "nEggs" not in kpi.json()["stage1"]
+    assert "nEggs" not in kpi.json()["meta"]["missing"]
 
 
-def test_control_comparison_pairs_scnt_at_control_stage_and_keeps_zero_unknown(client, write_headers):
+def test_control_comparison_excludes_scnt_and_includes_day_four(client, write_headers):
     batch, _donor = create_batch(client, write_headers)
     saved = client.put(
         f"/api/v1/batches/{batch['id']}/control-arm-counts",
@@ -741,7 +784,9 @@ def test_control_comparison_pairs_scnt_at_control_stage_and_keeps_zero_unknown(c
         "controlComparison"
     ]
     stage_three = [item for item in comparison if item["stageOrder"] == 3]
-    assert {item["armType"] for item in stage_three} == {"SCNT", "IVF"}
+    assert {item["armType"] for item in stage_three} == {"IVF", "NATURAL_BREEDING"}
+    assert {item["stageOrder"] for item in comparison} == {3, 19, 20, 22, 23, 24, 25}
+    assert all(item["armType"] != "SCNT" for item in comparison)
     ivf = next(item for item in stage_three if item["armType"] == "IVF")
     assert ivf["pctNormal"] is None
     assert ivf["pctAbnormal"] is None

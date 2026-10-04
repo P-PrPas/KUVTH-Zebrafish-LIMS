@@ -7,15 +7,33 @@ import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
 
 type FishOutcome = "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
-type FishCondition = "NORMAL" | "ABNORMAL" | "UNDETERMINED";
-const outcomes: FishOutcome[] = ["ALIVE", "DEAD", "FROZEN", "DISCARDED"];
-const bangkokDate = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+type FishHealthStatus = "HEALTHY" | "WEAK" | "SICK" | "DISABLED" | "AGED" | "UNDETERMINED";
+const outcomes: FishOutcome[] = ["ALIVE", "DEAD"];
+const healthStatuses: FishHealthStatus[] = ["HEALTHY", "WEAK", "SICK", "DISABLED", "AGED", "UNDETERMINED"];
+const bangkokDate = (value = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(value);
+const bangkokClock = (value: Date) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(value);
 const outcomeLabel = (value: FishOutcome, t: AppText) =>
   ({ ALIVE: t.fishAlive, DEAD: t.fishDead, FROZEN: t.fishFrozen, DISCARDED: t.fishDiscarded })[value];
 const conditionLabel = (value: unknown, thai: boolean) =>
   ({
     NORMAL: thai ? "ปกติ" : "Normal",
     ABNORMAL: thai ? "พบความผิดปกติ" : "Abnormal",
+    UNDETERMINED: thai ? "ยังประเมินไม่ได้" : "Undetermined",
+  })[String(value)] ?? "—";
+const healthStatusLabel = (value: unknown, thai: boolean) =>
+  ({
+    HEALTHY: thai ? "สุขภาพดี" : "Healthy",
+    WEAK: thai ? "อ่อนแอ" : "Weak",
+    SICK: thai ? "ป่วย" : "Sick",
+    DISABLED: thai ? "พิการ" : "Disabled",
+    AGED: thai ? "ชรา" : "Aged",
     UNDETERMINED: thai ? "ยังประเมินไม่ได้" : "Undetermined",
   })[String(value)] ?? "—";
 const sexLabel = (value: unknown, thai: boolean) =>
@@ -41,7 +59,9 @@ const dateRange = (start: string, end: string) => {
 export function Fish({ t }: { t: AppText }) {
   const [dashboardFilters] = useState(() => parseFilters());
   const [mode, setMode] = useState<"rollcall" | "registry">(() =>
-    Object.keys(dashboardFilters).length ? "registry" : "rollcall",
+    new URLSearchParams(window.location.search).get("fishMode") === "registry" || Object.keys(dashboardFilters).length
+      ? "registry"
+      : "rollcall",
   );
   const [date, setDate] = useState(bangkokDate());
   const [endDate, setEndDate] = useState(bangkokDate());
@@ -55,10 +75,14 @@ export function Fish({ t }: { t: AppText }) {
   const [correctionReason, setCorrectionReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [notesByFish, setNotesByFish] = useState<Record<string, string>>({});
+  const [healthStatusByFish, setHealthStatusByFish] = useState<Record<string, FishHealthStatus>>({});
+  const [clock, setClock] = useState(() => new Date());
   const [filters, setFilters] = useState({
     siteId: dashboardFilters.siteId ?? "",
     boxId: "",
     status: "",
+    sex: new URLSearchParams(window.location.search).get("fishSex") ?? "",
     strain: dashboardFilters.strain ?? "",
     treatmentGroupId: dashboardFilters.treatmentGroupId ?? "",
     dobFrom: "",
@@ -68,12 +92,28 @@ export function Fish({ t }: { t: AppText }) {
     sites: [],
     "fish-boxes": [],
     "treatment-groups": [],
+    "donor-cell-lines": [],
+    "recipient-egg-lots": [],
   });
   const thai = t === text.th;
 
   const loadRollCall = useCallback(() => {
     void get(`/fish/roll-call?date=${date}`)
-      .then((data) => setItems(data.items ?? []))
+      .then((data) => {
+        const rows = data.items ?? [];
+        setItems(rows);
+        setNotesByFish(
+          Object.fromEntries(rows.map((fish: ApiItem) => [String(fish.fishId), String(fish.recordedNotes ?? "")])),
+        );
+        setHealthStatusByFish(
+          Object.fromEntries(
+            rows.map((fish: ApiItem) => [
+              String(fish.fishId),
+              String(fish.recordedHealthStatus ?? fish.healthStatus ?? "UNDETERMINED") as FishHealthStatus,
+            ]),
+          ),
+        );
+      })
       .catch((e: Error) => setError(e.message));
   }, [date]);
   const loadRegistry = useCallback(() => {
@@ -83,13 +123,20 @@ export function Fish({ t }: { t: AppText }) {
   }, [dashboardFilters]);
   useEffect(() => {
     void Promise.all(
-      ["sites", "fish-boxes", "treatment-groups"].map(
+      ["sites", "fish-boxes", "treatment-groups", "donor-cell-lines", "recipient-egg-lots"].map(
         async (resource) => [resource, (await get(`/${resource}`)).items ?? []] as [string, ApiItem[]],
       ),
     )
       .then((result) => setMasters(Object.fromEntries(result)))
       .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    if (mode !== "rollcall") return;
+    const refreshClock = () => setClock(new Date());
+    refreshClock();
+    const timer = window.setInterval(refreshClock, 60_000);
+    return () => window.clearInterval(timer);
+  }, [mode]);
   useEffect(() => {
     if (mode === "rollcall") loadRollCall();
     else loadRegistry();
@@ -111,6 +158,18 @@ export function Fish({ t }: { t: AppText }) {
     };
   }, [loadRollCall, loadRegistry]);
 
+  const needsCorrection = (fish: ApiItem) => {
+    const id = String(fish.fishId);
+    const outcome = outcomesByFish[id];
+    return (
+      fish.alreadyRecorded &&
+      ((outcome != null && outcome !== String(fish.recordedOutcome ?? "ALIVE")) ||
+        (healthStatusByFish[id] != null &&
+          healthStatusByFish[id] !== String(fish.recordedHealthStatus ?? fish.healthStatus ?? "UNDETERMINED")) ||
+        (notesByFish[id] ?? "").trim() !== String(fish.recordedNotes ?? "").trim())
+    );
+  };
+
   const saveRollCall = async () => {
     const dates = dateRange(date, endDate);
     if (!dates.length || endDate > bangkokDate()) {
@@ -125,12 +184,14 @@ export function Fish({ t }: { t: AppText }) {
       setError(thai ? "รายการที่มีข้อยกเว้นบันทึกได้ครั้งละหนึ่งวัน" : "Exception outcomes can only be saved for one day at a time");
       return;
     }
-    const corrections = items.filter(
-      (fish) =>
-        fish.alreadyRecorded &&
-        outcomesByFish[String(fish.fishId)] &&
-        outcomesByFish[String(fish.fishId)] !== String(fish.recordedOutcome ?? "ALIVE"),
-    );
+    if (
+      dates.length > 1 &&
+      items.some((fish) => (notesByFish[String(fish.fishId)] ?? "").trim() !== String(fish.recordedNotes ?? "").trim())
+    ) {
+      setError(thai ? "บันทึกหมายเหตุได้ครั้งละวัน" : "Notes can only be saved for one day at a time");
+      return;
+    }
+    const corrections = items.filter(needsCorrection);
     if (corrections.length && !correctionReason.trim()) {
       setError(thai ? "โปรดระบุเหตุผลที่แก้ไขผลการตรวจ" : "Correction reason is required");
       return;
@@ -150,7 +211,9 @@ export function Fish({ t }: { t: AppText }) {
             cloneFishId: fish.fishId,
             observedOn: dates[index],
             outcome: dates.length === 1 ? (outcomesByFish[String(fish.fishId)] ?? "ALIVE") : "ALIVE",
-            condition: fish.condition ?? "NORMAL",
+            condition: fish.condition ?? "UNDETERMINED",
+            healthStatus: healthStatusByFish[String(fish.fishId)] ?? fish.healthStatus ?? "UNDETERMINED",
+            notes: dates.length === 1 ? (notesByFish[String(fish.fishId)] ?? "").trim() || null : null,
             ...(dates[index] < bangkokDate() ? { overrideReason: backdateReason.trim() } : {}),
           })),
       );
@@ -161,13 +224,16 @@ export function Fish({ t }: { t: AppText }) {
           {
             observedOn: date,
             outcome: outcomesByFish[String(fish.fishId)],
-            condition: fish.condition ?? "NORMAL",
+            condition: fish.recordedCondition ?? fish.condition ?? "UNDETERMINED",
+            healthStatus: healthStatusByFish[String(fish.fishId)] ?? fish.recordedHealthStatus ?? "UNDETERMINED",
+            notes: (notesByFish[String(fish.fishId)] ?? "").trim() || null,
             overrideReason: correctionReason.trim(),
           },
           "application/json",
           "PATCH",
         );
       setOutcomesByFish({});
+      setHealthStatusByFish({});
       setCorrectionReason("");
       loadRollCall();
     } catch (e) {
@@ -183,6 +249,7 @@ export function Fish({ t }: { t: AppText }) {
           (!filters.siteId || String(fish.siteId) === filters.siteId) &&
           (!filters.boxId || String(fish.fishBoxId) === filters.boxId) &&
           (!filters.status || String(fish.status) === filters.status) &&
+          (!filters.sex || String(fish.sex ?? "UNKNOWN") === filters.sex) &&
           (!filters.treatmentGroupId || String(fish.treatmentGroupId) === filters.treatmentGroupId) &&
           (!filters.strain ||
             String(fish.strain ?? "")
@@ -260,6 +327,26 @@ export function Fish({ t }: { t: AppText }) {
           </button>
         </div>
       </div>
+      {mode === "rollcall" &&
+        date === bangkokDate(clock) &&
+        items.some((fish) => !fish.alreadyRecorded) &&
+        (() => {
+          const [hour, minute] = bangkokClock(clock).split(":").map(Number);
+          const minutes = hour * 60 + minute;
+          if (minutes < 15 * 60 || minutes >= 17 * 60) return null;
+          const nextReminder = `${String(hour).padStart(2, "0")}:${String(Math.floor(minute / 30) * 30).padStart(2, "0")}`;
+          const pending = items.filter((fish) => !fish.alreadyRecorded).length;
+          return (
+            <div className="fish-check-reminder" role="alert">
+              <strong>{thai ? `แจ้งเตือน ${nextReminder} น.` : `15:00–17:00 reminder · ${nextReminder}`}</strong>
+              <span>
+                {thai
+                  ? `ยังมีปลา ${pending} ตัวที่ยังไม่ตรวจ โปรดบันทึกผล ระบบจะแจ้งซ้ำทุก 30 นาทีจนกว่าจะตรวจครบ (ทุกวัน)`
+                  : `${pending} fish still need a check. Save the results; this reminder repeats every 30 minutes until all are checked, every day.`}
+              </span>
+            </div>
+          );
+        })()}
       <div className="tabs" role="tablist" aria-label={thai ? "มุมมองการดูแลปลา" : "Fish care view"}>
         <button
           id="fish-tab-rollcall"
@@ -339,14 +426,9 @@ export function Fish({ t }: { t: AppText }) {
               )}
             </div>
           </details>
-          {items.some(
-            (fish) =>
-              fish.alreadyRecorded &&
-              outcomesByFish[String(fish.fishId)] &&
-              outcomesByFish[String(fish.fishId)] !== String(fish.recordedOutcome ?? "ALIVE"),
-          ) && (
+          {items.some(needsCorrection) && (
             <label className="correction-reason">
-              {thai ? "เหตุผลที่แก้ไขผลเดิม" : "Reason for correcting recorded outcomes"}
+              {thai ? "เหตุผลที่แก้ไขบันทึกปลา" : "Reason for correcting this fish observation"}
               <input
                 name="rollCallCorrectionReason"
                 required
@@ -372,9 +454,11 @@ export function Fish({ t }: { t: AppText }) {
                   </header>
                   {fishInBox.map((fish) => {
                     const id = String(fish.fishId);
+                    const recordedOutcome = String(fish.recordedOutcome ?? "ALIVE");
+                    const recordedSelectable = outcomes.includes(recordedOutcome as FishOutcome);
                     const value =
                       outcomesByFish[id] ??
-                      (fish.alreadyRecorded ? (String(fish.recordedOutcome ?? "ALIVE") as FishOutcome) : "ALIVE");
+                      (fish.alreadyRecorded ? (recordedSelectable ? (recordedOutcome as FishOutcome) : "") : "ALIVE");
                     return (
                       <div className="record-row" key={id}>
                         <button className="fish-row-main record-row__title" onClick={() => setSelected(id)}>
@@ -383,13 +467,28 @@ export function Fish({ t }: { t: AppText }) {
                             {thai ? `อายุ ${String(fish.ageDays ?? "—")} วัน` : `${String(fish.ageDays ?? "—")} days old`}
                           </small>
                         </button>
-                        <span
-                          className={
-                            String(fish.condition) === "ABNORMAL" ? "status-label status-label--danger" : "status-label"
-                          }
-                        >
-                          {conditionLabel(fish.condition, thai)}
-                        </span>
+                        <label className="record-row__health">
+                          {thai ? "สถานะสุขภาพ" : "Health status"}
+                          <select
+                            aria-label={`${thai ? "สถานะสุขภาพ" : "Health status"} ${String(fish.fishCode)}`}
+                            value={
+                              healthStatusByFish[id] ??
+                              String(fish.recordedHealthStatus ?? fish.healthStatus ?? "UNDETERMINED")
+                            }
+                            onChange={(event) =>
+                              setHealthStatusByFish((current) => ({
+                                ...current,
+                                [id]: event.target.value as FishHealthStatus,
+                              }))
+                            }
+                          >
+                            {healthStatuses.map((status) => (
+                              <option key={status} value={status}>
+                                {healthStatusLabel(status, thai)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <div
                           className="record-row__actions"
                           aria-label={
@@ -408,6 +507,26 @@ export function Fish({ t }: { t: AppText }) {
                             </button>
                           ))}
                         </div>
+                        {fish.alreadyRecorded && !recordedSelectable && (
+                          <small role="note">
+                            {thai
+                              ? `ผลที่บันทึกไว้: ${outcomeLabel(recordedOutcome as FishOutcome, t)} · เลือกสถานะใหม่เพื่อแก้ไข`
+                              : `Previously recorded: ${outcomeLabel(recordedOutcome as FishOutcome, t)}. Select Alive or Dead to correct it.`}
+                          </small>
+                        )}
+                        {date === endDate && (
+                          <details className="record-row__notes">
+                            <summary>{thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}</summary>
+                            <textarea
+                              rows={2}
+                              aria-label={`${thai ? "หมายเหตุ" : "Note"} ${String(fish.fishCode)}`}
+                              value={notesByFish[id] ?? ""}
+                              onChange={(event) =>
+                                setNotesByFish((current) => ({ ...current, [id]: event.target.value }))
+                              }
+                            />
+                          </details>
+                        )}
                       </div>
                     );
                   })}
@@ -471,6 +590,15 @@ export function Fish({ t }: { t: AppText }) {
                 </select>
               </label>
               <label>
+                {thai ? "เพศ" : "Sex"}
+                <select value={filters.sex} onChange={(event) => setFilters({ ...filters, sex: event.target.value })}>
+                  <option value="">{thai ? "ทั้งหมด" : "All"}</option>
+                  <option value="UNKNOWN">{sexLabel("UNKNOWN", thai)}</option>
+                  <option value="M">{sexLabel("M", thai)}</option>
+                  <option value="F">{sexLabel("F", thai)}</option>
+                </select>
+              </label>
+              <label>
                 {thai ? "สายพันธุ์" : "Strain"}
                 <input
                   value={filters.strain}
@@ -478,7 +606,7 @@ export function Fish({ t }: { t: AppText }) {
                 />
               </label>
               <label>
-                {thai ? "กลุ่มการทดลอง" : "Treatment"}
+                {thai ? "แขนการทดลอง" : "Treatment group"}
                 <select
                   value={filters.treatmentGroupId}
                   onChange={(event) => setFilters({ ...filters, treatmentGroupId: event.target.value })}
@@ -515,6 +643,7 @@ export function Fish({ t }: { t: AppText }) {
                     siteId: "",
                     boxId: "",
                     status: "",
+                    sex: "",
                     strain: "",
                     treatmentGroupId: "",
                     dobFrom: "",
@@ -536,6 +665,7 @@ export function Fish({ t }: { t: AppText }) {
                   siteId: "",
                   boxId: "",
                   status: "",
+                  sex: "",
                   strain: "",
                   treatmentGroupId: "",
                   dobFrom: "",
@@ -551,8 +681,8 @@ export function Fish({ t }: { t: AppText }) {
                     <strong>{String(fish.fishCode)}</strong>
                     <small>
                       {thai
-                        ? `สายพันธุ์ ${String(fish.strain ?? "ไม่ระบุ")} · เกิด ${String(fish.dob ?? "—")} · ${conditionLabel(fish.condition, true)}`
-                        : `Strain ${String(fish.strain ?? "Unknown")} · DOB ${String(fish.dob ?? "—")} · ${conditionLabel(fish.condition, false)}`}
+                        ? `สายพันธุ์ ${String(fish.strain ?? "ไม่ระบุ")} · เกิด ${String(fish.dob ?? "—")} · ${healthStatusLabel(fish.healthStatus, true)}`
+                        : `Strain ${String(fish.strain ?? "Unknown")} · DOB ${String(fish.dob ?? "—")} · ${healthStatusLabel(fish.healthStatus, false)}`}
                     </small>
                   </span>
                   <span className="pill">{outcomeLabel((fish.status ?? "ALIVE") as FishOutcome, t)}</span>
@@ -581,19 +711,17 @@ function ManualFishForm({
     fishCode: "",
     dob: bangkokDate(),
     donorCellLineId: "",
+    recipientEggLotId: "",
     siteId: "",
     fishBoxId: "",
     condition: "NORMAL",
+    healthStatus: "UNDETERMINED" as FishHealthStatus,
     sex: "UNKNOWN",
     remarks: "",
     overrideReason: "",
   });
-  const [donors, setDonors] = useState<ApiItem[]>([]);
   const [error, setError] = useState("");
   const thai = t === text.th;
-  useEffect(() => {
-    void get("/donor-cell-lines").then((data) => setDonors(data.items ?? []));
-  }, []);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     try {
@@ -602,10 +730,12 @@ function ManualFishForm({
       onSaved({
         ...optimistic,
         condition: form.condition as ApiItem["condition"],
+        healthStatus: form.healthStatus,
         sex: form.sex as ApiItem["sex"],
         id: `queued-fish-${Date.now()}`,
         siteId: form.siteId || undefined,
         fishBoxId: form.fishBoxId || undefined,
+        recipientEggLotId: form.recipientEggLotId,
         status: "ALIVE",
         queued: true,
       });
@@ -620,8 +750,8 @@ function ManualFishForm({
         <h1>{thai ? "ขึ้นทะเบียนปลาโคลน" : "Register clone fish"}</h1>
         <p className="task-intro">
           {thai
-            ? "กรอกข้อมูลที่ใช้ยืนยันตัวปลา 3 รายการก่อน รายละเอียดตำแหน่งเลี้ยงเพิ่มภายหลังได้"
-            : "Start with the three details that identify the fish. Housing details can be added later."}
+            ? "กรอกรหัสปลา วันเกิด สายเซลล์ผู้ให้ และชุดไข่ผู้รับก่อน รายละเอียดตำแหน่งเลี้ยงเพิ่มภายหลังได้"
+            : "Enter the fish code, DOB, donor cell line and recipient egg lot. Housing details can be added later."}
         </p>
       </div>
       <label>
@@ -642,27 +772,42 @@ function ManualFishForm({
         />
       </label>
       <label>
-        {thai ? "สายเซลล์ผู้ให้" : "Donor"}
+        {thai ? "เซลล์ผู้ให้" : "Donor cell"}
         <select
           required
           value={form.donorCellLineId}
           onChange={(e) => setForm({ ...form, donorCellLineId: e.target.value })}
         >
-          <option value="">{thai ? "เลือกสายเซลล์ผู้ให้" : "Select donor"}</option>
-          {donors.map((item) => (
+          <option value="">{thai ? "เลือกเซลล์ผู้ให้" : "Select donor cell"}</option>
+          {masters["donor-cell-lines"].map((item) => (
             <option key={String(item.id)} value={String(item.id)}>
               {String(item.strain ?? item.name ?? item.id)}
             </option>
           ))}
         </select>
       </label>
+      <label>
+        {thai ? "ชุดไข่ผู้รับ" : "Recipient egg lot"}
+        <select
+          required
+          value={form.recipientEggLotId}
+          onChange={(e) => setForm({ ...form, recipientEggLotId: e.target.value })}
+        >
+          <option value="">{thai ? "เลือกชุดไข่ผู้รับ" : "Select recipient egg lot"}</option>
+          {masters["recipient-egg-lots"].map((item) => (
+            <option key={String(item.id)} value={String(item.id)}>
+              {String(item.label ?? item.id)}
+            </option>
+          ))}
+        </select>
+      </label>
       <details className="workflow-disclosure">
-        <summary>{thai ? "เพิ่มตำแหน่งเลี้ยง เพศ และหมายเหตุ" : "Add housing, sex and notes"}</summary>
+        <summary>{thai ? "ระบบเลี้ยงปลา เพศ และหมายเหตุ" : "Fish system, sex and notes"}</summary>
         <div className="workflow-disclosure__body form-card--inline">
           <label>
-            {thai ? "สถานที่" : "Site"}
+            {thai ? "ระบบเลี้ยงปลา" : "Fish system"}
             <select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}>
-              <option value="">{thai ? "ยังไม่ระบุ" : "No site"}</option>
+              <option value="">{thai ? "ยังไม่ระบุระบบ" : "No system"}</option>
               {masters.sites.map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
                   {String(item.code ?? item.name)}
@@ -806,6 +951,10 @@ function FishDetail({
   const correct = async (event: FormEvent) => {
     event.preventDefault();
     if (!editing || !reason.trim() || !detail) return;
+    if (!outcomes.includes(String(editing.outcome) as FishOutcome)) {
+      setError(thai ? "เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย" : "Choose Alive or Dead as the corrected outcome.");
+      return;
+    }
     const previous = detail;
     setDetail({
       ...detail,
@@ -824,6 +973,7 @@ function FishDetail({
           observedOn: corrected.observedOn,
           outcome: corrected.outcome,
           condition: corrected.condition,
+          healthStatus: corrected.healthStatus,
           notes: corrected.notes,
         },
         "application/json",
@@ -975,15 +1125,21 @@ function FishDetail({
                     </div>
                     <p className="muted">
                       {thai
-                        ? `อายุ ${String(item.ageDays ?? "—")} วัน · ${conditionLabel(item.condition, true)}`
-                        : `Age ${String(item.ageDays ?? "—")} days · ${conditionLabel(item.condition, false)}`}
+                        ? `อายุ ${String(item.ageDays ?? "—")} วัน · ${healthStatusLabel(item.healthStatus, true)}`
+                        : `Age ${String(item.ageDays ?? "—")} days · ${healthStatusLabel(item.healthStatus, false)}`}
                     </p>
                     <div className="timeline__actions">
                       <button
                         className="inline-action"
                         onClick={() => {
-                          setEditing(item);
+                          const recordedOutcome = String(item.outcome ?? "");
+                          setEditing({
+                            ...item,
+                            recordedOutcome,
+                            outcome: outcomes.includes(recordedOutcome as FishOutcome) ? recordedOutcome : "",
+                          });
                           setReason("");
+                          setError("");
                         }}
                       >
                         {thai ? "แก้ไขผล" : "Correct"}
@@ -999,13 +1155,27 @@ function FishDetail({
           )}
           {editing && (
             <form className="task-surface form-card" onSubmit={correct}>
+              {!outcomes.includes(String(editing.recordedOutcome) as FishOutcome) && (
+                <p className="field-hint">
+                  {thai
+                    ? `ผลเดิม: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)} — เลือกมีชีวิตหรือตายใหม่`
+                    : `Previously recorded: ${outcomeLabel(String(editing.recordedOutcome) as FishOutcome, t)}. Choose Alive or Dead to correct it.`}
+                </p>
+              )}
               <h2>{thai ? `แก้ไขผลวันที่ ${String(editing.observedOn)}` : `Correct ${String(editing.observedOn)}`}</h2>
               <label>
                 {thai ? "ผลการตรวจ" : "Outcome"}
                 <select
-                  value={String(editing.outcome ?? "ALIVE")}
-                  onChange={(event) => setEditing({ ...editing, outcome: event.target.value })}
+                  required
+                  value={String(editing.outcome ?? "")}
+                  onChange={(event) => {
+                    setEditing({ ...editing, outcome: event.target.value });
+                    setError("");
+                  }}
                 >
+                  <option value="" disabled>
+                    {thai ? "เลือกผลการตรวจ" : "Select corrected outcome"}
+                  </option>
                   {outcomes.map((value) => (
                     <option key={value} value={value}>
                       {outcomeLabel(value, t)}
@@ -1014,19 +1184,30 @@ function FishDetail({
                 </select>
               </label>
               <label>
-                {thai ? "สภาพปลา" : "Condition"}
+                {thai ? "สถานะสุขภาพ" : "Health status"}
                 <select
-                  value={String(editing.condition ?? "NORMAL")}
-                  onChange={(event) => setEditing({ ...editing, condition: event.target.value as FishCondition })}
+                  value={String(editing.healthStatus ?? "UNDETERMINED")}
+                  onChange={(event) => setEditing({ ...editing, healthStatus: event.target.value as FishHealthStatus })}
                 >
-                  <option value="NORMAL">{conditionLabel("NORMAL", thai)}</option>
-                  <option value="ABNORMAL">{conditionLabel("ABNORMAL", thai)}</option>
-                  <option value="UNDETERMINED">{conditionLabel("UNDETERMINED", thai)}</option>
+                  {healthStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {healthStatusLabel(status, thai)}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
                 {thai ? "เหตุผลที่แก้ไข" : "Correction reason"}
                 <input required value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <label>
+                {thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}
+                <textarea
+                  rows={3}
+                  aria-label={thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}
+                  value={String(editing.notes ?? "")}
+                  onChange={(event) => setEditing({ ...editing, notes: event.target.value })}
+                />
               </label>
               <div className="button-row">
                 <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save correction"}</button>

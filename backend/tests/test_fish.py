@@ -151,7 +151,12 @@ def test_manual_fish_requires_reason_when_backdated_and_roll_call_tracks_write(c
     invalid = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 404),
-        json={"fishCode": "manual-1", "dob": old_dob, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "manual-1",
+            "dob": old_dob,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     )
     assert invalid.status_code == 422
     fish = client.post(
@@ -161,6 +166,7 @@ def test_manual_fish_requires_reason_when_backdated_and_roll_call_tracks_write(c
             "fishCode": "manual-1",
             "dob": old_dob,
             "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
             "overrideReason": "legacy fish",
         },
     ).json()
@@ -205,7 +211,12 @@ def test_specimen_can_mark_fin_clipped(client, write_headers):
     fish = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 407),
-        json={"fishCode": "manual-2", "dob": today, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "manual-2",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     ).json()
     specimen = client.post(
         f"/api/v1/fish/{fish['id']}/specimens",
@@ -221,13 +232,56 @@ def test_specimen_can_mark_fin_clipped(client, write_headers):
     assert client.get(f"/api/v1/fish/{fish['id']}").json()["finClipped"] is True
 
 
+def test_fish_health_status_does_not_overwrite_life_outcome_or_condition(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    today = datetime.now(BANGKOK).date().isoformat()
+    fish = client.post(
+        "/api/v1/fish",
+        headers=headers(write_headers, 409),
+        json={
+            "fishCode": "health-status-separate",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+            "healthStatus": "WEAK",
+        },
+    ).json()
+    assert fish["condition"] == "NORMAL"
+    assert fish["healthStatus"] == "WEAK"
+
+    response = client.post(
+        "/api/v1/observations/fish",
+        headers=headers(write_headers, 410),
+        json={
+            "observations": [
+                {
+                    "clientUuid": "01900000-0000-7000-8000-000000000410",
+                    "cloneFishId": fish["id"],
+                    "observedOn": today,
+                    "outcome": "DEAD",
+                    "condition": "NORMAL",
+                    "healthStatus": "SICK",
+                }
+            ]
+        },
+    )
+    assert response.json()["results"][0]["status"] == "created"
+    detail = client.get(f"/api/v1/fish/{fish['id']}").json()
+    assert (detail["status"], detail["condition"], detail["healthStatus"]) == ("DEAD", "NORMAL", "SICK")
+
+
 def test_roll_call_only_returns_alive_fish_and_validates_specimen_dates(client, write_headers):
     _batch, donor = create_batch(client, write_headers)
     today = datetime.now(BANGKOK).date().isoformat()
     fish = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 413),
-        json={"fishCode": "roll-call-1", "dob": today, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "roll-call-1",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     ).json()
     future_roll_call = client.get(
         f"/api/v1/fish/roll-call?date={(datetime.now(BANGKOK).date() - timedelta(days=1)).isoformat()}"
@@ -290,6 +344,7 @@ def test_partial_fish_update_preserves_box_and_accepts_contract_fields(client, w
             "fishCode": "partial-update",
             "dob": today,
             "donorCellLineId": donor["id"],
+            "recipientEggLotId": batch["recipientEggLotId"],
             "fishBoxId": box["id"],
         },
     ).json()
@@ -329,7 +384,12 @@ def test_deleting_only_exit_observation_reopens_fish(client, write_headers):
     fish = client.post(
         "/api/v1/fish",
         headers=headers(write_headers, 421),
-        json={"fishCode": "reopen-after-delete", "dob": today, "donorCellLineId": donor["id"]},
+        json={
+            "fishCode": "reopen-after-delete",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
+        },
     ).json()
     injected = client.post(
         "/api/v1/observations/fish",
@@ -401,6 +461,7 @@ def test_backdated_range_is_recorded_and_historical_risk_set_is_queryable(client
             "fishCode": "backdated-range",
             "dob": (today - timedelta(days=4)).isoformat(),
             "donorCellLineId": donor["id"],
+            "recipientEggLotId": _batch["recipientEggLotId"],
             "overrideReason": "legacy registration",
         },
     ).json()

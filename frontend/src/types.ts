@@ -16,10 +16,10 @@ export type AppText = typeof text.th;
 
 export const text = {
   th: {
-    dashboard: "ผลการทดลอง",
-    due: "งานตรวจวันนี้",
-    batches: "การทดลอง",
-    fish: "ดูแลปลา",
+    dashboard: "สรุปผลการทดลอง",
+    due: "ติดตามตัวอ่อน",
+    batches: "การทดลองใหม่",
+    fish: "ติดตามปลาในระบบ",
     master: "ตั้งค่าห้องแล็บ",
     timing: "เวลามาตรฐาน",
     promotions: "ขึ้นทะเบียนปลาโคลน",
@@ -83,10 +83,10 @@ export const text = {
     printPDF: "\u0e1e\u0e34\u0e21\u0e1e\u0e4c / PDF",
   },
   en: {
-    dashboard: "Research results",
-    due: "Today's checks",
-    batches: "Experiments",
-    fish: "Fish care",
+    dashboard: "Experiment dashboard",
+    due: "Developmental tracking",
+    batches: "New experiment",
+    fish: "Longitudinal tracking",
     master: "Lab settings",
     timing: "Timing standards",
     promotions: "Register clone fish",

@@ -26,11 +26,13 @@ SRC = ROOT / "backend/db/migrations/postgres"
 DST = ROOT / "backend/db/migrations/mysql"
 TABLE_OPTS = " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
 INDEX_TABLES = {
+    "ix_batch_experiment_group": "experiment_batch",
     "ix_stage_timing_profile_stage": "stage_timing",
     "ix_embryo_lot_exit_path": "embryo",
     "ix_fish_observation_fish_date": "fish_observation",
     "ix_observation_embryo_stage": "embryo_observation",
     "ix_audit_occurred_id": "audit_log",
+    "ix_fish_recipient_egg_lot": "clone_fish",
     "uq_embryo_live_well": "embryo",
 }
 
@@ -83,6 +85,11 @@ def convert(sql: str, upgrade: bool) -> str:
     sql = sql.replace(
         "ALTER TABLE request_idempotency\n    DROP COLUMN IF EXISTS lease_token;",
         "ALTER TABLE request_idempotency DROP COLUMN lease_token;",
+    )
+    sql = re.sub(
+        r"ALTER TABLE (\w+) DROP CONSTRAINT (ck_\w+);",
+        r"ALTER TABLE \1 DROP CHECK \2;",
+        sql,
     )
     for index_name, table_name in INDEX_TABLES.items():
         sql = sql.replace(

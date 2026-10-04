@@ -38,7 +38,11 @@ def _sheet_xml(headers: list[str], rows: list[list[object]]) -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f"<sheetData>{''.join(body)}</sheetData></worksheet>"
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+        'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        f'<cols><col min="1" max="{len(headers)}" width="15" customWidth="1"/></cols>'
+        f"<sheetData>{''.join(body)}</sheetData>"
+        f'<autoFilter ref="A1:{_column(len(headers))}{len(rows) + 1}"/></worksheet>'
     )
 
 

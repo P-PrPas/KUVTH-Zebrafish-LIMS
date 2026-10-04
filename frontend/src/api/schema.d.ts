@@ -113,6 +113,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/experiment-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List experiment groups */
+        get: operations["listExperimentGroups"];
+        put?: never;
+        /** Create an experiment group */
+        post: operations["createExperimentGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/treatment-groups": {
         parameters: {
             query?: never;
@@ -223,6 +241,25 @@ export interface paths {
         head?: never;
         /** Update or deactivate a CSOF lot */
         patch: operations["updateCsofLot"];
+        trace?: never;
+    };
+    "/experiment-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update or deactivate a experiment group */
+        patch: operations["updateExperimentGroup"];
         trace?: never;
     };
     "/treatment-groups/{id}": {
@@ -444,8 +481,12 @@ export interface paths {
         /**
          * Add an injection lot and generate its embryos
          * @description Creates the lot and immediately generates `nActivated` embryo records
-         *     (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1 — the same
-         *     shape the lab already uses in its v2 spreadsheet (`1_Jan_Control_1_1`).
+         *     (FR-308) with codes `{batchCode}_{lotNo}_{seq}` starting at 1. The
+         *     server assigns the next numeric `lotNo` across batches sharing the same
+         *     Code of Egg or clutch code and date. If neither is linked, numbering is
+         *     scoped to the batch. Numbering starts at 1 for each scope/date
+         *     and cannot be entered or changed by the caller. Copied lot templates are
+         *     assigned a number within the destination experiment/date and keep it when activated.
          *
          *     `activatedAt` is mandatory (FR-307): it is T0 for every downstream
          *     calculation and for the fish date of birth (BR-01, BR-10).
@@ -1054,7 +1095,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Build the 14-sheet Excel workbook
+         * Build a clean analysis table or the detailed 14-sheet workbook
          * @description Uses the same filters as the dashboard (FR-905). Every sheet is a flat
          *     table with a single header row and no merged cells (FR-902) so pandas
          *     and readxl can read it directly — which is precisely what the current
@@ -1140,6 +1181,8 @@ export interface components {
         FishOutcome: "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED" | "NOT_OBSERVED";
         /** @enum {string} */
         Condition: "NORMAL" | "ABNORMAL" | "UNDETERMINED";
+        /** @enum {string} */
+        FishHealthStatus: "HEALTHY" | "WEAK" | "SICK" | "DISABLED" | "AGED" | "UNDETERMINED";
         /** @enum {string} */
         FishStatus: "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
         /** @enum {string} */
@@ -1231,6 +1274,10 @@ export interface components {
             /** @example AB */
             strain: string;
             preparation: components["schemas"]["Preparation"];
+            /** @enum {string|null} */
+            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             /** @example AB240426_e48h */
             batchCode?: string | null;
             active: boolean;
@@ -1238,6 +1285,10 @@ export interface components {
         DonorCellLineInput: {
             strain: string;
             preparation: components["schemas"]["Preparation"];
+            /** @enum {string} */
+            preservation: "FRESH" | "CRYOPRESERVED";
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             batchCode?: string | null;
             /** @default true */
             active: boolean;
@@ -1245,6 +1296,10 @@ export interface components {
         DonorCellLinePatchInput: {
             strain?: string;
             preparation?: components["schemas"]["Preparation"];
+            /** @enum {string|null} */
+            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            /** @description Cryovial or sample-level detail. */
+            sampleInfo?: string | null;
             batchCode?: string | null;
             active?: boolean;
         };
@@ -1255,6 +1310,7 @@ export interface components {
             breed: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             /** @example TAB Taiwan 29-04-2025 */
             label: string;
             active: boolean;
@@ -1263,6 +1319,7 @@ export interface components {
             breed: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             label: string;
             /** @default true */
             active: boolean;
@@ -1271,6 +1328,7 @@ export interface components {
             breed?: string;
             /** Format: date */
             lotDate?: string | null;
+            donorFishCode?: string | null;
             label?: string;
             active?: boolean;
         };
@@ -1288,6 +1346,25 @@ export interface components {
         };
         CsofLotPatchInput: {
             lotCode?: string;
+            active?: boolean;
+        };
+        ExperimentGroup: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            name: string;
+            description?: string | null;
+            active: boolean;
+        };
+        ExperimentGroupInput: {
+            code: string;
+            name: string;
+            description?: string | null;
+        };
+        ExperimentGroupPatchInput: {
+            code?: string;
+            name?: string;
+            description?: string | null;
             active?: boolean;
         };
         TreatmentGroup: {
@@ -1414,6 +1491,8 @@ export interface components {
             timingProfileId: string;
             timingProfileVersion?: number;
             /** Format: uuid */
+            experimentGroupId?: string | null;
+            /** Format: uuid */
             treatmentGroupId: string;
             /** Format: uuid */
             recipientEggLotId?: string | null;
@@ -1425,6 +1504,12 @@ export interface components {
             /** @description Recorded but unused in v1 (ASM-01, Q-N2). */
             incubationTempC?: number | null;
             notes?: string | null;
+            /** @description True when at least one active embryo in this experiment has no terminal exit reason. */
+            readonly hasOpenEmbryos?: boolean;
+            /** @description Number of active injection lots in this experiment. */
+            readonly nInjectionLots?: number;
+            /** @description Next numeric lot number for this Code of Egg or clutch code and experiment date; when neither is linked, numbering is scoped to the batch. */
+            readonly nextLotNo?: string;
         };
         BatchInput: {
             /** @description Omit to let the server suggest `{dayNo}_{operator}_{treatmentGroup}` (FR-302). */
@@ -1438,6 +1523,8 @@ export interface components {
             operatorId: string;
             /** Format: uuid */
             protocolId: string;
+            /** Format: uuid */
+            experimentGroupId?: string | null;
             /** Format: uuid */
             treatmentGroupId: string;
             /** Format: uuid */
@@ -1458,7 +1545,7 @@ export interface components {
             /** Format: uuid */
             batchId: string;
             /**
-             * @description Text, not a number — real data contains both '1' and 'June_2'.
+             * @description Server-generated sequence within the Code of Egg or clutch code and experiment date; otherwise scoped to the batch.
              * @example 1
              */
             lotNo: string;
@@ -1480,11 +1567,12 @@ export interface components {
              */
             activatedAt?: string | null;
             nEggs?: number | null;
+            nManipulated?: number | null;
             nActivated: number;
             notes?: string | null;
         };
+        /** @description The server assigns the next lotNo for the Code of Egg or clutch code and date. If neither code is linked, numbering is scoped to the batch. */
         InjectionLotInput: {
-            lotNo: string;
             /** Format: uuid */
             donorCellLineId: string;
             enuPowerPct?: number | null;
@@ -1497,6 +1585,7 @@ export interface components {
             /** Format: date-time */
             activatedAt: string;
             nEggs?: number | null;
+            nManipulated?: number | null;
             /** @description This many embryo records are created immediately (FR-308). */
             nActivated: number;
             /** @description Optional, in sequence order; entry i is the well of embryo i+1. */
@@ -1516,6 +1605,7 @@ export interface components {
             /** Format: date-time */
             activatedAt: string;
             nEggs?: number | null;
+            nManipulated?: number | null;
             nActivated: number;
             wellPositions?: string[] | null;
             notes?: string | null;
@@ -1604,6 +1694,23 @@ export interface components {
                 isDead: boolean;
                 priorOutcome?: components["schemas"]["EmbryoOutcome"] | null;
                 priorStageCode?: string | null;
+                /** Format: uuid */
+                priorObservationId?: string | null;
+                /** Format: date-time */
+                priorObservedAt?: string | null;
+                priorNotes?: string | null;
+                history?: {
+                    /** Format: uuid */
+                    id: string;
+                    stageCode: string;
+                    stageLabel: string;
+                    /** Format: date-time */
+                    observedAt: string;
+                    outcome: components["schemas"]["EmbryoOutcome"];
+                    condition: components["schemas"]["Condition"];
+                    notes?: string | null;
+                    operatorName?: string | null;
+                }[];
                 firstAbnormalStageLabel?: string | null;
             }[];
         };
@@ -1696,6 +1803,7 @@ export interface components {
             ageDays: number;
             status: components["schemas"]["FishStatus"];
             condition: components["schemas"]["Condition"];
+            healthStatus: components["schemas"]["FishHealthStatus"];
             strain?: string | null;
             /** Format: date */
             firstAbnormalOn?: string | null;
@@ -1709,6 +1817,10 @@ export interface components {
              */
             observationId?: string | null;
             recordedOutcome?: components["schemas"]["FishOutcome"] | null;
+            recordedCondition?: components["schemas"]["Condition"] | null;
+            recordedHealthStatus?: components["schemas"]["FishHealthStatus"] | null;
+            /** @description Existing observation note for this fish/date, used to prefill the daily note editor. */
+            recordedNotes?: string | null;
         };
         FishObservationInput: {
             /** Format: uuid */
@@ -1719,6 +1831,7 @@ export interface components {
             observedOn: string;
             outcome: components["schemas"]["FishOutcome"];
             condition: components["schemas"]["Condition"];
+            healthStatus: components["schemas"]["FishHealthStatus"];
             notes?: string | null;
             /** @description Required by the server when the observation is backdated (BR-07, BR-19). */
             overrideReason?: string | null;
@@ -1728,6 +1841,7 @@ export interface components {
             observedOn?: string;
             outcome?: components["schemas"]["FishOutcome"];
             condition?: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             notes?: string | null;
             /** @description Audit reason for correcting the observation. */
             overrideReason: string;
@@ -1799,12 +1913,15 @@ export interface components {
             /** Format: uuid */
             donorCellLineId: string;
             /** Format: uuid */
+            recipientEggLotId?: string | null;
+            /** Format: uuid */
             siteId?: string | null;
             /** Format: uuid */
             fishBoxId?: string | null;
             fishBoxCode?: string | null;
             status: components["schemas"]["FishStatus"];
             condition: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             /** Format: date */
             firstAbnormalOn?: string | null;
             firstAbnormalAgeDays?: number | null;
@@ -1823,10 +1940,13 @@ export interface components {
             /** Format: uuid */
             donorCellLineId: string;
             /** Format: uuid */
+            recipientEggLotId: string;
+            /** Format: uuid */
             siteId?: string | null;
             /** Format: uuid */
             fishBoxId?: string | null;
             condition?: components["schemas"]["Condition"];
+            healthStatus?: components["schemas"]["FishHealthStatus"];
             sex?: components["schemas"]["Sex"];
             remarks?: string | null;
             /** @description Required by the server when manually registering an older fish (BR-07). */
@@ -1893,6 +2013,8 @@ export interface components {
             /** Format: uuid */
             operatorId?: string;
             /** Format: uuid */
+            experimentGroupId?: string;
+            /** Format: uuid */
             treatmentGroupId?: string;
             /** Format: uuid */
             donorCellLineId?: string;
@@ -1903,7 +2025,6 @@ export interface components {
         KpiResponse: {
             stage1: {
                 nBatches: number;
-                nEggs: number;
                 nActivated: number;
                 nReachedShield: number;
                 nReachedDay1: number;
@@ -1995,11 +2116,17 @@ export interface components {
             stageLabel: string;
             /** @description Embryos that have actually reached this checkpoint's due time (BR-16). */
             riskSet: number;
-            alive: number;
+            /** @description Known alive embryos; null when the checkpoint has no observed outcomes. */
+            alive: number | null;
+            /** @description Observed previous-stage survivors included in this estimate. */
             nPrev: number;
+            /** @description Deaths observed in this estimate; missing checks are excluded. */
             nDead: number;
-            /** @example 0.4711 */
-            surv: number;
+            /**
+             * @description null when no checkpoint outcomes support an estimate.
+             * @example 0.4711
+             */
+            surv: number | null;
             pctOfDevelopment?: number | null;
         };
         DeviationSummary: {
@@ -2023,7 +2150,15 @@ export interface components {
         };
         ExportRequest: {
             filters?: components["schemas"]["AnalyticsFilter"];
-            /** @description Omit for all 14 sheets. Sheet names are listed in SRS appendix B. */
+            /**
+             * @description full preserves the detailed workbook; clean produces the client's 30-column v4 table.
+             * @default full
+             * @enum {string}
+             */
+            format: "full" | "clean";
+            /** @description Required for clean format. Strictly increasing Fry, Juvenile and Adult age milestones in days from birth. Counts require an ALIVE fish observation at or beyond each age; zero means no documented survivors, not confirmed mortality. Ages are included in the download filename. Manual fish without embryo lineage are excluded. */
+            fishStageAgeDays?: number[];
+            /** @description Only for full format; omit for all 14 sheets. Clean format always contains the single v4 sheet. */
             sheets?: string[] | null;
             /**
              * @default th
@@ -2097,7 +2232,7 @@ export interface components {
         /**
          * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
          *     can swap panels without rebuilding its query state:
-         *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+         *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
          *     `donorCellLineId`, `strain`, `batchId`.
          */
         AnalyticsFilters: components["schemas"]["AnalyticsFilter"];
@@ -2429,6 +2564,63 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    listExperimentGroups: {
+        parameters: {
+            query?: {
+                /** @description Include deactivated rows. Off by default so dropdowns stay clean (FR-111). */
+                includeInactive?: components["parameters"]["IncludeInactive"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Experiment groups */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ExperimentGroup"][];
+                    };
+                };
+            };
+        };
+    };
+    createExperimentGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                "X-Operator-Id": components["parameters"]["OperatorId"];
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperimentGroupInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentGroup"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
     listTreatmentGroups: {
         parameters: {
             query?: {
@@ -2677,6 +2869,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CsofLot"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateExperimentGroup: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                "X-Operator-Id": components["parameters"]["OperatorId"];
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["parameters"]["PathId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExperimentGroupPatchInput"];
+            };
+        };
+        responses: {
+            /** @description Updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExperimentGroup"];
                 };
             };
             404: components["responses"]["NotFound"];
@@ -2959,6 +3186,7 @@ export interface operations {
                 batchId?: string;
                 siteId?: string;
                 operatorId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 donorCellLineId?: string;
                 strain?: string;
@@ -3390,6 +3618,7 @@ export interface operations {
                 siteId?: string;
                 operatorId?: string;
                 batchId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 donorCellLineId?: string;
                 strain?: string;
@@ -3752,6 +3981,7 @@ export interface operations {
                 status?: components["schemas"]["FishStatus"];
                 siteId?: string;
                 boxId?: string;
+                experimentGroupId?: string;
                 treatmentGroupId?: string;
                 batchId?: string;
                 operatorId?: string;
@@ -3945,7 +4175,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -3977,7 +4207,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4005,7 +4235,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4036,7 +4266,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4068,7 +4298,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4100,7 +4330,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4135,7 +4365,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4230,21 +4460,6 @@ export interface operations {
                                 nBoxes: number;
                                 emptyBoxes: number;
                             };
-                            batchPerformance: {
-                                batchId: string;
-                                batchCode: string;
-                                /** @enum {string} */
-                                status: "ELIGIBLE" | "NOT_ELIGIBLE" | "MISSING" | "MISSING_CONDITION";
-                                eligible: boolean;
-                                n: number;
-                                denominator: number;
-                                nNormal: number;
-                                nAbnormal: number;
-                                missingEmbryos: number;
-                                pctNormal: number | null;
-                            }[];
-                            /** @description Day 5 due is calculated per lot from activatedAt plus timing-profile expectedHpa for protocol stage order 26; future embryos without observations are excluded from missing counts. */
-                            day5Definition: string;
                             missingExitDate?: number;
                         };
                     };
@@ -4258,7 +4473,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4296,7 +4511,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];
@@ -4358,7 +4573,7 @@ export interface operations {
                 /**
                  * @description Every `/analytics` endpoint accepts the same filter set, so the dashboard
                  *     can swap panels without rebuilding its query state:
-                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `treatmentGroupId`,
+                 *     `dateFrom`, `dateTo`, `siteId`, `operatorId`, `experimentGroupId`, `treatmentGroupId`,
                  *     `donorCellLineId`, `strain`, `batchId`.
                  */
                 filters?: components["parameters"]["AnalyticsFilters"];

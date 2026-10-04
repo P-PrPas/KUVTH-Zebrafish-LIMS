@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -42,7 +42,7 @@ def _headers() -> dict[str, str]:
 
 
 def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
-    suffix = uuid7().split("-")[0]
+    suffix = uuid7()[-12:]
     first_store = SQLStore(_config())
     first = TestClient(create_app(_config(), first_store))
     site_headers = _headers()
@@ -56,13 +56,18 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     donor = first.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"strain-{suffix}", "preparation": "DISSOCIATED"},
+        json={"strain": f"strain-{suffix}", "preparation": "DISSOCIATED", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = first.post(
         "/api/v1/treatment-groups",
         headers=_headers(),
         json={"code": f"T-{suffix}", "name": "SQL treatment", "armType": "SCNT"},
     ).json()
+    group_response = first.post(
+        "/api/v1/experiment-groups", headers=_headers(), json={"code": f"G-{suffix}", "name": "Cloning programme"}
+    )
+    assert group_response.status_code == 201, group_response.text
+    group_id = group_response.json()["id"]
     batch_response = first.post(
         "/api/v1/batches",
         headers=_headers(),
@@ -73,12 +78,14 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
             "operatorId": DEMO_OPERATOR_ID,
             "protocolId": PROTOCOL_ID,
             "treatmentGroupId": treatment["id"],
+            "experimentGroupId": group_id,
         },
     )
     assert batch_response.status_code == 201, batch_response.text
+    batch_id = batch_response.json()["id"]
     activated = (datetime.now(UTC) - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
     lot_response = first.post(
-        f"/api/v1/batches/{batch_response.json()['id']}/injection-lots",
+        f"/api/v1/batches/{batch_id}/injection-lots",
         headers=_headers(),
         json={"lotNo": "1", "donorCellLineId": donor["id"], "activatedAt": activated, "nActivated": 1},
     )
@@ -101,14 +108,15 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
         },
     )
     assert observation.status_code == 200, observation.text
-    kpi = first.get("/api/v1/analytics/kpi").json()
+    kpi = first.get("/api/v1/analytics/kpi", params={"batchId": batch_id}).json()
     assert kpi["stage1"]["nActivated"] == 1
     assert kpi["meta"]["denominators"]["activated"] == 1
-    survival = first.get("/api/v1/analytics/survival").json()
+    survival = first.get("/api/v1/analytics/survival", params={"batchId": batch_id}).json()
     stage_05 = next(item for item in survival["items"] if item["stageOrder"] == 5)
     assert (stage_05["riskSet"], stage_05["alive"], stage_05["nPrev"], stage_05["nDead"]) == (1, 1, 1, 0)
     assert stage_05["surv"] == 1
-    assert first.get("/api/v1/analytics/funnel").json()["items"][4]["pctOfActivated"] == 100
+    funnel = first.get("/api/v1/analytics/funnel", params={"batchId": batch_id}).json()
+    assert funnel["items"][4]["pctOfActivated"] == 100
     duplicated = first.post(
         f"/api/v1/batches/{batch_response.json()['id']}/duplicate",
         headers=_headers(),
@@ -120,6 +128,12 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
 
     second_store = SQLStore(_config())
     second = TestClient(create_app(_config(), second_store))
+    assert (
+        next(item for item in second.get("/api/v1/experiment-groups").json()["items"] if item["id"] == group_id)["name"]
+        == "Cloning programme"
+    )
+    assert second.get(f"/api/v1/batches/{duplicated_id}").json()["experimentGroupId"] == group_id
+    assert len(second.get("/api/v1/batches", params={"experimentGroupId": group_id}).json()["items"]) == 2
     sites = second.get("/api/v1/sites").json()["items"]
     assert sum(item["id"] == site["id"] for item in sites) == 1
     embryos = second.get(f"/api/v1/injection-lots/{lot_response.json()['id']}/embryos").json()["items"]
@@ -166,7 +180,7 @@ def test_concurrent_timing_versions_are_serialized_with_one_current_profile():
 
 
 def test_concurrent_batch_codes_and_live_wells_remain_unique():
-    suffix = uuid7().split("-")[0]
+    suffix = uuid7()[-12:]
     store = SQLStore(_config())
     client = TestClient(create_app(_config(), store))
     site = client.post(
@@ -176,7 +190,7 @@ def test_concurrent_batch_codes_and_live_wells_remain_unique():
     donor = client.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"well-{suffix}", "preparation": "CHUNKS"},
+        json={"strain": f"well-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = client.post(
         "/api/v1/treatment-groups",
@@ -224,7 +238,7 @@ def test_concurrent_batch_codes_and_live_wells_remain_unique():
 
 
 def test_concurrent_promotions_allocate_unique_fish_numbers():
-    suffix = uuid7().split("-")[0]
+    suffix = uuid7()[-12:]
     store = SQLStore(_config())
     client = TestClient(create_app(_config(), store))
     try:
@@ -234,7 +248,7 @@ def test_concurrent_promotions_allocate_unique_fish_numbers():
         donor = client.post(
             "/api/v1/donor-cell-lines",
             headers=_headers(),
-            json={"strain": f"fish-{suffix}", "preparation": "CHUNKS"},
+            json={"strain": f"fish-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
         ).json()
         treatment = client.post(
             "/api/v1/treatment-groups",
@@ -299,7 +313,7 @@ def test_concurrent_promotions_allocate_unique_fish_numbers():
 
 
 def test_concurrent_observation_save_correction_and_soft_delete_are_consistent():
-    suffix = uuid7().split("-")[0]
+    suffix = uuid7()[-12:]
     store = SQLStore(_config())
     client = TestClient(create_app(_config(), store))
     site = client.post(
@@ -308,7 +322,7 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
     donor = client.post(
         "/api/v1/donor-cell-lines",
         headers=_headers(),
-        json={"strain": f"observation-{suffix}", "preparation": "CHUNKS"},
+        json={"strain": f"observation-{suffix}", "preparation": "CHUNKS", "preservation": "CRYOPRESERVED"},
     ).json()
     treatment = client.post(
         "/api/v1/treatment-groups",
@@ -373,3 +387,116 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
     audits = client.get(f"/api/v1/audit-log?table=embryo_observation&recordId={observation_id}").json()["items"]
     assert {item["action"] for item in audits} == {"INSERT", "UPDATE", "DELETE"}
     store.close()
+
+
+def test_sql_store_round_trips_feedback_fields():
+    suffix = uuid7()[-12:]
+    store = SQLStore(_config())
+    client = TestClient(create_app(_config(), store))
+    try:
+        donor_response = client.post(
+            "/api/v1/donor-cell-lines",
+            headers=_headers(),
+            json={
+                "strain": f"roundtrip-{suffix}",
+                "preparation": "DISSOCIATED",
+                "preservation": "CRYOPRESERVED",
+                "sampleInfo": f"Cryovial details {suffix}",
+            },
+        )
+        assert donor_response.status_code == 201, donor_response.text
+        donor = donor_response.json()
+
+        recipient_response = client.post(
+            "/api/v1/recipient-egg-lots",
+            headers=_headers(),
+            json={"breed": "AB", "label": f"SQL recipient {suffix}", "donorFishCode": f"EGG-DONOR-{suffix}"},
+        )
+        assert recipient_response.status_code == 201, recipient_response.text
+        recipient = recipient_response.json()
+
+        site_response = client.post(
+            "/api/v1/sites", headers=_headers(), json={"code": f"RT-{suffix}", "name": f"Round-trip {suffix}"}
+        )
+        assert site_response.status_code == 201, site_response.text
+        site = site_response.json()
+        treatment_response = client.post(
+            "/api/v1/treatment-groups",
+            headers=_headers(),
+            json={"code": f"RT-{suffix}", "name": "Round-trip", "armType": "SCNT"},
+        )
+        assert treatment_response.status_code == 201, treatment_response.text
+        batch_response = client.post(
+            "/api/v1/batches",
+            headers=_headers(),
+            json={
+                "batchCode": f"RT-{suffix}",
+                "experimentDate": date.today().isoformat(),
+                "siteId": site["id"],
+                "operatorId": DEMO_OPERATOR_ID,
+                "protocolId": PROTOCOL_ID,
+                "treatmentGroupId": treatment_response.json()["id"],
+            },
+        )
+        assert batch_response.status_code == 201, batch_response.text
+        lot_response = client.post(
+            f"/api/v1/batches/{batch_response.json()['id']}/injection-lots",
+            headers=_headers(),
+            json={
+                "lotNo": "1",
+                "donorCellLineId": donor["id"],
+                "activatedAt": datetime.now(UTC).isoformat(),
+                "nEggs": 4,
+                "nManipulated": 3,
+                "nActivated": 1,
+            },
+        )
+        assert lot_response.status_code == 201, lot_response.text
+        injection_lot_id = lot_response.json()["id"]
+
+        fish_response = client.post(
+            "/api/v1/fish",
+            headers=_headers(),
+            json={
+                "fishCode": f"ROUNDTRIP-{suffix}",
+                "dob": date.today().isoformat(),
+                "donorCellLineId": donor["id"],
+                "recipientEggLotId": recipient["id"],
+                "siteId": site["id"],
+                "healthStatus": "WEAK",
+            },
+        )
+        assert fish_response.status_code == 201, fish_response.text
+        fish_id = fish_response.json()["id"]
+        assert store.snapshot().entities["fish"][fish_id]["healthStatus"] == "WEAK"
+        observation_response = client.post(
+            "/api/v1/observations/fish",
+            headers=_headers(),
+            json={
+                "observations": [
+                    {
+                        "clientUuid": uuid7(),
+                        "cloneFishId": fish_id,
+                        "observedOn": date.today().isoformat(),
+                        "outcome": "ALIVE",
+                        "condition": "NORMAL",
+                        "healthStatus": "SICK",
+                    }
+                ]
+            },
+        )
+        assert observation_response.status_code == 200, observation_response.text
+        observation_id = observation_response.json()["results"][0]["id"]
+
+        store.close()
+        store = SQLStore(_config())
+        reloaded = store.snapshot()
+        assert reloaded.entities["donor-cell-lines"][donor["id"]]["preservation"] == "CRYOPRESERVED"
+        assert reloaded.entities["donor-cell-lines"][donor["id"]]["sampleInfo"] == f"Cryovial details {suffix}"
+        assert reloaded.entities["recipient-egg-lots"][recipient["id"]]["donorFishCode"] == f"EGG-DONOR-{suffix}"
+        assert reloaded.entities["injection-lots"][injection_lot_id]["nManipulated"] == 3
+        assert reloaded.entities["fish"][fish_id]["recipientEggLotId"] == recipient["id"]
+        assert reloaded.entities["fish"][fish_id]["healthStatus"] == "SICK"
+        assert reloaded.fish_observations[observation_id]["healthStatus"] == "SICK"
+    finally:
+        store.close()

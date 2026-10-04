@@ -186,3 +186,7 @@ def fish_outcome_valid(value: str) -> bool:
 
 def condition_valid(value: str) -> bool:
     return value in {"NORMAL", "ABNORMAL", "UNDETERMINED"}
+
+
+def fish_health_status_valid(value: str) -> bool:
+    return value in {"HEALTHY", "WEAK", "SICK", "DISABLED", "AGED", "UNDETERMINED"}
