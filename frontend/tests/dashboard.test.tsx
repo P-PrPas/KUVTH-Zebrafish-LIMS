@@ -496,10 +496,10 @@ describe("analytics dashboard", () => {
               boxCensus: [
                 {
                   boxCode: "A1",
-                  n: 3,
-                  pct: 1,
+                  n: 1,
+                  pct: 1 / 3,
                   empty: false,
-                  statusCounts: { ALIVE: 1, FROZEN: 1, DISCARDED: 1 },
+                  statusCounts: { ALIVE: 1, FROZEN: 0, DISCARDED: 0 },
                 },
               ],
               boxMeta: { nBoxes: 1, emptyBoxes: 0 },
@@ -559,6 +559,8 @@ describe("analytics dashboard", () => {
     expect(boxStatuses).toContain("มีชีวิต 1");
     expect(boxStatuses).not.toContain("แช่แข็ง");
     expect(boxStatuses).not.toContain("คัดออก");
+    const boxCensusRow = document.querySelector(".box-census__row");
+    expect(boxCensusRow?.querySelector("strong")?.textContent).toMatch(/^1\s+\(/);
     root.unmount();
   });
 

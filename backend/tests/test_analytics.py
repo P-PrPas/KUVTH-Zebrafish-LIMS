@@ -608,14 +608,16 @@ def test_fish_supporting_analysis_reports_composition_age_and_box_boundaries(cli
     assert supporting["ageDistribution"][-1]["maxDays"] is None
     assert {row["boxCode"]: row["n"] for row in supporting["boxCensus"]} == {
         "B1": 2,
-        "B2": 2,
+        "B2": 0,
         "B3": 0,
         "Unassigned": 1,
     }
     box_rows = {row["boxCode"]: row for row in supporting["boxCensus"]}
     assert box_rows["B1"]["statusCounts"] == {"ALIVE": 1, "DEAD": 1, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
+    assert box_rows["B2"]["statusCounts"] == {"ALIVE": 0, "DEAD": 0, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
+    assert box_rows["B2"]["empty"] is True
     assert box_rows["B3"]["statusCounts"] == {"ALIVE": 0, "DEAD": 0, "FROZEN": 0, "DISCARDED": 0, "UNKNOWN": 0}
-    assert supporting["boxMeta"] == {"nBoxes": 4, "emptyBoxes": 1}
+    assert supporting["boxMeta"] == {"nBoxes": 4, "emptyBoxes": 2}
     assert supporting["missingExitDate"] == 3
 
 
