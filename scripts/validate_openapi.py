@@ -79,6 +79,10 @@ def main() -> int:
                 continue
             if operation.get("x-read-only") is True:
                 continue
+            # Authentication writes use session and account context, not the
+            # operator/idempotency headers required for research-data writes.
+            if path.startswith("/auth/"):
+                continue
             references = {parameter.get("$ref") for parameter in operation.get("parameters", []) if isinstance(parameter, dict)}
             for required_header in required_write_headers - references:
                 errors.append(f"{method.upper()} {path} is missing {required_header}")
