@@ -249,7 +249,7 @@ describe("fish record detail", () => {
     root.unmount();
   });
 
-  it("renders Thai identity, observation, and specimen details for a clone fish", async () => {
+  it("renders Thai fish details and legacy correction prompts", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -270,7 +270,13 @@ describe("fish record detail", () => {
             condition: "NORMAL",
             fishBoxId: "box-1",
             observations: [
-              { id: "observation-1", observedOn: "2026-09-01", outcome: "ALIVE", condition: "NORMAL", ageDays: 30 },
+              {
+                id: "observation-1",
+                observedOn: "2026-09-01",
+                outcome: "FROZEN",
+                condition: "NORMAL",
+                ageDays: 30,
+              },
             ],
             specimens: [
               {
@@ -290,51 +296,6 @@ describe("fish record detail", () => {
     const rootElement = document.createElement("div");
     document.body.append(rootElement);
     const root = createRoot(rootElement);
-    await act(async () => {
-      root.render(<Fish t={text.th} />);
-      await settle();
-    });
-    await act(async () => {
-      (document.getElementById("fish-tab-registry") as HTMLButtonElement).click();
-      await settle();
-    });
-    await act(async () => {
-      (document.querySelector(".list-row") as HTMLButtonElement).click();
-      await settle();
-    });
-    await act(async () => {
-      (document.getElementById("fish-detail-tab-specimens") as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-    expect(document.body.textContent).toContain("CL-F-001");
-    expect(document.body.textContent).toContain("A-01");
-    root.unmount();
-  });
-
-  it("shows readable Thai prompts when correcting a legacy frozen observation", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const path = String(input);
-        if (path.includes("/fish/roll-call")) return json({ items: [] });
-        if (path.includes("/fish?"))
-          return json({ items: [{ id: "fish-1", fishCode: "F-001", status: "ALIVE", condition: "NORMAL" }] });
-        if (path.endsWith("/fish/fish-1"))
-          return json({
-            id: "fish-1",
-            fishCode: "F-001",
-            status: "ALIVE",
-            condition: "NORMAL",
-            observations: [{ id: "observation-1", observedOn: "2026-09-01", outcome: "FROZEN", condition: "NORMAL" }],
-            specimens: [],
-          });
-        return json({ items: [] });
-      }),
-    );
-    const rootElement = document.createElement("div");
-    document.body.append(rootElement);
-    const root = createRoot(rootElement);
-
     await act(async () => {
       root.render(<Fish t={text.th} />);
       await settle();
@@ -368,8 +329,14 @@ describe("fish record detail", () => {
       correction.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
       await settle();
     });
-
     expect(document.body.textContent).toContain("เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย");
+
+    await act(async () => {
+      (document.getElementById("fish-detail-tab-specimens") as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain("CL-F-001");
+    expect(document.body.textContent).toContain("A-01");
     root.unmount();
   });
 });
