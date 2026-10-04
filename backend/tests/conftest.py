@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -9,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from chronofish.app import create_app
 from chronofish.config import Config
+from chronofish.services.mail import RecordingMailer
 from chronofish.store import MemoryStore
 
 
@@ -19,16 +22,43 @@ def store() -> MemoryStore:
 
 @pytest.fixture
 def client(store: MemoryStore) -> TestClient:
-    config = Config(8080, "test", "memory", "", (), (), __import__("pathlib").Path("."), 10, 5)
-    return TestClient(create_app(config, store))
+    config = Config(
+        8080,
+        "test",
+        "memory",
+        "",
+        (),
+        (),
+        Path("."),
+        10,
+        5,
+        session_cookie_secure=False,
+        app_base_url="http://testserver",
+    )
+    mailer = RecordingMailer()
+    with TestClient(create_app(config, store, mailer)) as test_client:
+        requested = test_client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
+        assert requested.status_code == 202, requested.text
+        code = re.search(r"\b\d{6}\b", mailer.messages[-1][2])
+        assert code is not None
+        verified = test_client.post(
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "pytest-device"},
+            json={"email": "peerapas.c@ku.th", "code": code.group()},
+        )
+        assert verified.status_code == 200, verified.text
+        test_client.app.state.rate_limit_hits.clear()
+        yield test_client
 
 
 @pytest.fixture
-def write_headers() -> dict[str, str]:
+def write_headers(client: TestClient) -> dict[str, str]:
+    actor_id = client.get("/api/v1/auth/me").json()["user"]["id"]
     return {
         "X-Operator-Id": "00000000-0000-7000-8000-000000000001",
         "X-Device-Id": "pytest",
         "X-Idempotency-Key": "01900000-0000-7000-8000-000000000099",
+        "X-Actor-User-Id": actor_id,
     }
 
 
