@@ -63,7 +63,67 @@ def test_otp_is_single_use_and_keeps_the_email_cooldown(client):
     cooldown = client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
 
     assert reused.status_code == 401
-    assert cooldown.status_code == 429
+    unknown = client.post("/api/v1/auth/request-code", json={"email": "unknown@ku.th"})
+    assert cooldown.status_code == unknown.status_code == 202
+    assert cooldown.json() == unknown.json()
+
+
+def test_member_cannot_record_as_another_operator_or_without_a_link(client, write_headers):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "operator.member@ku.th")
+    member_client = TestClient(client.app)
+    member = _sign_in(member_client, invited["email"], mailer)
+    operator_a = write_headers["X-Operator-Id"]
+    operator_b = "00000000-0000-7000-8000-000000000002"
+    headers = {**write_headers, "X-Actor-User-Id": member["id"]}
+
+    unlinked = member_client.post("/api/v1/batches", headers=headers, json={"operatorId": operator_a})
+    assert unlinked.status_code == 403
+    assert unlinked.json()["error"]["code"] == "operator_link_required"
+
+    assert client.patch(f"/api/v1/auth/admin/users/{member['id']}", json={"operatorId": operator_a}).status_code == 200
+    forged_header = member_client.post(
+        "/api/v1/batches", headers={**headers, "X-Operator-Id": operator_b}, json={"operatorId": operator_b}
+    )
+    forged_body = member_client.post("/api/v1/batches", headers=headers, json={"operatorId": operator_b})
+    assert forged_header.status_code == forged_body.status_code == 403
+    assert forged_header.json()["error"]["code"] == forged_body.json()["error"]["code"] == "operator_mismatch"
+    member_client.close()
+
+
+def test_invitation_delivery_failure_keeps_account_and_reports_resend(client):
+    mailer = client.app.state.auth.mailer
+    original_send = mailer.send
+
+    def fail_send(*_args):
+        raise RuntimeError("SMTP unavailable")
+
+    mailer.send = fail_send
+    invited = client.post("/api/v1/auth/admin/users", json={"email": "retry.member@ku.th"})
+    assert invited.status_code == 201
+    assert invited.json()["emailSent"] is False
+    user_id = invited.json()["user"]["id"]
+    assert any(item["id"] == user_id for item in client.get("/api/v1/auth/admin/users").json()["items"])
+    mailer.send = original_send
+    assert client.post(f"/api/v1/auth/admin/users/{user_id}/invite", json={}).status_code == 202
+
+
+def test_never_verified_invitation_can_be_disabled_without_sync_acknowledgement(client):
+    invited = _invite(client, client.app.state.auth.mailer, "cancel.member@ku.th")
+    response = client.patch(f"/api/v1/auth/admin/users/{invited['id']}", json={"active": False})
+    assert response.status_code == 200
+
+
+def test_session_last_seen_is_touched_at_most_once_per_minute(client):
+    repository = client.app.state.auth.repository
+    token = client.cookies.get("chronofish_session")
+    token_hash = repository.token_hash(token)
+    session = repository.store.auth_sessions[token_hash]
+    start = session["last_seen_at"]
+    assert repository.authenticate(token_hash, start + timedelta(seconds=30))
+    assert session["last_seen_at"] == start
+    assert repository.authenticate(token_hash, start + timedelta(seconds=61))
+    assert session["last_seen_at"] == start + timedelta(seconds=61)
 
 
 def test_invited_member_gets_member_role_and_cannot_use_admin_routes(client):

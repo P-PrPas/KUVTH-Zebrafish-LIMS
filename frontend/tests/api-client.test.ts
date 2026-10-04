@@ -28,6 +28,18 @@ describe("API write context", () => {
     });
   });
 
+  it("uses the member's linked operator even when the browser has another selection", () => {
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "member-1", role: "member", operatorId: "linked" }),
+    );
+    sessionStorage.setItem("chronofish.operator_id", "forged");
+    expect(operatorId()).toBe("linked");
+    expect(mutationHeaders("request-a")["X-Operator-Id"]).toBe("linked");
+    localStorage.setItem("chronofish.auth_user", JSON.stringify({ id: "member-1", role: "member", operatorId: null }));
+    expect(operatorId()).toBe("");
+  });
+
   it("migrates a legacy localStorage operator into the session once", () => {
     localStorage.setItem("chronofish.operator_id", "legacy-operator");
     expect(operatorId()).toBe("legacy-operator");

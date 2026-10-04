@@ -25,6 +25,7 @@ export function Members({ language }: { language: Language }) {
   const [sessions, setSessions] = useState<Record<string, Session[]>>({});
   const [sender, setSender] = useState("");
   const [smtpConfigured, setSmtpConfigured] = useState(false);
+  const [mailSettingsLoaded, setMailSettingsLoaded] = useState(false);
   const [email, setEmail] = useState("");
   const [deactivateTarget, setDeactivateTarget] = useState<Member | null>(null);
   const [acknowledgeRisk, setAcknowledgeRisk] = useState(false);
@@ -42,6 +43,7 @@ export function Members({ language }: { language: Language }) {
     setOperators(operatorData.items ?? []);
     setSender(String(mailSettings.senderEmail ?? ""));
     setSmtpConfigured(Boolean(mailSettings.smtpConfigured));
+    setMailSettingsLoaded(true);
   }
 
   useEffect(() => {
@@ -54,12 +56,21 @@ export function Members({ language }: { language: Language }) {
     setError("");
     setNotice("");
     try {
-      await request("/auth/admin/users", {
+      const response = await request("/auth/admin/users", {
         method: "POST",
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
+      const result = await response.json();
       setEmail("");
-      setNotice(th ? "ส่งคำเชิญทางอีเมลแล้ว" : "Invitation email sent.");
+      setNotice(
+        result.emailSent
+          ? th
+            ? "ส่งคำเชิญทางอีเมลแล้ว"
+            : "Invitation email sent."
+          : th
+            ? "สร้างบัญชีแล้ว แต่ส่งอีเมลไม่สำเร็จ กรุณากดส่งคำเชิญอีกครั้งในรายชื่อสมาชิก"
+            : "Account created, but email delivery failed. Use Resend invitation in the member list.",
+      );
       await reload();
     } catch (cause) {
       setError(errorText(cause));
@@ -176,7 +187,8 @@ export function Members({ language }: { language: Language }) {
   }
 
   const pendingTotal = (member: Member) => member.syncDevices.reduce((count, device) => count + device.pendingCount, 0);
-  const syncStale = (member: Member) => !member.syncDevices.length || member.syncDevices.some((device) => device.stale);
+  const syncStale = (member: Member) =>
+    (!member.syncDevices.length && Boolean(member.verifiedAt)) || member.syncDevices.some((device) => device.stale);
   const canOverride = (member: Member) => syncStale(member);
   const blockedByPending = (member: Member) =>
     member.syncDevices.some((device) => !device.stale && device.pendingCount > 0);
@@ -450,7 +462,7 @@ export function Members({ language }: { language: Language }) {
               : "Set the visible sender address here. SMTP credentials stay in server configuration."}
           </p>
         </div>
-        {!smtpConfigured && (
+        {mailSettingsLoaded && !smtpConfigured && (
           <p className="error" role="status">
             {th
               ? "ยังไม่ได้ตั้งค่า SMTP ฝั่งเซิร์ฟเวอร์ การส่งคำเชิญและรหัสยืนยันทางอีเมลยังใช้ไม่ได้"

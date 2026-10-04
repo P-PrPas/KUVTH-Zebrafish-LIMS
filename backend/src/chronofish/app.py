@@ -48,15 +48,6 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
     app.state.auth = auth
     if close_store := getattr(store, "close", None):
         app.router.add_event_handler("shutdown", close_store)
-    if config.allowed_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=list(config.allowed_origins),
-            allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key", "X-Actor-User-Id"],
-        )
-
     hits: OrderedDict[str, deque[float]] = OrderedDict()
     app.state.rate_limit_hits = hits
 
@@ -182,6 +173,15 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             (time.monotonic() - started) * 1000,
         )
         return secure(response)
+
+    if config.allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(config.allowed_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key", "X-Actor-User-Id"],
+        )
 
     @app.get("/api/v1/health")
     def health() -> dict[str, str]:

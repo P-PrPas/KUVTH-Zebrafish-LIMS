@@ -13,7 +13,7 @@ from .errors import APIError
 from .values import iso_now, normalize, uuid7
 
 
-def validate_write_context(request: Request, state: State) -> tuple[str, str, str]:
+def validate_write_context(request: Request, state: State, body: Any) -> tuple[str, str, str]:
     operator_id = request.headers.get("X-Operator-Id", "").strip()
     device_id = request.headers.get("X-Device-Id", "").strip()
     key = request.headers.get("X-Idempotency-Key", "").strip()
@@ -21,6 +21,17 @@ def validate_write_context(request: Request, state: State) -> tuple[str, str, st
         UUID(operator_id)
     except ValueError as error:
         raise APIError(400, "invalid_context", "X-Operator-Id ต้องเป็น UUID") from error
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise APIError(401, "authentication_required", "Sign in to continue")
+    if user["role"] == "member":
+        linked_operator = user.get("operatorId") or user.get("operator_id")
+        if not linked_operator:
+            raise APIError(403, "operator_link_required", "Ask an admin to link your account to an operator")
+        if operator_id != str(linked_operator) or (
+            isinstance(body, dict) and "operatorId" in body and body["operatorId"] != str(linked_operator)
+        ):
+            raise APIError(403, "operator_mismatch", "This account can only record work for its linked operator")
     if not device_id or len(device_id) > 64 or "\n" in device_id or "\r" in device_id:
         raise APIError(400, "invalid_context", "X-Device-Id ต้องมีความยาว 1-64 ตัวอักษร")
     operator = state.entities["operators"].get(operator_id)

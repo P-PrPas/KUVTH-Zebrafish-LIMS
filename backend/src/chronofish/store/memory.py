@@ -36,7 +36,7 @@ class MemoryStore:
 
     def execute_mutation(self, request: Request, body: Any, operation: Mutation) -> Response:
         with self.lock:
-            _operator, _device, key = validate_write_context(request, self.state)
+            _operator, _device, key = validate_write_context(request, self.state, body)
             scope, request_hash = request_fingerprint(request, body)
             scope = f"{scope}:{key}"
             previous = self.idempotency.get(scope)

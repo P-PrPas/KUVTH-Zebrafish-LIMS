@@ -84,9 +84,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RequestCodeInput' }
       responses:
-        '202': { description: A code was sent when the address is invited and active }
-        '429': { description: Cooldown or per-email hourly limit reached }
-        '503': { description: Email delivery is not configured or unavailable }
+        '202': { description: "Same response for invited, unknown, and rate-limited addresses; delivery is queued" }
+        '429': { description: Global per-IP API rate limit reached }
+        '503': { description: Email delivery is not configured }
   /auth/verify-code:
     post:
       security: []
@@ -189,7 +189,16 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RequestCodeInput' }
       responses:
-        '201': { description: Member invited and invitation email sent }
+        '201':
+          description: Member created; emailSent reports whether invitation delivery succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, emailSent]
+                properties:
+                  user: { $ref: '#/components/schemas/AuthUser' }
+                  emailSent: { type: boolean }
         '403': { description: Admin role required }
   /auth/admin/users/{user_id}:
     patch:

@@ -13,15 +13,16 @@ services:
       DATABASE_URL: postgresql+psycopg://chronofish:chronofish@postgres:5432/chronofish
       MIGRATIONS_DIR: /migrations/postgres
       AUTH_SECRET: ${AUTH_SECRET:-}
-      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-peerapas.c@ku.th}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
       MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
       MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-587}
       MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
       MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
-      MAIL_SENDER_EMAIL: ${MAIL_SENDER_EMAIL:-peerapas.c@ku.th}
+      MAIL_SENDER_EMAIL: ${MAIL_SENDER_EMAIL:-}
       MAIL_USE_SSL: ${MAIL_USE_SSL:-false}
+      MAIL_USE_STARTTLS: ${MAIL_USE_STARTTLS:-true}
     ports:
       - "127.0.0.1:${API_PORT:-8082}:8080"
     depends_on:

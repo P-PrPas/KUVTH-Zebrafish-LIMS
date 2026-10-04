@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime
 from typing import Any
@@ -12,6 +13,7 @@ from .mail import Mailer
 
 SESSION_COOKIE = "chronofish_session"
 SESSION_COOKIE_MAX_AGE = 90 * 24 * 60 * 60
+LOGGER = logging.getLogger("chronofish.auth")
 
 
 def _email(value: Any) -> str:
@@ -36,12 +38,22 @@ class AuthService:
         self.config = config
         self.repository = AuthRepository(store, config.auth_secret)
         self.mailer = mailer
-        self.repository.ensure_bootstrap(config.bootstrap_admin_email, utc_now())
+        if config.bootstrap_admin_email:
+            self.repository.ensure_bootstrap(config.bootstrap_admin_email, utc_now())
 
-    def request_code(self, body: dict[str, Any]) -> None:
+    def validate_code_request(self, body: dict[str, Any]) -> str:
         email = _email(body.get("email"))
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Email delivery is not configured on this server")
+        return email
+
+    def deliver_code(self, email: str) -> None:
+        try:
+            self._deliver_code(email)
+        except Exception:
+            LOGGER.exception("Sign-in code delivery failed")
+
+    def _deliver_code(self, email: str) -> None:
         code = f"{secrets.randbelow(1_000_000):06d}"
         accepted = self.repository.issue_code(email, self.repository.code_hash(email, code), utc_now())
         if not accepted:
@@ -82,19 +94,17 @@ class AuthService:
         if cookie:
             self.repository.revoke_token(self.repository.token_hash(cookie), utc_now())
 
-    def invite(self, body: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
+    def invite(self, body: dict[str, Any], actor: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         email = _email(body.get("email"))
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Configure SMTP before inviting members")
         user = self.repository.invite_user(email, actor, utc_now())
-        self._send(
-            email,
-            "You are invited to KUVACB AqLIMS",
-            "You have been invited to join the Kasetsart University Animal Cell Bank research workspace.\n\n"
-            f"Open {self.config.app_base_url} and sign in with this email address. "
-            "A one-time code will be sent to you.",
-        )
-        return self.public_user(user)
+        try:
+            self.resend_invitation(user)
+        except APIError:
+            LOGGER.exception("Invitation email delivery failed")
+            return self.public_user(user), False
+        return self.public_user(user), True
 
     def resend_invitation(self, user: dict[str, Any]) -> None:
         if not self.mailer.configured:

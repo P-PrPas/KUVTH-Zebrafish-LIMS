@@ -17,6 +17,10 @@ IP_ALLOWLIST=10.0.0.0/8,192.168.1.0/24
 
 `DB_DRIVER=memory` is restricted to development and test. Keep credentials in the deployment secret store, never in `.env` committed to the repository. The API validates configuration, connects, applies versioned migrations, loads canonical tables, and only then serves traffic.
 
+Set `BOOTSTRAP_ADMIN_EMAIL` to the invited `@ku.th` address of the first admin, `MAIL_SENDER_EMAIL` to the authorized SMTP sender, and `AUTH_SECRET` to a unique value of at least 32 characters. Production refuses to start if any are missing. Set `MAIL_SMTP_HOST`, `MAIL_SMTP_PORT`, and the SMTP credentials before requesting sign-in codes. SMTP uses STARTTLS by default; use `MAIL_USE_SSL=true` for implicit TLS. `MAIL_USE_STARTTLS=false` without SSL is allowed only in development or test for a local mail catcher.
+
+Admins may select any active operator to record work on their behalf. A member can record work only after an admin links their account to one operator; the server rejects a different operator in either the request header or batch body. Sign-in code requests return the same accepted response for invited and unknown addresses. Delivery runs after the response; check server logs if mail does not arrive. An invitation that creates an account but fails to send email appears in the admin list and can be resent there.
+
 The API is not a TLS terminator. Production traffic must reach it through an HTTPS reverse proxy or private VPN, with the proxy enforcing the approved IP/CIDR allowlist. Set `IP_ALLOWLIST` as a second control when the API can be reached outside that proxy. Do not trust arbitrary forwarded headers from public clients.
 
 ## Build and deploy

@@ -13,6 +13,7 @@ from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 
 IDLE_TTL = timedelta(days=30)
+SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
 ABSOLUTE_TTL = timedelta(days=90)
 OTP_TTL = timedelta(minutes=10)
 OTP_COOLDOWN = timedelta(seconds=60)
@@ -298,7 +299,8 @@ class AuthRepository:
                     session["absolute_expires_at"]
                 ):
                     return None
-                session["last_seen_at"] = now
+                if _utc(now) - _utc(session["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+                    session["last_seen_at"] = now
                 result = dict(user)
                 result["sessionId"] = session["id"]
                 result["deviceId"] = session["device_id"]
@@ -309,7 +311,7 @@ class AuthRepository:
                     text(
                         "SELECT u.*, s.id AS session_id, s.device_id, s.last_seen_at, s.absolute_expires_at "
                         "FROM auth_session s JOIN auth_user u ON u.id = s.user_id "
-                        "WHERE s.token_hash = :hash AND s.revoked_at IS NULL AND u.active = :active FOR UPDATE"
+                        "WHERE s.token_hash = :hash AND s.revoked_at IS NULL AND u.active = :active"
                     ),
                     {"hash": token_hash, "active": True},
                 )
@@ -324,10 +326,11 @@ class AuthRepository:
                     {"now": _stored(now), "hash": token_hash},
                 )
                 return None
-            connection.execute(
-                text("UPDATE auth_session SET last_seen_at = :now WHERE token_hash = :hash"),
-                {"now": _stored(now), "hash": token_hash},
-            )
+            if _utc(now) - _utc(row["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+                connection.execute(
+                    text("UPDATE auth_session SET last_seen_at = :now WHERE token_hash = :hash AND revoked_at IS NULL"),
+                    {"now": _stored(now), "hash": token_hash},
+                )
             result = _user_payload(row)
             result["sessionId"] = str(row["session_id"])
             result["deviceId"] = str(row["device_id"])
@@ -590,7 +593,7 @@ class AuthRepository:
                 raise APIError(409, "last_admin", "At least one active admin account must remain")
         if changes.get("active") is False:
             known = bool(sync_rows)
-            stale = not known
+            stale = not known and user.get("verified_at", user.get("verifiedAt")) is not None
             fresh_pending = False
             for item in sync_rows:
                 count = item["pending_count"] if "pending_count" in item else item.get("pendingCount", 0)

@@ -85,6 +85,15 @@ export function deviceId(): string {
 }
 
 export function operatorId(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null") as {
+      role?: string;
+      operatorId?: string | null;
+    } | null;
+    if (user?.role === "member") return user.operatorId ?? "";
+  } catch {
+    return "";
+  }
   const current = sessionStorage.getItem("chronofish.operator_id");
   if (current) return current;
   // Migrate the pre-session setting once; mutations thereafter remain scoped

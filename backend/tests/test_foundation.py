@@ -95,6 +95,7 @@ def test_idempotency_replay_preserves_no_content_status(store, write_headers):
         "method": "DELETE",
         "path": "/api/v1/review-target",
         "query_string": b"",
+        "state": {"user": {"role": "admin", "id": "test-admin"}},
         "headers": [(name.lower().encode(), value.encode()) for name, value in write_headers.items()],
     }
 

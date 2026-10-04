@@ -3,18 +3,24 @@ from __future__ import annotations
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from chronofish.app import create_app
 from chronofish.config import Config
 from chronofish.domain.state import DEMO_OPERATOR_ID, PROTOCOL_ID
 from chronofish.runtime.values import uuid7
 from chronofish.services.mail import RecordingMailer
+from chronofish.store.database import create_database_engine
+from chronofish.store.migrations import _execute_script, migrate
 from chronofish.store.sql import SQLStore
 
 DRIVER = os.getenv("CHRONOFISH_TEST_DATABASE_DRIVER")
@@ -73,6 +79,35 @@ def _headers() -> dict[str, str]:
         "X-Idempotency-Key": uuid7(),
         "X-Actor-User-Id": _actor_id,
     }
+
+
+@pytest.mark.skipif(DRIVER != "mysql", reason="MySQL rollback syntax and index dependencies")
+def test_authentication_migration_rolls_back_on_mysql():
+    database_name = f"chronofish_rollback_{uuid4().hex[:12]}"
+    root_url = make_url(str(DATABASE_URL))
+    admin_engine = create_engine(root_url.set(database="mysql"))
+    rollback_config = replace(
+        _config("rollback-admin@ku.th"),
+        database_url=root_url.set(database=database_name).render_as_string(hide_password=False),
+    )
+    try:
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(f"CREATE DATABASE {database_name}")
+        migrate(rollback_config)
+        engine = create_database_engine(rollback_config)
+        try:
+            down = (rollback_config.migrations_dir / "000012_authentication.down.sql").read_text(encoding="utf-8")
+            with engine.begin() as connection:
+                _execute_script(connection, down)
+            with engine.connect() as connection:
+                assert connection.execute(text("SHOW TABLES LIKE 'auth_user'")).first() is None
+                assert connection.execute(text("SHOW COLUMNS FROM audit_log LIKE 'actor_user_id'")).first() is None
+        finally:
+            engine.dispose()
+    finally:
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(f"DROP DATABASE IF EXISTS {database_name}")
+        admin_engine.dispose()
 
 
 def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
