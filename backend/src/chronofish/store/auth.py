@@ -449,9 +449,7 @@ class AuthRepository:
                     if candidate["role"] == "admin" and candidate["active"] and candidate["verified_at"] is not None
                 ]
                 user_sync = [
-                    sync
-                    for (sync_user_id, _), sync in self.store.auth_sync.items()
-                    if sync_user_id == user_id
+                    sync for (sync_user_id, _), sync in self.store.auth_sync.items() if sync_user_id == user_id
                 ]
                 self._validate_update(user, changes, actor, now, active_admins, user_sync)
                 if "role" in changes:

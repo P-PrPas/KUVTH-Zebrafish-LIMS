@@ -207,9 +207,7 @@ def test_excel_export_can_select_flat_sheets(client, write_headers, monkeypatch)
 
 
 def test_excel_export_rejects_unknown_analytics_filters(client, write_headers):
-    response = client.post(
-        "/api/v1/exports/excel", headers=write_headers, json={"filters": {"status": "DEAD"}}
-    )
+    response = client.post("/api/v1/exports/excel", headers=write_headers, json={"filters": {"status": "DEAD"}})
     assert response.status_code == 422
 
 
