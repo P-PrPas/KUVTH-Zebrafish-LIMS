@@ -1,14 +1,26 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { get, operatorId } from "./api/client";
+import { get, operatorId, request } from "./api/client";
+import {
+  type AuthUser,
+  cachedUser,
+  clearLogoutPending,
+  finishPendingLogout,
+  forgetUser,
+  hasPendingLogout,
+  markLogoutPending,
+  verifySession,
+} from "./auth";
 import { Icon } from "./components";
 import {
   discardRejected,
   drainQueue,
   type QueuedWriteRecord,
   queueCount,
+  queueCountForOtherAccounts,
   rejectedQueueItems,
   retryRejected,
   startQueueSync,
+  unassignedQueueCount,
 } from "./offline";
 import { Audit } from "./pages/audit";
 import { Batches } from "./pages/batches";
@@ -16,7 +28,9 @@ import { Dashboard } from "./pages/dashboard";
 import { Due } from "./pages/due";
 import { Export } from "./pages/export";
 import { Fish } from "./pages/fish";
+import { Login } from "./pages/login";
 import { Master } from "./pages/master";
+import { Members } from "./pages/members";
 import { Controls, Promotions, Timing } from "./pages/settings";
 import { type ApiItem, type Language, type Page, text } from "./types";
 
@@ -66,21 +80,32 @@ export function markInvalidFields(form: HTMLFormElement | null, page: Page, lang
     });
 }
 
-function App() {
-  const [page, setPage] = useState<Page>((location.hash.slice(1) as Page) || "dashboard");
+function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const isAdmin = user.role === "admin";
+  const adminPages: Page[] = ["master", "timing", "members"];
+  const initialPage = location.hash.slice(1) as Page;
+  const [page, setPage] = useState<Page>(() =>
+    adminPages.includes(initialPage) && !isAdmin ? "dashboard" : initialPage || "dashboard",
+  );
   const [language, setLanguage] = useState<Language>(() =>
     localStorage.getItem("chronofish.language") === "en" ? "en" : "th",
   );
   const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [rejected, setRejected] = useState<QueuedWriteRecord[]>([]);
+  const [otherAccountWork, setOtherAccountWork] = useState(0);
+  const [unassignedWork, setUnassignedWork] = useState(0);
+  const pendingRef = useRef(0);
+  const rejectedRef = useRef(0);
+  const otherAccountWorkRef = useRef(0);
+  const unassignedWorkRef = useRef(0);
   const [syncing, setSyncing] = useState(false);
   const [operators, setOperators] = useState<ApiItem[]>([]);
   const [formErrors, setFormErrors] = useState<{ id: string; errorId: string; label: string; message: string }[]>([]);
   const validationFrame = useRef(0);
   const previousPage = useRef(page);
   const currentOperator = operatorId();
-  const writePage = !["dashboard", "audit", "export"].includes(page);
+  const writePage = !["dashboard", "audit", "export", "members"].includes(page);
   const t = text[language];
   const navItems: NavItem[] = [
     { page: "dashboard", label: t.dashboard, icon: "dashboard", group: "primary" },
@@ -93,8 +118,17 @@ function App() {
     { page: "export", label: t.export, icon: "export", group: "research" },
     { page: "master", label: t.master, icon: "master", group: "system" },
     { page: "audit", label: t.audit, icon: "audit", group: "system" },
+    { page: "members", label: t.members, icon: "people", group: "system" },
   ];
-  const currentNav = navItems.find((item) => item.page === page) ?? navItems[0];
+  const visibleNav = isAdmin ? navItems : navItems.filter((item) => !adminPages.includes(item.page));
+  const currentNav = visibleNav.find((item) => item.page === page) ?? visibleNav[0];
+
+  useEffect(() => {
+    pendingRef.current = pending;
+    rejectedRef.current = rejected.length;
+    otherAccountWorkRef.current = otherAccountWork;
+    unassignedWorkRef.current = unassignedWork;
+  }, [pending, rejected.length, otherAccountWork, unassignedWork]);
 
   useEffect(() => {
     void get("/operators")
@@ -109,6 +143,12 @@ function App() {
     document.title = `${currentNav.label} · ${productName}`;
   }, [currentNav.label]);
   useEffect(() => {
+    if (!isAdmin && adminPages.includes(page)) {
+      setPage("dashboard");
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#dashboard`);
+    }
+  }, [isAdmin, page]);
+  useEffect(() => {
     if (previousPage.current === page) return;
     previousPage.current = page;
     setFormErrors([]);
@@ -118,7 +158,7 @@ function App() {
   useEffect(() => {
     const followHistory = () => {
       const next = location.hash.slice(1) as Page;
-      if (navItems.some((item) => item.page === next)) setPage(next);
+      if (navItems.some((item) => item.page === next) && (isAdmin || !adminPages.includes(next))) setPage(next);
     };
     window.addEventListener("hashchange", followHistory);
     window.addEventListener("popstate", followHistory);
@@ -129,9 +169,16 @@ function App() {
   }, []);
   useEffect(() => {
     const refreshQueue = () =>
-      void Promise.all([queueCount(), rejectedQueueItems()]).then(([count, rejectedItems]) => {
+      void Promise.all([
+        queueCount(),
+        rejectedQueueItems(user.id),
+        queueCountForOtherAccounts(user.id),
+        unassignedQueueCount(),
+      ]).then(([count, rejectedItems, otherCount, unassignedCount]) => {
         setPending(count);
         setRejected(rejectedItems);
+        setOtherAccountWork(otherCount);
+        setUnassignedWork(unassignedCount);
       });
     const on = () => {
       setOnline(true);
@@ -145,7 +192,7 @@ function App() {
       refreshQueue();
     };
     const beforeClose = (event: BeforeUnloadEvent) => {
-      if (pending + rejected.length > 0) {
+      if (pendingRef.current + rejectedRef.current + otherAccountWorkRef.current + unassignedWorkRef.current > 0) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -156,11 +203,12 @@ function App() {
     window.addEventListener("chronofish:queue-drained", queueChanged);
     window.addEventListener("chronofish:queue-rejected", queueChanged);
     window.addEventListener("chronofish:queue-discarded", queueChanged);
+    window.addEventListener("chronofish:auth-changed", queueChanged);
     window.addEventListener("chronofish:queue-syncing", syncStarted);
     window.addEventListener("chronofish:queue-sync-idle", syncIdle);
     window.addEventListener("beforeunload", beforeClose);
     void drainQueue().then(refreshQueue);
-    const stopQueueSync = startQueueSync(refreshQueue);
+    const stopQueueSync = startQueueSync(refreshQueue, user.id);
     return () => {
       stopQueueSync();
       window.removeEventListener("online", on);
@@ -169,11 +217,12 @@ function App() {
       window.removeEventListener("chronofish:queue-drained", queueChanged);
       window.removeEventListener("chronofish:queue-rejected", queueChanged);
       window.removeEventListener("chronofish:queue-discarded", queueChanged);
+      window.removeEventListener("chronofish:auth-changed", queueChanged);
       window.removeEventListener("chronofish:queue-syncing", syncStarted);
       window.removeEventListener("chronofish:queue-sync-idle", syncIdle);
       window.removeEventListener("beforeunload", beforeClose);
     };
-  }, [pending, rejected.length]);
+  }, [user.id]);
 
   const navigate = (next: Page) => {
     if (next !== page)
@@ -219,25 +268,25 @@ function App() {
         <nav aria-label={language === "th" ? "เมนูหลัก" : "Main navigation"} className="sidebar-nav">
           <div className="nav-group nav-group--primary">
             <p className="nav-group__label">{language === "th" ? "งาน" : "Task"}</p>
-            {renderNav(navItems.filter((item) => item.group === "primary"))}
+            {renderNav(visibleNav.filter((item) => item.group === "primary"))}
           </div>
           <details className="nav-disclosure nav-disclosure--desktop" open>
             <summary>{language === "th" ? "งานต่อเนื่องและรายงาน" : "Follow-up & reports"}</summary>
-            <div className="nav-group">{renderNav(navItems.filter((item) => item.group === "research"))}</div>
+            <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "research"))}</div>
           </details>
           <details
             className="nav-disclosure nav-disclosure--desktop"
-            open={navItems.some((item) => item.group === "system" && item.page === page)}
+            open={visibleNav.some((item) => item.group === "system" && item.page === page)}
           >
             <summary>{language === "th" ? "ข้อมูลอ้างอิงและระบบ" : "Reference & system"}</summary>
-            <div className="nav-group">{renderNav(navItems.filter((item) => item.group === "system"))}</div>
+            <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "system"))}</div>
           </details>
           <details className="nav-disclosure nav-disclosure--mobile">
             <summary>
               <Icon name="more" />
               <span>{language === "th" ? "เพิ่มเติม" : "More"}</span>
             </summary>
-            <div className="nav-group">{renderNav(navItems.filter((item) => item.group !== "primary"))}</div>
+            <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group !== "primary"))}</div>
           </details>
         </nav>
         <div className="sidebar-note">
@@ -262,12 +311,17 @@ function App() {
           </span>
         </div>
         <div className="top-actions">
+          <span className="account-badge" title={user.role === "admin" ? "Admin" : "Member"}>
+            <span>{user.email}</span>
+            <small>{user.role === "admin" ? "Admin" : language === "th" ? "สมาชิก" : "Member"}</small>
+          </span>
           <label className="operator-select">
             <span>{t.operator}</span>
             <select
               id="operator-select"
-              aria-label={t.chooseOperator}
+              aria-label={isAdmin ? t.chooseOperator : t.operator}
               value={currentOperator}
+              disabled={!isAdmin}
               onChange={(event) => {
                 sessionStorage.setItem("chronofish.operator_id", event.target.value);
                 window.location.reload();
@@ -281,7 +335,7 @@ function App() {
               ))}
             </select>
           </label>
-          {!currentOperator && (
+          {!currentOperator && isAdmin && (
             <span className="sr-only" role="status">
               {t.operatorRequired}
             </span>
@@ -320,7 +374,7 @@ function App() {
                     </div>
                   </div>
                 ))}
-                <button className="queue-retry" type="button" onClick={() => void retryRejected()}>
+                <button className="queue-retry" type="button" onClick={() => void retryRejected(user.id)}>
                   {t.retryRejected}
                 </button>
               </div>
@@ -333,15 +387,44 @@ function App() {
           >
             {language === "th" ? "EN" : "ไทย"}
           </button>
+          <button className="button button--secondary logout-button" type="button" onClick={onLogout}>
+            {language === "th" ? "ออกจากระบบ" : "Sign out"}
+          </button>
         </div>
       </header>
       <main className="content" id="main-content" tabIndex={-1} data-page={page}>
+        {(otherAccountWork > 0 || unassignedWork > 0) && (
+          <div className="queue-account-warning" role="status">
+            {otherAccountWork > 0 && (
+              <p>
+                {language === "th"
+                  ? "มีงานออฟไลน์ที่บันทึกไว้สำหรับบัญชีอื่น งานเหล่านี้จะไม่ sync ด้วยบัญชีปัจจุบัน กรุณาเข้าสู่ระบบด้วยบัญชีเดิมบนอุปกรณ์นี้"
+                  : `${otherAccountWork} offline item(s) are saved for another account. They will not sync under this account. Sign in as the original account on this device to sync them.`}
+              </p>
+            )}
+            {unassignedWork > 0 && (
+              <p>
+                {language === "th"
+                  ? "มีงานออฟไลน์เก่าที่ยังไม่ระบุบัญชีผู้บันทึก ระบบจะไม่ sync งานเหล่านี้โดยอัตโนมัติ กรุณาให้ผู้ดูแลตรวจสอบก่อนล้างข้อมูลเบราว์เซอร์"
+                  : `${unassignedWork} older offline item(s) have no recorded account. They will not sync automatically. Ask a lab administrator to review them before clearing browser data.`}
+              </p>
+            )}
+          </div>
+        )}
         {writePage && !currentOperator && (
           <div className="operator-gate" role="alert">
-            <strong>{t.operatorRequired}</strong>
-            <button type="button" onClick={() => document.getElementById("operator-select")?.focus()}>
-              {t.chooseOperator}
-            </button>
+            <strong>
+              {isAdmin
+                ? t.operatorRequired
+                : language === "th"
+                  ? "บัญชีนี้ยังไม่เชื่อมกับผู้ปฏิบัติงาน กรุณาติดต่อผู้ดูแลระบบ"
+                  : "Ask an administrator to link your account to an operator before recording work."}
+            </strong>
+            {isAdmin && (
+              <button type="button" onClick={() => document.getElementById("operator-select")?.focus()}>
+                {t.chooseOperator}
+              </button>
+            )}
           </div>
         )}
         {formErrors.length > 0 && (
@@ -399,6 +482,7 @@ function App() {
           {page === "controls" && <Controls t={t} />}
           {page === "audit" && <Audit t={t} />}
           {page === "export" && <Export t={t} />}
+          {page === "members" && isAdmin && <Members language={language} />}
         </fieldset>
         <footer className="workspace-footer">
           <span>{productName}</span>
@@ -411,6 +495,120 @@ function App() {
       </main>
     </div>
   );
+}
+
+function App() {
+  const [user, setUser] = useState<AuthUser | null>(() => (hasPendingLogout() ? null : cachedUser()));
+  const [authState, setAuthState] = useState<"checking" | "signed-in" | "signed-out">(() =>
+    hasPendingLogout() ? "signed-out" : cachedUser() ? "signed-in" : navigator.onLine ? "checking" : "signed-out",
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    const checkSession = async () => {
+      if (hasPendingLogout()) {
+        try {
+          await finishPendingLogout();
+        } catch {
+          // Keep the marker so reconnects retry revoking the old cookie.
+        }
+        if (mounted) {
+          forgetUser();
+          setUser(null);
+          setAuthState("signed-out");
+        }
+        return;
+      }
+      if (!navigator.onLine) {
+        const localUser = cachedUser();
+        if (mounted) {
+          setUser(localUser);
+          setAuthState(localUser ? "signed-in" : "signed-out");
+        }
+        return;
+      }
+      const localUser = cachedUser();
+      try {
+        const verified = await verifySession();
+        if (mounted) {
+          setUser(verified);
+          setAuthState("signed-in");
+        }
+      } catch (cause) {
+        const status = (cause as Error & { status?: number }).status;
+        const stillValidOffline = status === 401 ? null : localUser;
+        if (status === 401) forgetUser();
+        if (mounted) {
+          setUser(stillValidOffline);
+          setAuthState(stillValidOffline ? "signed-in" : "signed-out");
+        }
+      }
+    };
+    const expireSession = () => {
+      forgetUser();
+      setUser(null);
+      setAuthState("signed-out");
+    };
+    const refreshAccount = () =>
+      void verifySession()
+        .then((verified) => {
+          if (mounted) {
+            setUser(verified);
+            setAuthState("signed-in");
+          }
+        })
+        .catch((cause) => {
+          if ((cause as Error & { status?: number }).status === 401) expireSession();
+        });
+    const online = () => void checkSession();
+    const offline = () => {
+      const localUser = cachedUser();
+      setUser(localUser);
+      setAuthState(localUser ? "signed-in" : "signed-out");
+    };
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    window.addEventListener("chronofish:auth-expired", expireSession);
+    window.addEventListener("chronofish:auth-refresh", refreshAccount);
+    void checkSession();
+    return () => {
+      mounted = false;
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("chronofish:auth-expired", expireSession);
+      window.removeEventListener("chronofish:auth-refresh", refreshAccount);
+    };
+  }, []);
+
+  const logout = async () => {
+    try {
+      await request("/auth/logout", { method: "POST" });
+      clearLogoutPending();
+    } catch {
+      markLogoutPending();
+    }
+    forgetUser();
+    setUser(null);
+    setAuthState("signed-out");
+  };
+
+  if (authState === "checking") {
+    return (
+      <main className="auth-shell auth-shell--loading">
+        <p role="status">Checking your sign-in…</p>
+      </main>
+    );
+  }
+  if (!user)
+    return (
+      <Login
+        onLogin={(nextUser) => {
+          setUser(nextUser);
+          setAuthState("signed-in");
+        }}
+      />
+    );
+  return <Workspace key={user.id} user={user} onLogout={() => void logout()} />;
 }
 
 export default App;

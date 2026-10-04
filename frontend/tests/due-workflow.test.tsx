@@ -72,6 +72,10 @@ describe("due and checkpoint workflows", () => {
   beforeEach(() => {
     withoutIndexedDB();
     localStorage.clear();
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "01900000-0000-7000-8000-000000000099", email: "researcher@ku.th", role: "admin" }),
+    );
     sessionStorage.setItem("chronofish.operator_id", "operator-1");
   });
   afterEach(() => {

@@ -403,6 +403,8 @@ class SQLStore:
                     else None,
                     "operator_id": item.get("operatorId"),
                     "device_id": item.get("deviceId"),
+                    "actor_user_id": item.get("actorUserId"),
+                    "actor_email": item.get("actorEmail"),
                     "occurred_at": _database_value("occurred_at", item["occurredAt"]),
                 },
             )
@@ -420,7 +422,7 @@ class SQLStore:
                     {"id": FISH_SEQUENCE_ID},
                 ).scalar_one()
                 state = self._load_state(connection)
-                operator_id, device_id, key = validate_write_context(request, state)
+                operator_id, device_id, key = validate_write_context(request, state, body)
                 previous = (
                     connection.execute(
                         text(
@@ -496,7 +498,8 @@ class SQLStore:
             where.append("(occurred_at < :cursor_at OR (occurred_at = :cursor_at AND id < :cursor_id))")
             values.update(cursor_at=cursor[0].replace(tzinfo=None), cursor_id=cursor[1])
         query = (
-            "SELECT id, table_name, record_id, action, old_values, new_values, operator_id, device_id, occurred_at "
+            "SELECT id, table_name, record_id, action, old_values, new_values, operator_id, device_id, "
+            "actor_user_id, actor_email, occurred_at "
             f"FROM audit_log WHERE {' AND '.join(where)} ORDER BY occurred_at DESC, id DESC LIMIT :limit"
         )
         with self.engine.connect() as connection:
@@ -511,6 +514,8 @@ class SQLStore:
                 "newValues": _decode_json(row["new_values"]),
                 "operatorId": row["operator_id"],
                 "deviceId": row["device_id"],
+                "actorUserId": str(row["actor_user_id"]) if row["actor_user_id"] else None,
+                "actorEmail": row["actor_email"],
                 "occurredAt": _api_value("occurred_at", row["occurred_at"]),
             }
             for row in rows[:limit]

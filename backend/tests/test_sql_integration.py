@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
 
 from chronofish.app import create_app
 from chronofish.config import Config
 from chronofish.domain.state import DEMO_OPERATOR_ID, PROTOCOL_ID
 from chronofish.runtime.values import uuid7
+from chronofish.services.mail import RecordingMailer
+from chronofish.store.database import create_database_engine
+from chronofish.store.migrations import _execute_script, migrate
 from chronofish.store.sql import SQLStore
 
 DRIVER = os.getenv("CHRONOFISH_TEST_DATABASE_DRIVER")
@@ -19,7 +28,11 @@ DATABASE_URL = os.getenv("CHRONOFISH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DRIVER or not DATABASE_URL, reason="integration database is not configured")
 
 
-def _config() -> Config:
+_actor_id: str | None = None
+_bootstrap_email: str | None = None
+
+
+def _config(bootstrap_email: str) -> Config:
     return Config(
         8080,
         "test",
@@ -30,21 +43,142 @@ def _config() -> Config:
         Path(__file__).parents[1] / "db" / "migrations" / str(DRIVER),
         3,
         1,
+        bootstrap_admin_email=bootstrap_email,
+        session_cookie_secure=False,
     )
 
 
+def _client(store: SQLStore, bootstrap_email: str | None = None, session_token: str | None = None) -> TestClient:
+    global _actor_id, _bootstrap_email
+    bootstrap_email = bootstrap_email or f"sql-{uuid7()}@ku.th"
+    mailer = RecordingMailer()
+    client = TestClient(create_app(_config(bootstrap_email), store, mailer))
+    if session_token:
+        client.cookies.set("chronofish_session", session_token)
+    else:
+        requested = client.post("/api/v1/auth/request-code", json={"email": bootstrap_email})
+        assert requested.status_code == 202, requested.text
+        code = re.search(r"\b\d{6}\b", mailer.messages[-1][2])
+        assert code
+        verified = client.post(
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "pytest-sql"},
+            json={"email": bootstrap_email, "code": code.group()},
+        )
+        assert verified.status_code == 200, verified.text
+    _bootstrap_email = bootstrap_email
+    _actor_id = client.app.state.auth.repository.user_by_email(bootstrap_email)["id"]
+    return client
+
+
 def _headers() -> dict[str, str]:
+    assert _actor_id, "Create an authenticated SQL test client before building write headers"
     return {
         "X-Operator-Id": DEMO_OPERATOR_ID,
         "X-Device-Id": "pytest-sql",
         "X-Idempotency-Key": uuid7(),
+        "X-Actor-User-Id": _actor_id,
     }
+
+
+@pytest.mark.skipif(DRIVER != "mysql", reason="MySQL rollback syntax and index dependencies")
+def test_authentication_migration_rolls_back_on_mysql():
+    database_name = f"chronofish_rollback_{uuid4().hex[:12]}"
+    root_url = make_url(str(DATABASE_URL))
+    admin_engine = create_engine(root_url.set(database="mysql"))
+    rollback_config = replace(
+        _config("rollback-admin@ku.th"),
+        database_url=root_url.set(database=database_name).render_as_string(hide_password=False),
+    )
+    try:
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(f"CREATE DATABASE {database_name}")
+        migrate(rollback_config)
+        engine = create_database_engine(rollback_config)
+        try:
+            down = (rollback_config.migrations_dir / "000012_authentication.down.sql").read_text(encoding="utf-8")
+            with engine.begin() as connection:
+                _execute_script(connection, down)
+            with engine.connect() as connection:
+                assert connection.execute(text("SHOW TABLES LIKE 'auth_user'")).first() is None
+                assert connection.execute(text("SHOW COLUMNS FROM audit_log LIKE 'actor_user_id'")).first() is None
+        finally:
+            engine.dispose()
+    finally:
+        with admin_engine.begin() as connection:
+            connection.exec_driver_sql(f"DROP DATABASE IF EXISTS {database_name}")
+        admin_engine.dispose()
+
+
+def test_member_duplicate_is_owned_by_linked_operator_on_sql():
+    suffix = uuid7()[-12:]
+    store = SQLStore(_config(f"sql-duplicate-admin-{uuid7()}@ku.th"))
+    admin = _client(store)
+    site = admin.post("/api/v1/sites", headers=_headers(), json={"code": f"SD-{suffix}", "name": "SQL duplicate site"})
+    treatment = admin.post(
+        "/api/v1/treatment-groups",
+        headers=_headers(),
+        json={"code": f"TD-{suffix}", "name": "SQL duplicate treatment", "armType": "SCNT"},
+    )
+    linked_operator = admin.post("/api/v1/operators", headers=_headers(), json={"name": f"Linked {suffix}"})
+    assert site.status_code == treatment.status_code == linked_operator.status_code == 201
+    source = admin.post(
+        "/api/v1/batches",
+        headers=_headers(),
+        json={
+            "experimentDate": "2026-09-01",
+            "siteId": site.json()["id"],
+            "operatorId": DEMO_OPERATOR_ID,
+            "protocolId": PROTOCOL_ID,
+            "treatmentGroupId": treatment.json()["id"],
+        },
+    )
+    assert source.status_code == 201, source.text
+    invited_email = f"sql-duplicate-member-{uuid7()}@ku.th"
+    invited = admin.post("/api/v1/auth/admin/users", json={"email": invited_email})
+    assert invited.status_code == 201, invited.text
+    assert (
+        admin.patch(
+            f"/api/v1/auth/admin/users/{invited.json()['user']['id']}",
+            json={"operatorId": linked_operator.json()["id"]},
+        ).status_code
+        == 200
+    )
+    member = TestClient(admin.app)
+    assert member.post("/api/v1/auth/request-code", json={"email": invited_email}).status_code == 202
+    code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    verified = member.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "sql-member-browser"},
+        json={"email": invited_email, "code": code},
+    )
+    assert verified.status_code == 200, verified.text
+    member_headers = {
+        **_headers(),
+        "X-Operator-Id": linked_operator.json()["id"],
+        "X-Actor-User-Id": verified.json()["user"]["id"],
+    }
+    foreign_edit = member.patch(
+        f"/api/v1/batches/{source.json()['id']}", headers=member_headers, json={"notes": "forged"}
+    )
+    duplicated = member.post(
+        f"/api/v1/batches/{source.json()['id']}/duplicate",
+        headers={**member_headers, "X-Idempotency-Key": uuid7()},
+        json={"experimentDate": "2026-09-02"},
+    )
+    assert foreign_edit.status_code == 403
+    assert duplicated.status_code == 201, duplicated.text
+    assert duplicated.json()["operatorId"] == linked_operator.json()["id"]
+    assert admin.get(f"/api/v1/batches/{source.json()['id']}").json()["operatorId"] == DEMO_OPERATOR_ID
+    member.close()
+    admin.close()
+    store.close()
 
 
 def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     suffix = uuid7()[-12:]
-    first_store = SQLStore(_config())
-    first = TestClient(create_app(_config(), first_store))
+    first_store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    first = _client(first_store)
     site_headers = _headers()
     site_body = {"code": f"SQL-{suffix}", "name": f"SQL site {suffix}"}
     site_response = first.post("/api/v1/sites", headers=site_headers, json=site_body)
@@ -126,8 +260,8 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     duplicated_id = duplicated.json()["id"]
     first_store.close()
 
-    second_store = SQLStore(_config())
-    second = TestClient(create_app(_config(), second_store))
+    second_store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    second = _client(second_store, _bootstrap_email, first.cookies.get("chronofish_session"))
     assert (
         next(item for item in second.get("/api/v1/experiment-groups").json()["items"] if item["id"] == group_id)["name"]
         == "Cloning programme"
@@ -153,8 +287,8 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
 
 
 def test_concurrent_timing_versions_are_serialized_with_one_current_profile():
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
 
     def create_profile(expected_hpa: float):
         return client.post(
@@ -181,8 +315,8 @@ def test_concurrent_timing_versions_are_serialized_with_one_current_profile():
 
 def test_concurrent_batch_codes_and_live_wells_remain_unique():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     site = client.post(
         "/api/v1/sites", headers=_headers(), json={"code": f"W-{suffix}", "name": f"Well site {suffix}"}
     ).json()
@@ -239,8 +373,8 @@ def test_concurrent_batch_codes_and_live_wells_remain_unique():
 
 def test_concurrent_promotions_allocate_unique_fish_numbers():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     try:
         site = client.post(
             "/api/v1/sites", headers=_headers(), json={"code": f"F-{suffix}", "name": f"Fish site {suffix}"}
@@ -314,8 +448,8 @@ def test_concurrent_promotions_allocate_unique_fish_numbers():
 
 def test_concurrent_observation_save_correction_and_soft_delete_are_consistent():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     site = client.post(
         "/api/v1/sites", headers=_headers(), json={"code": f"O-{suffix}", "name": f"Observation site {suffix}"}
     ).json()
@@ -391,8 +525,9 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
 
 def test_sql_store_round_trips_feedback_fields():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    lab_today = datetime.now(ZoneInfo("Asia/Bangkok")).date().isoformat()
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     try:
         donor_response = client.post(
             "/api/v1/donor-cell-lines",
@@ -431,7 +566,7 @@ def test_sql_store_round_trips_feedback_fields():
             headers=_headers(),
             json={
                 "batchCode": f"RT-{suffix}",
-                "experimentDate": date.today().isoformat(),
+                "experimentDate": lab_today,
                 "siteId": site["id"],
                 "operatorId": DEMO_OPERATOR_ID,
                 "protocolId": PROTOCOL_ID,
@@ -459,7 +594,7 @@ def test_sql_store_round_trips_feedback_fields():
             headers=_headers(),
             json={
                 "fishCode": f"ROUNDTRIP-{suffix}",
-                "dob": date.today().isoformat(),
+                "dob": lab_today,
                 "donorCellLineId": donor["id"],
                 "recipientEggLotId": recipient["id"],
                 "siteId": site["id"],
@@ -477,7 +612,7 @@ def test_sql_store_round_trips_feedback_fields():
                     {
                         "clientUuid": uuid7(),
                         "cloneFishId": fish_id,
-                        "observedOn": date.today().isoformat(),
+                        "observedOn": lab_today,
                         "outcome": "ALIVE",
                         "condition": "NORMAL",
                         "healthStatus": "SICK",
@@ -489,7 +624,7 @@ def test_sql_store_round_trips_feedback_fields():
         observation_id = observation_response.json()["results"][0]["id"]
 
         store.close()
-        store = SQLStore(_config())
+        store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
         reloaded = store.snapshot()
         assert reloaded.entities["donor-cell-lines"][donor["id"]]["preservation"] == "CRYOPRESERVED"
         assert reloaded.entities["donor-cell-lines"][donor["id"]]["sampleInfo"] == f"Cryovial details {suffix}"
