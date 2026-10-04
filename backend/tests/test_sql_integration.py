@@ -110,6 +110,71 @@ def test_authentication_migration_rolls_back_on_mysql():
         admin_engine.dispose()
 
 
+def test_member_duplicate_is_owned_by_linked_operator_on_sql():
+    suffix = uuid7()[-12:]
+    store = SQLStore(_config(f"sql-duplicate-admin-{uuid7()}@ku.th"))
+    admin = _client(store)
+    site = admin.post("/api/v1/sites", headers=_headers(), json={"code": f"SD-{suffix}", "name": "SQL duplicate site"})
+    treatment = admin.post(
+        "/api/v1/treatment-groups",
+        headers=_headers(),
+        json={"code": f"TD-{suffix}", "name": "SQL duplicate treatment", "armType": "SCNT"},
+    )
+    linked_operator = admin.post("/api/v1/operators", headers=_headers(), json={"name": f"Linked {suffix}"})
+    assert site.status_code == treatment.status_code == linked_operator.status_code == 201
+    source = admin.post(
+        "/api/v1/batches",
+        headers=_headers(),
+        json={
+            "experimentDate": "2026-09-01",
+            "siteId": site.json()["id"],
+            "operatorId": DEMO_OPERATOR_ID,
+            "protocolId": PROTOCOL_ID,
+            "treatmentGroupId": treatment.json()["id"],
+        },
+    )
+    assert source.status_code == 201, source.text
+    invited_email = f"sql-duplicate-member-{uuid7()}@ku.th"
+    invited = admin.post("/api/v1/auth/admin/users", json={"email": invited_email})
+    assert invited.status_code == 201, invited.text
+    assert (
+        admin.patch(
+            f"/api/v1/auth/admin/users/{invited.json()['user']['id']}",
+            json={"operatorId": linked_operator.json()["id"]},
+        ).status_code
+        == 200
+    )
+    member = TestClient(admin.app)
+    assert member.post("/api/v1/auth/request-code", json={"email": invited_email}).status_code == 202
+    code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    verified = member.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "sql-member-browser"},
+        json={"email": invited_email, "code": code},
+    )
+    assert verified.status_code == 200, verified.text
+    member_headers = {
+        **_headers(),
+        "X-Operator-Id": linked_operator.json()["id"],
+        "X-Actor-User-Id": verified.json()["user"]["id"],
+    }
+    foreign_edit = member.patch(
+        f"/api/v1/batches/{source.json()['id']}", headers=member_headers, json={"notes": "forged"}
+    )
+    duplicated = member.post(
+        f"/api/v1/batches/{source.json()['id']}/duplicate",
+        headers={**member_headers, "X-Idempotency-Key": uuid7()},
+        json={"experimentDate": "2026-09-02"},
+    )
+    assert foreign_edit.status_code == 403
+    assert duplicated.status_code == 201, duplicated.text
+    assert duplicated.json()["operatorId"] == linked_operator.json()["id"]
+    assert admin.get(f"/api/v1/batches/{source.json()['id']}").json()["operatorId"] == DEMO_OPERATOR_ID
+    member.close()
+    admin.close()
+    store.close()
+
+
 def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     suffix = uuid7()[-12:]
     first_store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))

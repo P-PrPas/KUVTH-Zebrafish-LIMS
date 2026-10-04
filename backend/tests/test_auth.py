@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import timedelta
 
@@ -66,6 +67,68 @@ def test_otp_is_single_use_and_keeps_the_email_cooldown(client):
     unknown = client.post("/api/v1/auth/request-code", json={"email": "unknown@ku.th"})
     assert cooldown.status_code == unknown.status_code == 202
     assert cooldown.json() == unknown.json()
+
+
+def test_otp_cooldown_is_logged_without_error_traceback(client, caplog):
+    with caplog.at_level(logging.INFO, logger="chronofish.auth"):
+        response = client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
+    assert response.status_code == 202
+    events = [record for record in caplog.records if record.name == "chronofish.auth"]
+    assert len(events) == 1
+    assert events[0].levelno == logging.INFO
+    assert events[0].exc_info is None
+
+
+def test_member_duplicate_uses_linked_operator_and_cannot_edit_foreign_batch(client, write_headers, master_data):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "duplicate.member@ku.th")
+    linked_operator = client.post("/api/v1/operators", headers=write_headers, json={"name": "Linked member operator"})
+    assert linked_operator.status_code == 201, linked_operator.text
+    linked_id = linked_operator.json()["id"]
+    assert client.patch(f"/api/v1/auth/admin/users/{invited['id']}", json={"operatorId": linked_id}).status_code == 200
+    source = client.post(
+        "/api/v1/batches",
+        headers={**write_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000201"},
+        json={
+            "experimentDate": "2026-09-01",
+            "siteId": master_data["site"]["id"],
+            "operatorId": master_data["operator"]["id"],
+            "protocolId": "01900000-0000-7000-8000-000000000001",
+            "treatmentGroupId": master_data["treatment"]["id"],
+            "recipientEggLotId": master_data["recipient_egg_lot"]["id"],
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    member_client = TestClient(client.app)
+    member = _sign_in(member_client, invited["email"], mailer)
+    member_headers = {**write_headers, "X-Operator-Id": linked_id, "X-Actor-User-Id": member["id"]}
+
+    foreign_edit = member_client.patch(
+        f"/api/v1/batches/{source_id}",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000202"},
+        json={"notes": "should not change"},
+    )
+    duplicated = member_client.post(
+        f"/api/v1/batches/{source_id}/duplicate",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000203"},
+        json={"experimentDate": "2026-09-02"},
+    )
+
+    assert foreign_edit.status_code == 403
+    assert foreign_edit.json()["error"]["code"] == "operator_mismatch"
+    assert duplicated.status_code == 201, duplicated.text
+    assert duplicated.json()["operatorId"] == linked_id
+    assert client.get(f"/api/v1/batches/{source_id}").json()["operatorId"] == master_data["operator"]["id"]
+    own_edit = member_client.patch(
+        f"/api/v1/batches/{duplicated.json()['id']}",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000204"},
+        json={"notes": "my own experiment"},
+    )
+    assert own_edit.status_code == 200, own_edit.text
+    audit = client.get(f"/api/v1/audit-log?recordId={duplicated.json()['id']}").json()["items"]
+    assert any(item["operatorId"] == linked_id and item["actorUserId"] == member["id"] for item in audit)
+    member_client.close()
 
 
 def test_member_cannot_record_as_another_operator_or_without_a_link(client, write_headers):
