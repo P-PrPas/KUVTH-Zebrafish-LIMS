@@ -710,10 +710,15 @@ describe("lab workflow forms", () => {
       ),
     ).toBe(false);
 
+    const notes = form.querySelector('textarea[aria-label="Fish status notes"]') as HTMLTextAreaElement;
+    expect(notes).toBeTruthy();
+    const setText = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
     const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
     await act(async () => {
       setSelect?.call(outcome, "ALIVE");
       outcome.dispatchEvent(new Event("change", { bubbles: true }));
+      setText?.call(notes, "Corrected after review");
+      notes.dispatchEvent(new Event("input", { bubbles: true }));
       form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
       await Promise.resolve();
     });
@@ -729,7 +734,10 @@ describe("lab workflow forms", () => {
       ([input, init]) =>
         String(input).includes("/observations/fish/observation-frozen-history") && init?.method === "PATCH",
     );
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({ outcome: "ALIVE" });
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      outcome: "ALIVE",
+      notes: "Corrected after review",
+    });
     root.unmount();
     window.history.replaceState({}, "", "/");
   });

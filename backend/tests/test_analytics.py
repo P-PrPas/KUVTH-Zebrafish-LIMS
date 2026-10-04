@@ -166,8 +166,11 @@ def test_analytics_fixture_matches_manual_counts_and_shared_filters(client, writ
     assert stage_22["surv"] == pytest.approx(2 / 3)
     assert survival["meta"]["missing"]["stageCheckpoint"] > 0
 
-    timing = client.get("/api/v1/analytics/timing-deviation", params={**filters, "groupBy": ["operator"]}).json()
-    assert timing["items"] == []  # SCNT observations are excluded from timing analysis.
+    timing = client.get("/api/v1/analytics/timing-deviation", params={**filters, "groupBy": ["treatmentGroup"]}).json()
+    assert [(item["treatmentGroup"], item["stageOrder"], item["n"]) for item in timing["items"]] == [
+        ("SCNT", 19, 3),
+        ("SCNT", 22, 2),
+    ]
 
     abnormality = client.get("/api/v1/analytics/abnormality-onset", params=filters).json()
     assert abnormality["items"] == [{"stageOrder": 19, "stageLabel": "Shield", "count": 1}]

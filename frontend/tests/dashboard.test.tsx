@@ -230,7 +230,10 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).not.toContain("Lowest filtered survival is 100.00% at 1-cell");
     expect(document.body.textContent).not.toContain("Highest loss occurs at 1-cell: 0 of 3 embryos");
     expect(document.body.textContent).toContain("Source records");
-    expect(document.body.textContent).toContain("View attrition by checkpoint");
+    expect(document.body.textContent).not.toContain("View attrition by checkpoint");
+    expect(document.body.textContent).not.toContain("View abnormality onset");
+    expect(document.body.textContent).toContain("individual embryo observations");
+    expect(document.body.textContent).toContain("including SCNT; aggregate control-arm counts");
     expect(document.body.textContent).toContain("Checks recorded; none abnormal");
     expect(document.querySelector("table caption")).not.toBeNull();
     expect(document.querySelector('[aria-label="Timing deviation from standard in hours"]')).toBeNull();
@@ -496,7 +499,7 @@ describe("analytics dashboard", () => {
                   n: 3,
                   pct: 1,
                   empty: false,
-                  statusCounts: { ALIVE: 2, FROZEN: 1 },
+                  statusCounts: { ALIVE: 1, FROZEN: 1, DISCARDED: 1 },
                 },
               ],
               boxMeta: { nBoxes: 1, emptyBoxes: 0 },
@@ -549,6 +552,13 @@ describe("analytics dashboard", () => {
     });
     expect(ageTable?.textContent).toContain("0–14 วัน");
     expect(ageTable?.textContent).not.toContain("0–14 days");
+    const boxTable = Array.from(supporting.querySelectorAll("table")).find(
+      (table) => table.querySelectorAll("th").length === 5,
+    );
+    const boxStatuses = boxTable?.querySelector("tbody tr td:nth-child(2)")?.textContent ?? "";
+    expect(boxStatuses).toContain("มีชีวิต 1");
+    expect(boxStatuses).not.toContain("แช่แข็ง");
+    expect(boxStatuses).not.toContain("คัดออก");
     root.unmount();
   });
 

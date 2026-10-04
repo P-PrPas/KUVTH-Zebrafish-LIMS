@@ -99,9 +99,9 @@ describe("master data form", () => {
 
     const expected = [
       ["Operators", ["Name"]],
-      ["Donor cell lines", ["Strain", "Types of Specimen", "Preservation", "Batch code", "Cryovial / sample detail"]],
-      ["Recipient egg lots", ["Breed", "Egg collection date", "Donor fish code", "Label"]],
-      ["CSOF lots", ["Lot code"]],
+      ["Donor cells", ["Strain", "Types of Specimen", "Preservation", "Batch code", "Cryovial / sample detail"]],
+      ["Recipient egg lots", ["Breed", "Egg stripping date", "Donor fish code", "Label"]],
+      ["Egg holding medium", ["Lot code", "Requested format: [medium name] YYYY-NN"]],
       ["Treatment groups", ["Code", "Name", "Arm type"]],
       ["Fish boxes", ["Box code", "Site ID"]],
     ];
@@ -118,6 +118,31 @@ describe("master data form", () => {
     expect(Array.from(document.querySelectorAll("option")).map((option) => option.textContent)).toEqual(
       expect.arrayContaining(["Select", "KU"]),
     );
+    root.unmount();
+  });
+
+  it("uses the requested Thai donor-cell and egg-medium labels and lot format", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(<MasterCatalog t={text.th} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const tabs = Array.from(document.querySelectorAll(".admin-toolbar button"));
+    expect(tabs.map((button) => button.textContent)).toContain("เซลล์ผู้ให้");
+    const mediumTab = tabs.find((button) => button.textContent === "อาหารเลี้ยงไข่ (Egg holding medium)");
+    expect(mediumTab).toBeTruthy();
+    await act(async () => {
+      mediumTab?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.body.textContent).toContain("รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN");
     root.unmount();
   });
 
