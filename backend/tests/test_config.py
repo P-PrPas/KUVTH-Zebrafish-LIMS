@@ -37,12 +37,46 @@ def test_default_driver_is_memory_only_for_dev_and_test(monkeypatch, app_env):
     assert load_config().db_driver == "memory"
 
 
+def test_auth_secret_is_required_outside_development_and_test(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DB_DRIVER", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db")
+    monkeypatch.delenv("AUTH_SECRET", raising=False)
+
+    with pytest.raises(ValueError, match="AUTH_SECRET is required"):
+        load_config()
+
+
 def test_default_driver_is_postgres_when_app_env_is_unset(monkeypatch):
     monkeypatch.delenv("APP_ENV", raising=False)
     monkeypatch.delenv("DB_DRIVER", raising=False)
     monkeypatch.setenv("DATABASE_URL", "postgresql://db")
+    monkeypatch.setenv("AUTH_SECRET", "test-only-secret-at-least-32-characters")
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@ku.th")
+    monkeypatch.setenv("MAIL_SENDER_EMAIL", "sender@ku.th")
 
     assert load_config().db_driver == "postgres"
+
+
+def test_production_requires_explicit_bootstrap_sender_and_long_secret(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("DB_DRIVER", "postgres")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db")
+    monkeypatch.setenv("AUTH_SECRET", "short")
+    with pytest.raises(ValueError, match="at least 32"):
+        load_config()
+    monkeypatch.setenv("AUTH_SECRET", "a-unique-production-secret-at-least-32-characters")
+    monkeypatch.delenv("BOOTSTRAP_ADMIN_EMAIL", raising=False)
+    with pytest.raises(ValueError, match="BOOTSTRAP_ADMIN_EMAIL"):
+        load_config()
+    monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "admin@ku.th")
+    monkeypatch.delenv("MAIL_SENDER_EMAIL", raising=False)
+    with pytest.raises(ValueError, match="MAIL_SENDER_EMAIL"):
+        load_config()
+    monkeypatch.setenv("MAIL_SENDER_EMAIL", "sender@ku.th")
+    monkeypatch.setenv("MAIL_USE_STARTTLS", "false")
+    with pytest.raises(ValueError, match="SMTP TLS"):
+        load_config()
 
 
 def test_unknown_driver_is_rejected(monkeypatch):

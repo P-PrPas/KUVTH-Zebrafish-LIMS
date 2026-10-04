@@ -5,7 +5,7 @@ info:
   version: 1.0.0
   summary: Zebrafish somatic cell nuclear transfer embryo and clone-fish tracking
   description: |
-    Contract between the static SPA front end and the Go back end.
+    Contract between the static SPA front end and the Python back end.
 
     This document is the single source of truth for the interface
     (SRS v1.0 section 8, API-02). Generate both sides from it:
@@ -18,8 +18,12 @@ info:
     * All timestamps are RFC 3339 **with an explicit offset** (CI-04).
       The server stores UTC; the client sends and displays `Asia/Bangkok`.
     * All hour values are decimal hours with 4 decimal places (DR-05).
-    * Writes carry `X-Operator-Id` and `X-Device-Id` (API-03) because the
-      system has no login (CON-01) and still has to record who did what.
+    * All API routes except health and the two OTP entry routes require an
+      authenticated session cookie. Membership is invitation-only and limited
+      to `@ku.th` addresses; authorization is enforced by the server.
+    * Writes carry `X-Operator-Id`, `X-Device-Id`, and the required
+      `X-Actor-User-Id`. The account actor comes from the session and must
+      match this header so queued writes cannot replay under another account.
     * Every mutation also accepts `X-Idempotency-Key`. Clients persist this
       stable key with the queued write; retries return the original result.
     * Bulk write endpoints are idempotent on `clientUuid` (BR-18). Re-sending
@@ -41,7 +45,12 @@ servers:
       host:
         default: localhost:8080
 
+security:
+  - sessionCookie: []
+
 tags:
+  - name: Authentication
+    description: Invitation-only KU email OTP, sessions, and member administration
   - name: Master data
     description: Sites, operators, strains, lots, treatment groups, boxes (FR-100)
   - name: Timing
@@ -62,6 +71,211 @@ tags:
     description: Change history (FR-1100)
 
 paths:
+
+  /auth/request-code:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Request a single-use email code
+      operationId: requestSignInCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestCodeInput' }
+      responses:
+        '202': { description: "Same response for invited, unknown, and rate-limited addresses; delivery is queued" }
+        '429': { description: Global per-IP API rate limit reached }
+        '503': { description: Email delivery is not configured }
+  /auth/verify-code:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Verify a code and create a persistent browser session
+      operationId: verifySignInCode
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyCodeInput' }
+      responses:
+        '200':
+          description: Session created; token is returned only as an HttpOnly cookie
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/AuthUser' }
+        '401': { description: Invalid, expired, or already-used code }
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Read the current account and role
+      operationId: getCurrentAccount
+      responses:
+        '200':
+          description: Authenticated account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/AuthUser' }
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke the current browser session
+      operationId: logout
+      responses:
+        '204': { description: Session revoked and cookie cleared }
+  /auth/devices/sync-status:
+    post:
+      tags: [Authentication]
+      summary: Report this account's pending offline work for this device
+      operationId: reportDeviceSyncStatus
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+        - name: X-Actor-User-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceSyncStatus' }
+      responses:
+        '204': { description: Device sync status stored }
+  /auth/sessions:
+    get:
+      tags: [Authentication]
+      summary: List sessions belonging to the current account
+      operationId: listOwnSessions
+      responses:
+        '200': { description: Browser sessions }
+  /auth/sessions/{session_id}:
+    delete:
+      tags: [Authentication]
+      summary: Revoke one of the current account's sessions
+      operationId: revokeOwnSession
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Session revoked }
+  /auth/admin/users:
+    get:
+      tags: [Authentication]
+      summary: List members and their device sync status
+      operationId: listMembers
+      responses:
+        '200': { description: Member list }
+        '403': { description: Admin role required }
+    post:
+      tags: [Authentication]
+      summary: Invite a @ku.th member
+      operationId: inviteMember
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestCodeInput' }
+      responses:
+        '201':
+          description: Member created; emailSent reports whether invitation delivery succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, emailSent]
+                properties:
+                  user: { $ref: '#/components/schemas/AuthUser' }
+                  emailSent: { type: boolean }
+        '403': { description: Admin role required }
+  /auth/admin/users/{user_id}:
+    patch:
+      tags: [Authentication]
+      summary: Change role, operator link, or account status
+      operationId: updateMember
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MemberUpdate' }
+      responses:
+        '200': { description: Account updated; deactivation revokes all sessions }
+        '409': { description: Last admin or known pending offline work prevents the change }
+  /auth/admin/users/{user_id}/invite:
+    post:
+      tags: [Authentication]
+      summary: Resend a member invitation
+      operationId: resendMemberInvitation
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '202': { description: Invitation email sent }
+  /auth/admin/users/{user_id}/sessions:
+    get:
+      tags: [Authentication]
+      summary: List a member's browser sessions
+      operationId: listMemberSessions
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Browser sessions }
+  /auth/admin/users/{user_id}/sessions/{session_id}:
+    delete:
+      tags: [Authentication]
+      summary: Revoke one of a member's sessions
+      operationId: revokeMemberSession
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: session_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Session revoked }
+  /auth/admin/mail-settings:
+    get:
+      tags: [Authentication]
+      summary: Read the configured system sender address
+      operationId: getMailSettings
+      responses:
+        '200': { description: Sender address and SMTP readiness }
+    patch:
+      tags: [Authentication]
+      summary: Change the system sender address
+      operationId: updateMailSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MailSettings' }
+      responses:
+        '200': { description: Sender address saved }
 
   # ---------------------------------------------------------------- master data
   /sites:
@@ -87,7 +301,7 @@ paths:
       tags: [Master data]
       summary: Create a site
       operationId: createSite
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -108,7 +322,7 @@ paths:
       tags: [Master data]
       summary: Update a site
       operationId: updateSite
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -145,7 +359,7 @@ paths:
       tags: [Master data]
       summary: Create an operator
       operationId: createOperator
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -181,7 +395,7 @@ paths:
       tags: [Master data]
       summary: Create a donor cell line
       operationId: createDonorCellLine
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -217,7 +431,7 @@ paths:
       tags: [Master data]
       summary: Create a recipient egg lot
       operationId: createRecipientEggLot
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -253,7 +467,7 @@ paths:
       tags: [Master data]
       summary: Create a CSOF lot
       operationId: createCsofLot
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -291,7 +505,7 @@ paths:
       tags: [Master data]
       summary: Create an experiment group
       operationId: createExperimentGroup
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -327,7 +541,7 @@ paths:
       tags: [Master data]
       summary: Create a treatment group
       operationId: createTreatmentGroup
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -363,7 +577,7 @@ paths:
       tags: [Master data]
       summary: Create a fish box
       operationId: createFishBox
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -383,7 +597,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate an operator
       operationId: updateOperator
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -404,7 +618,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a donor cell line
       operationId: updateDonorCellLine
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -425,7 +639,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a recipient egg lot
       operationId: updateRecipientEggLot
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -446,7 +660,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a CSOF lot
       operationId: updateCsofLot
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -467,7 +681,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a experiment group
       operationId: updateExperimentGroup
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -488,7 +702,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a treatment group
       operationId: updateTreatmentGroup
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -509,7 +723,7 @@ paths:
       tags: [Master data]
       summary: Update or deactivate a fish box
       operationId: updateFishBox
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -617,7 +831,7 @@ paths:
         recomputed (NFR-203, AC-204). This is what lets the lab adjust the
         reference times freely without silently rewriting past results.
       operationId: createTimingProfileVersion
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -674,7 +888,7 @@ paths:
       tags: [Timing]
       summary: Upload reference timing as CSV, creating a new version
       operationId: importTimingCsv
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -727,7 +941,7 @@ paths:
         creation time (FR-303) and suggests `batchCode` as
         `{dayNo}_{operator}_{treatmentGroup}` when the caller omits it (FR-302).
       operationId: createBatch
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -758,8 +972,9 @@ paths:
     patch:
       tags: [Experiments]
       summary: Update a batch
+      description: Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
       operationId: updateBatch
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -771,6 +986,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Batch' }
+        '403': { description: Member is not linked to the batch operator }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /batches/{id}/duplicate:
@@ -778,9 +994,12 @@ paths:
     post:
       tags: [Experiments]
       summary: Create a new batch by copying this one
-      description: Copies everything except dates and times (FR-305) — enucleation settings repeat almost every run.
+      description: |
+        Copies batch settings except dates and times (FR-305). For a member,
+        the new batch belongs to their linked operator even when the source
+        belongs to someone else. Admin copies retain the source operator.
       operationId: duplicateBatch
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -819,7 +1038,7 @@ paths:
         `activatedAt` is mandatory (FR-307): it is T0 for every downstream
         calculation and for the fish date of birth (BR-01, BR-10).
       operationId: createInjectionLot
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -844,7 +1063,7 @@ paths:
         `duplicateBatch`. An activated lot cannot be changed through this
         operation because changing T0 would invalidate downstream results.
       operationId: activateInjectionLotTemplate
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -888,7 +1107,7 @@ paths:
       summary: Add extra embryos to a lot
       description: For when the real count differs from what was entered initially (FR-310).
       operationId: addLotEmbryos
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -917,7 +1136,7 @@ paths:
       tags: [Experiments]
       summary: Update an embryo
       operationId: updateEmbryo
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -941,7 +1160,7 @@ paths:
       summary: Soft-delete an embryo
       description: Sets `deletedAt`; nothing is ever physically removed (CON-08, BR-20).
       operationId: deleteEmbryo
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       responses:
         '204': { description: Soft-deleted }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -972,7 +1191,7 @@ paths:
         Q6), matching how the lab already records them. Sending a row for an
         existing (armType, stageCode) pair replaces it.
       operationId: putControlArmCounts
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1098,7 +1317,7 @@ paths:
         Partial success is normal: each item reports its own status, so one bad
         row never discards the rest of the checkpoint.
       operationId: createEmbryoObservations
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1175,7 +1394,7 @@ paths:
         frozen; editing `observedAt` recalculates `hpaActual` and `deviationH`
         against that original snapshot (BR-03).
       operationId: updateEmbryoObservation
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1200,7 +1419,7 @@ paths:
       tags: [Observations]
       summary: Soft-delete an observation
       operationId: deleteEmbryoObservation
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       responses:
         '204': { description: Soft-deleted }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1248,7 +1467,7 @@ paths:
         For a consecutive date range, the client expands each fish/date into a
         separate item with its own `clientUuid`. This keeps retries idempotent.
       operationId: createFishObservations
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1281,7 +1500,7 @@ paths:
       tags: [Observations]
       summary: Correct a fish observation
       operationId: updateFishObservation
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1300,6 +1519,7 @@ paths:
         - $ref: '#/components/parameters/OperatorId'
         - $ref: '#/components/parameters/DeviceId'
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ActorUserId'
         - name: reason
           in: query
           required: true
@@ -1352,7 +1572,7 @@ paths:
         Running numbers are allocated inside the same transaction so two people
         promoting at once cannot collide (BR-14).
       operationId: createPromotions
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1431,7 +1651,7 @@ paths:
       summary: Register a fish by hand
       description: For fish that did not come through the normal promotion path (FR-509).
       operationId: createFish
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1463,7 +1683,7 @@ paths:
       summary: Update a fish
       description: Sex is usually only determinable weeks in (FR-609), so it can be set at any time.
       operationId: updateFish
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1506,7 +1726,7 @@ paths:
       tags: [Fish]
       summary: Record a DNA specimen
       operationId: createSpecimen
-      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey' ]
+      parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
         required: true
         content:
@@ -1874,6 +2094,7 @@ paths:
         CON-05), which is also what lets the backend run on a filesystem-less
         platform.
       operationId: exportExcel
+      parameters: [ $ref: '#/components/parameters/ActorUserId' ]
       x-read-only: true
       requestBody:
         required: true
@@ -1915,7 +2136,7 @@ paths:
       operationId: listAuditLog
       parameters:
         - { name: table, in: query, schema: { type: string, maxLength: 128 } }
-        - { name: recordId, in: query, schema: { type: string, format: uuid } }
+        - { name: recordId, in: query, schema: { type: string, maxLength: 36 } }
         - { name: operatorId, in: query, schema: { type: string, format: uuid } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
@@ -1937,6 +2158,7 @@ paths:
 
   /health:
     get:
+      security: []
       summary: Service health
       operationId: getHealth
       responses:
@@ -1953,6 +2175,12 @@ paths:
 
 components:
 
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: chronofish_session
+
   parameters:
     PathId:
       name: id
@@ -1963,7 +2191,7 @@ components:
       name: X-Operator-Id
       in: header
       required: true
-      description: Who is doing this. Required on every write because there is no login (CON-01, FR-1105).
+      description: Experimental operator associated with the recorded work.
       schema: { type: string, format: uuid }
     DeviceId:
       name: X-Device-Id
@@ -1976,6 +2204,12 @@ components:
       in: header
       required: true
       description: Stable key for one logical mutation. Replays return the original result.
+      schema: { type: string, format: uuid }
+    ActorUserId:
+      name: X-Actor-User-Id
+      in: header
+      required: true
+      description: Account id for this write; must match the authenticated session.
       schema: { type: string, format: uuid }
     IncludeInactive:
       name: includeInactive
@@ -3094,11 +3328,53 @@ components:
       properties:
         id: { type: string, format: uuid }
         tableName: { type: string }
-        recordId: { type: string, format: uuid }
+        recordId: { type: string, maxLength: 36 }
         action: { type: string, enum: [INSERT, UPDATE, DELETE] }
         oldValues: { type: [object, 'null'], additionalProperties: true }
         newValues: { type: [object, 'null'], additionalProperties: true }
         operatorId: { type: [string, 'null'], format: uuid }
         operatorName: { type: [string, 'null'] }
         deviceId: { type: [string, 'null'] }
+        actorUserId: { type: [string, 'null'], format: uuid }
+        actorEmail: { type: [string, 'null'], format: email }
         occurredAt: { type: string, format: date-time }
+
+    RequestCodeInput:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+    VerifyCodeInput:
+      type: object
+      required: [email, code]
+      properties:
+        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+        code: { type: string, pattern: '^[0-9]{6}$' }
+    AuthUser:
+      type: object
+      required: [id, email, role]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, member] }
+        operatorId: { type: [string, 'null'], format: uuid }
+        sessionId: { type: [string, 'null'], format: uuid }
+        deviceId: { type: [string, 'null'] }
+    MemberUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        role: { type: string, enum: [admin, member] }
+        active: { type: boolean }
+        operatorId: { type: [string, 'null'], format: uuid }
+        acknowledgePendingDataRisk: { type: boolean }
+    DeviceSyncStatus:
+      type: object
+      required: [pendingCount]
+      properties:
+        pendingCount: { type: integer, minimum: 0 }
+    MailSettings:
+      type: object
+      required: [senderEmail]
+      properties:
+        senderEmail: { type: string, format: email }

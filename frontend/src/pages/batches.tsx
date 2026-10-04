@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
+import { cachedUser } from "../auth";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import { saveObservationLocation } from "../observation-draft";
@@ -225,6 +226,7 @@ function BatchForm({
   onQueued?: (batch: ApiItem) => void;
 }) {
   const thai = t === text.th;
+  const isMember = cachedUser()?.role === "member";
   const [form, setForm] = useState({
     batchCode: String(batch?.batchCode ?? ""),
     dayNo: String(batch?.dayNo ?? ""),
@@ -376,7 +378,12 @@ function BatchForm({
         <div className="form-card--inline batch-form__fields batch-form__fields--team">
           <label>
             {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
-            <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
+            <select
+              required
+              disabled={isMember}
+              value={form.operatorId}
+              onChange={(e) => set("operatorId", e.target.value)}
+            >
               <option value="">{thai ? "เลือกผู้ปฏิบัติงาน" : "Choose operator"}</option>
               {(masters.operators ?? []).map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
@@ -480,6 +487,7 @@ function BatchForm({
 }
 
 function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack: () => void }) {
+  const signedInUser = cachedUser();
   const [detail, setDetail] = useState<ApiItem | null>(null);
   const [embryos, setEmbryos] = useState<Record<string, ApiItem[]>>({});
   const [message, setMessage] = useState("");
@@ -547,6 +555,11 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   }, [batch.id, load]);
   const setLotValue = (key: string, value: string) => setLot((current) => ({ ...current, [key]: value }));
   const existingLots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
+  const canEditBatch =
+    signedInUser?.role === "admin" ||
+    (signedInUser?.role === "member" &&
+      Boolean(signedInUser.operatorId) &&
+      signedInUser.operatorId === String(detail?.operatorId ?? batch.operatorId));
   const fallbackNextLotNo = Math.max(0, ...existingLots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
   const nextLotNo = String(detail?.nextLotNo ?? fallbackNextLotNo);
   const currentLotNo = templateId ? lot.lotNo : nextLotNo;
@@ -793,11 +806,19 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           >
             {showLotForm ? (thai ? "ปิดแบบฟอร์ม" : "Close form") : thai ? "+ เพิ่มชุดตัวอ่อน" : "+ Add injection lot"}
           </button>
-          <button className="button button--secondary" onClick={() => setEditing(!editing)}>
-            {thai ? "แก้ไขข้อมูลการทดลอง" : "Edit batch"}
-          </button>
+          {canEditBatch && (
+            <button className="button button--secondary" onClick={() => setEditing(!editing)}>
+              {thai ? "แก้ไขข้อมูลการทดลอง" : "Edit batch"}
+            </button>
+          )}
           <button className="button button--secondary" onClick={() => void duplicate()}>
-            {thai ? "ทำสำเนาการทดลอง" : "Duplicate"}
+            {signedInUser?.role === "member"
+              ? thai
+                ? "ทำสำเนาเป็นการทดลองของฉัน"
+                : "Duplicate for my operator"
+              : thai
+                ? "ทำสำเนาการทดลอง"
+                : "Duplicate"}
           </button>
         </div>
       </div>
@@ -838,7 +859,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         </div>
       </div>
       {message && <ErrorMessage message={message} />}
-      {editing && detail && (
+      {editing && detail && canEditBatch && (
         <BatchForm
           t={t}
           batch={detail}

@@ -215,6 +215,12 @@ const iconPaths: Record<string, ReactNode> = {
       <path d="m4 5 2 2" />
     </>
   ),
+  people: (
+    <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20c.5-3.5 2.5-5 6-5s5.5 1.5 6 5M16 5.5a3 3 0 0 1 0 5.8M18 15c1.8.6 2.8 2 3 4" />
+    </>
+  ),
   export: (
     <>
       <path d="M12 3v12M7 10l5 5 5-5M5 19h14" />

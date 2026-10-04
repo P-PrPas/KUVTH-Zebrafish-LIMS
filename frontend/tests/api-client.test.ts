@@ -24,7 +24,20 @@ describe("API write context", () => {
       "X-Operator-Id": "operator-a",
       "X-Device-Id": "device-a",
       "X-Idempotency-Key": "request-a",
+      "X-Actor-User-Id": "01900000-0000-7000-8000-000000000099",
     });
+  });
+
+  it("uses the member's linked operator even when the browser has another selection", () => {
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "member-1", role: "member", operatorId: "linked" }),
+    );
+    sessionStorage.setItem("chronofish.operator_id", "forged");
+    expect(operatorId()).toBe("linked");
+    expect(mutationHeaders("request-a")["X-Operator-Id"]).toBe("linked");
+    localStorage.setItem("chronofish.auth_user", JSON.stringify({ id: "member-1", role: "member", operatorId: null }));
+    expect(operatorId()).toBe("");
   });
 
   it("migrates a legacy localStorage operator into the session once", () => {

@@ -18,6 +18,7 @@ it, you have probably reached for a non-portable feature; see SRS CON-04):
   4. Table option suffix: ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
      COLLATE=utf8mb4_0900_ai_ci  (utf8mb4 is required for Thai text in notes)
 """
+
 import re
 import pathlib
 
@@ -33,6 +34,7 @@ INDEX_TABLES = {
     "ix_observation_embryo_stage": "embryo_observation",
     "ix_audit_occurred_id": "audit_log",
     "ix_fish_recipient_egg_lot": "clone_fish",
+    "ix_audit_actor": "audit_log",
     "uq_embryo_live_well": "embryo",
 }
 
@@ -96,6 +98,7 @@ def convert(sql: str, upgrade: bool) -> str:
             f"DROP INDEX IF EXISTS {index_name};",
             f"DROP INDEX {index_name} ON {table_name};",
         )
+    sql = re.sub(r"DROP COLUMN IF EXISTS (\w+)", r"DROP COLUMN \1", sql)
     # 2. typed timestamp literals
     sql = re.sub(r"TIMESTAMP\s+('(?:[^']*)')", r"\1", sql)
     # 1. TIMESTAMP column type -> DATETIME(3)
@@ -115,7 +118,9 @@ def main() -> None:
     DST.mkdir(parents=True, exist_ok=True)
     written = []
     for src in sorted(SRC.glob("*.sql")):
-        out = HEADER.format(name=src.name) + convert(src.read_text(encoding="utf-8"), src.name.endswith(".up.sql"))
+        out = HEADER.format(name=src.name) + convert(
+            src.read_text(encoding="utf-8"), src.name.endswith(".up.sql")
+        )
         (DST / src.name).write_text(out, encoding="utf-8", newline="\n")
         written.append(src.name)
     for name in written:

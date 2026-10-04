@@ -4,6 +4,229 @@
  */
 
 export interface paths {
+    "/auth/request-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request a single-use email code */
+        post: operations["requestSignInCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/verify-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify a code and create a persistent browser session */
+        post: operations["verifySignInCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current account and role */
+        get: operations["getCurrentAccount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke the current browser session */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/devices/sync-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report this account's pending offline work for this device */
+        post: operations["reportDeviceSyncStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List sessions belonging to the current account */
+        get: operations["listOwnSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke one of the current account's sessions */
+        delete: operations["revokeOwnSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List members and their device sync status */
+        get: operations["listMembers"];
+        put?: never;
+        /** Invite a @ku.th member */
+        post: operations["inviteMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change role, operator link, or account status */
+        patch: operations["updateMember"];
+        trace?: never;
+    };
+    "/auth/admin/users/{user_id}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resend a member invitation */
+        post: operations["resendMemberInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/users/{user_id}/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a member's browser sessions */
+        get: operations["listMemberSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/users/{user_id}/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke one of a member's sessions */
+        delete: operations["revokeMemberSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/mail-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the configured system sender address */
+        get: operations["getMailSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change the system sender address */
+        patch: operations["updateMailSettings"];
+        trace?: never;
+    };
     "/sites": {
         parameters: {
             query?: never;
@@ -441,7 +664,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a batch */
+        /**
+         * Update a batch
+         * @description Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
+         */
         patch: operations["updateBatch"];
         trace?: never;
     };
@@ -458,7 +684,9 @@ export interface paths {
         put?: never;
         /**
          * Create a new batch by copying this one
-         * @description Copies everything except dates and times (FR-305) — enucleation settings repeat almost every run.
+         * @description Copies batch settings except dates and times (FR-305). For a member,
+         *     the new batch belongs to their linked operator even when the source
+         *     belongs to someone else. Admin copies retain the source operator.
          */
         post: operations["duplicateBatch"];
         delete?: never;
@@ -2170,7 +2398,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             tableName: string;
-            /** Format: uuid */
             recordId: string;
             /** @enum {string} */
             action: "INSERT" | "UPDATE" | "DELETE";
@@ -2184,8 +2411,49 @@ export interface components {
             operatorId?: string | null;
             operatorName?: string | null;
             deviceId?: string | null;
+            /** Format: uuid */
+            actorUserId?: string | null;
+            /** Format: email */
+            actorEmail?: string | null;
             /** Format: date-time */
             occurredAt: string;
+        };
+        RequestCodeInput: {
+            /** Format: email */
+            email: string;
+        };
+        VerifyCodeInput: {
+            /** Format: email */
+            email: string;
+            code: string;
+        };
+        AuthUser: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string;
+            /** @enum {string} */
+            role: "admin" | "member";
+            /** Format: uuid */
+            operatorId?: string | null;
+            /** Format: uuid */
+            sessionId?: string | null;
+            deviceId?: string | null;
+        };
+        MemberUpdate: {
+            /** @enum {string} */
+            role?: "admin" | "member";
+            active?: boolean;
+            /** Format: uuid */
+            operatorId?: string | null;
+            acknowledgePendingDataRisk?: boolean;
+        };
+        DeviceSyncStatus: {
+            pendingCount: number;
+        };
+        MailSettings: {
+            /** Format: email */
+            senderEmail: string;
         };
     };
     responses: {
@@ -2219,12 +2487,14 @@ export interface components {
     };
     parameters: {
         PathId: string;
-        /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+        /** @description Experimental operator associated with the recorded work. */
         OperatorId: string;
         /** @description Stable per-device identifier generated on first use and kept in local storage. */
         DeviceId: string;
         /** @description Stable key for one logical mutation. Replays return the original result. */
         IdempotencyKey: string;
+        /** @description Account id for this write; must match the authenticated session. */
+        ActorUserId: string;
         /** @description Include deactivated rows. Off by default so dropdowns stay clean (FR-111). */
         IncludeInactive: boolean;
         Limit: number;
@@ -2243,6 +2513,374 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    requestSignInCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestCodeInput"];
+            };
+        };
+        responses: {
+            /** @description Same response for invited, unknown, and rate-limited addresses; delivery is queued */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Global per-IP API rate limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email delivery is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verifySignInCode: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyCodeInput"];
+            };
+        };
+        responses: {
+            /** @description Session created; token is returned only as an HttpOnly cookie */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user: components["schemas"]["AuthUser"];
+                    };
+                };
+            };
+            /** @description Invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getCurrentAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authenticated account */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user?: components["schemas"]["AuthUser"];
+                    };
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked and cookie cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reportDeviceSyncStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                "X-Actor-User-Id": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceSyncStatus"];
+            };
+        };
+        responses: {
+            /** @description Device sync status stored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listOwnSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Browser sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revokeOwnSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Member list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin role required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inviteMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestCodeInput"];
+            };
+        };
+        responses: {
+            /** @description Member created; emailSent reports whether invitation delivery succeeded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user: components["schemas"]["AuthUser"];
+                        emailSent: boolean;
+                    };
+                };
+            };
+            /** @description Admin role required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberUpdate"];
+            };
+        };
+        responses: {
+            /** @description Account updated; deactivation revokes all sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Last admin or known pending offline work prevents the change */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resendMemberInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation email sent */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listMemberSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Browser sessions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revokeMemberSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getMailSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sender address and SMTP readiness */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateMailSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailSettings"];
+            };
+        };
+        responses: {
+            /** @description Sender address saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listSites: {
         parameters: {
             query?: {
@@ -2272,12 +2910,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2305,12 +2945,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2365,12 +3007,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2422,12 +3066,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2479,12 +3125,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2536,12 +3184,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2593,12 +3243,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2650,12 +3302,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2707,12 +3361,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -2739,12 +3395,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2774,12 +3432,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2809,12 +3469,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2844,12 +3506,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2879,12 +3543,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2914,12 +3580,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -2949,12 +3617,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3078,12 +3748,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -3150,12 +3822,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -3217,12 +3891,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -3273,12 +3949,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3300,6 +3978,13 @@ export interface operations {
                     "application/json": components["schemas"]["Batch"];
                 };
             };
+            /** @description Member is not linked to the batch operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             404: components["responses"]["NotFound"];
         };
     };
@@ -3307,12 +3992,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3349,12 +4036,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3384,12 +4073,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3447,12 +4138,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3484,12 +4177,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3512,12 +4207,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3573,12 +4270,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3674,12 +4373,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -3709,12 +4410,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3737,12 +4440,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3807,12 +4512,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -3844,12 +4551,14 @@ export interface operations {
                 reason: string;
             };
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3872,12 +4581,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -3930,12 +4641,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -4019,12 +4732,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path?: never;
             cookie?: never;
@@ -4074,12 +4789,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -4139,12 +4856,14 @@ export interface operations {
         parameters: {
             query?: never;
             header: {
-                /** @description Who is doing this. Required on every write because there is no login (CON-01, FR-1105). */
+                /** @description Experimental operator associated with the recorded work. */
                 "X-Operator-Id": components["parameters"]["OperatorId"];
                 /** @description Stable per-device identifier generated on first use and kept in local storage. */
                 "X-Device-Id": components["parameters"]["DeviceId"];
                 /** @description Stable key for one logical mutation. Replays return the original result. */
                 "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
             };
             path: {
                 id: components["parameters"]["PathId"];
@@ -4545,7 +5264,10 @@ export interface operations {
     exportExcel: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path?: never;
             cookie?: never;
         };

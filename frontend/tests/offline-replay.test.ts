@@ -6,9 +6,12 @@ import {
   drainQueue,
   putQueue,
   queueCount,
+  queueCountForOtherAccounts,
+  queueWrite,
   rejectedQueueCount,
   rejectedQueueItems,
   retryRejected,
+  unassignedQueueCount,
 } from "../src/offline";
 import { withoutIndexedDB } from "./helpers";
 
@@ -18,6 +21,42 @@ describe("browser offline replay", () => {
     sessionStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps other-account and legacy writes visible without attributing them to the current account", async () => {
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    sessionStorage.setItem("chronofish.operator_id", "operator-a");
+    localStorage.setItem("chronofish.device_id", "device-a");
+    await putQueue("/batches", { batchCode: "ACCOUNT-A" });
+
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({
+        id: "01900000-0000-7000-8000-000000000098",
+        email: "other@ku.th",
+        role: "member",
+        operatorId: "operator-a",
+      }),
+    );
+    await putQueue("/batches", { batchCode: "ACCOUNT-B" });
+    await queueWrite({
+      path: "/batches",
+      method: "POST",
+      body: { batchCode: "LEGACY" },
+      contentType: "application/json",
+      key: "legacy-key",
+      operatorId: "operator-a",
+      deviceId: "device-a",
+      createdAt: Date.now(),
+      attempt: 0,
+      nextAttempt: Date.now(),
+      status: "pending",
+    });
+
+    expect(await queueCount()).toBe(1);
+    expect(await queueCountForOtherAccounts("01900000-0000-7000-8000-000000000098")).toBe(1);
+    expect(await unassignedQueueCount()).toBe(1);
   });
 
   it("persists a write through refresh and replays it exactly once online", async () => {

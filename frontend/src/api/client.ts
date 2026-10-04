@@ -85,6 +85,15 @@ export function deviceId(): string {
 }
 
 export function operatorId(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null") as {
+      role?: string;
+      operatorId?: string | null;
+    } | null;
+    if (user?.role === "member") return user.operatorId ?? "";
+  } catch {
+    return "";
+  }
   const current = sessionStorage.getItem("chronofish.operator_id");
   if (current) return current;
   // Migrate the pre-session setting once; mutations thereafter remain scoped
@@ -105,18 +114,30 @@ export function requireOperator(): string {
 }
 
 export function mutationHeaders(key = uuidv7()): Record<string, string> {
-  return { "X-Operator-Id": requireOperator(), "X-Device-Id": deviceId(), "X-Idempotency-Key": key };
+  let actorUserId = "";
+  try {
+    actorUserId = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null")?.id ?? "";
+  } catch {
+    actorUserId = "";
+  }
+  return {
+    "X-Operator-Id": requireOperator(),
+    "X-Device-Id": deviceId(),
+    "X-Idempotency-Key": key,
+    ...(actorUserId ? { "X-Actor-User-Id": actorUserId } : {}),
+  };
 }
 
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
+  const authRequest = path.startsWith("/auth/");
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(method !== "GET" && method !== "HEAD" ? mutationHeaders() : {}),
+    ...(method !== "GET" && method !== "HEAD" && !authRequest ? mutationHeaders() : {}),
     ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
-  const response = await fetch(`${apiBase}${path}`, { ...init, headers });
+  const response = await fetch(`${apiBase}${path}`, { ...init, credentials: "include", headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: { message?: string; details?: unknown } };
     const error = new Error(body?.error?.message ?? `HTTP ${response.status}`) as Error & {
@@ -125,6 +146,7 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
     };
     error.status = response.status;
     error.details = body.error?.details;
+    if (response.status === 401 && !authRequest) window.dispatchEvent(new CustomEvent("chronofish:auth-expired"));
     throw error;
   }
   return response;

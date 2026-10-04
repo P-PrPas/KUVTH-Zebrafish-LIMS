@@ -373,6 +373,9 @@ def build_experiments_router(store: Store) -> APIRouter:
             current = state.entities["batches"].get(batch_id)
             if not current:
                 raise APIError(404, "not_found", "ไม่พบ batch")
+            user = request.state.user
+            if user["role"] == "member" and current.get("operatorId") != user.get("operatorId"):
+                raise APIError(403, "operator_mismatch", "This account cannot edit another operator's experiment")
             old = copy.deepcopy(current)
             if body.get("protocolId") not in (None, current.get("protocolId")):
                 raise APIError(409, "invalid_state", "protocolId ของ batch ที่สร้างแล้วเปลี่ยนไม่ได้")
@@ -402,6 +405,8 @@ def build_experiments_router(store: Store) -> APIRouter:
             for field in ("id", "batchCode", "createdAt", "updatedAt", "rowVersion"):
                 duplicate.pop(field, None)
             duplicate.update({"experimentDate": body.get("experimentDate"), "dayNo": body.get("dayNo")})
+            if request.state.user["role"] == "member":
+                duplicate["operatorId"] = request.state.user["operatorId"]
             created = _create_batch(state, request, duplicate, batch_id)
             if body.get("copyInjectionLots"):
                 for old_lot in list(state.entities["injection-lots"].values()):

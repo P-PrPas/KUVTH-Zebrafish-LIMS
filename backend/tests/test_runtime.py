@@ -21,6 +21,7 @@ def request_with_headers(
             "method": method,
             "path": path,
             "query_string": b"",
+            "state": {"user": {"role": "admin", "id": "test-admin"}},
             "headers": [(key.lower().encode(), value.encode()) for key, value in (headers or {}).items()],
         }
     )
@@ -89,7 +90,7 @@ def test_operator_header_must_be_uuid(client, write_headers):
 def test_device_id_length_and_control_characters(device, write_headers):
     headers = {**write_headers, "X-Device-Id": device}
     with pytest.raises(APIError, match="X-Device-Id ต้องมีความยาว 1-64 ตัวอักษร"):
-        validate_write_context(request_with_headers(headers=headers), State.seeded())
+        validate_write_context(request_with_headers(headers=headers), State.seeded(), {})
 
 
 def test_unknown_or_inactive_operator_is_rejected(client, write_headers):
