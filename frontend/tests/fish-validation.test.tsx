@@ -100,7 +100,7 @@ describe("fish record validation", () => {
       .find((label) => label.textContent?.startsWith("Donor"))
       ?.querySelector("select") as HTMLSelectElement;
     const site = Array.from(form.querySelectorAll("label"))
-      .find((label) => label.textContent?.startsWith("Site"))
+      .find((label) => label.textContent?.startsWith("Fish system"))
       ?.querySelector("select") as HTMLSelectElement;
     const box = Array.from(form.querySelectorAll("label"))
       .find((label) => label.textContent?.startsWith("Fish box"))

@@ -543,8 +543,6 @@ class Analytics:
                 continue
             donor = self.state.entities["donor-cell-lines"].get(str(lot.get("donorCellLineId")), {})
             treatment = self.state.entities["treatment-groups"].get(str(batch.get("treatmentGroupId")), {})
-            if treatment.get("armType") not in {"IVF", "NATURAL_BREEDING"}:
-                continue
             order, deviation = stage_number(str(observation["stageCode"])), observation.get("deviationH")
             if deviation is None:
                 missing_deviation += 1

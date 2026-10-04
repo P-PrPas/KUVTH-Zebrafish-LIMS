@@ -1456,7 +1456,7 @@ function compositionLabel(value: string, thai: boolean): string {
 
 function boxStatusText(row: ApiItem, thai: boolean): string {
   const statusCounts = (row.statusCounts as Record<string, number> | undefined) ?? {};
-  return ["ALIVE", "DEAD", "FROZEN", "DISCARDED", "UNKNOWN"]
+  return ["ALIVE", "DEAD", "UNKNOWN"]
     .filter((status) => Number(statusCounts[status] ?? 0) > 0)
     .map((status) => `${compositionLabel(status, thai)} ${Number(statusCounts[status])}`)
     .join(" · ");
@@ -2290,32 +2290,6 @@ export function Dashboard({ onNavigate, t }: { onNavigate: (page: Page) => void;
             </p>
             <FunnelChart points={data.funnel} thai={thai} />
             <AbnormalityOnsetChart points={data.abnormality} meta={data.abnormalityMeta} thai={thai} />
-            <ReportTable
-              collapsed
-              summary={thai ? "ดูข้อมูลการสูญเสียตามระยะ" : "View attrition by checkpoint"}
-              caption={thai ? "ข้อมูลการสูญเสียตามลำดับพัฒนาการ" : "Attrition in developmental order"}
-              headers={
-                thai ? ["ระยะ", "กลุ่มเสี่ยง", "สูญเสีย (n)", "อัตราสูญเสีย"] : ["Stage", "At risk", "Deaths (n)", "Loss rate"]
-              }
-              rows={[...data.funnel]
-                .sort((left, right) => Number(left.stageOrder ?? 0) - Number(right.stageOrder ?? 0))
-                .map((point) => [
-                  String(point.stageLabel ?? point.stageOrder),
-                  Number(point.riskSet ?? 0),
-                  Number(point.nDead ?? 0),
-                  percent(Number(point.riskSet ?? 0) ? Number(point.nDead ?? 0) / Number(point.riskSet) : null),
-                ])}
-            />
-            <ReportTable
-              collapsed
-              summary={thai ? "ดูระยะที่เริ่มพบความผิดปกติ" : "View abnormality onset"}
-              caption={thai ? "ระยะที่เริ่มพบความผิดปกติ" : "Abnormality onset by checkpoint"}
-              headers={thai ? ["ระยะ", "จำนวน"] : ["Stage", "n"]}
-              rows={data.abnormality.map((point) => [
-                String(point.stageLabel ?? point.stageOrder),
-                Number(point.count ?? 0),
-              ])}
-            />
           </ReportPanel>
           <details className="secondary-analysis">
             <summary>{thai ? "ดูการวิเคราะห์เวลาและกลุ่มควบคุมเพิ่มเติม" : "View timing and control analysis"}</summary>
@@ -2340,8 +2314,8 @@ export function Dashboard({ onNavigate, t }: { onNavigate: (page: Page) => void;
               </p>
               <p className="table-note">
                 {thai
-                  ? "การวิเคราะห์เสริมนี้ใช้เวลา observedAt เทียบกับ expectedHpa ที่บันทึกไว้ใน timing profile และรวมเฉพาะ IVF กับ Natural Breeding (ไม่รวม SCNT); กดรีเฟรชหลังแก้ข้อมูลต้นทาง"
-                  : "Optional analysis: observedAt is compared with expectedHpa saved from the timing profile. IVF and Natural Breeding only; SCNT is excluded. Refresh after changing source records."}
+                  ? "การวิเคราะห์เสริมนี้เทียบเวลา observedAt กับ expectedHpa ใน timing profile และรวมทุกกลุ่มที่มีผลตรวจตัวอ่อนรายตัว (รวม SCNT); ยอดรวมกลุ่มควบคุมไม่มีเวลารายตัวให้เทียบ กดรีเฟรชหลังแก้ข้อมูลต้นทาง"
+                  : "Optional analysis: observedAt is compared with expectedHpa saved from the timing profile. It includes all treatment groups with individual embryo observations, including SCNT; aggregate control-arm counts have no individual timing to compare. Refresh after changing source records."}
               </p>
               <TimingSummary rows={data.deviation} thai={thai} />
               <ReportTable

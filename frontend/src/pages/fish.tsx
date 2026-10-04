@@ -805,9 +805,9 @@ function ManualFishForm({
         <summary>{thai ? "ระบบเลี้ยงปลา เพศ และหมายเหตุ" : "Fish system, sex and notes"}</summary>
         <div className="workflow-disclosure__body form-card--inline">
           <label>
-            {thai ? "สถานที่" : "Site"}
+            {thai ? "ระบบเลี้ยงปลา" : "Fish system"}
             <select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}>
-              <option value="">{thai ? "ยังไม่ระบุ" : "No site"}</option>
+              <option value="">{thai ? "ยังไม่ระบุระบบ" : "No system"}</option>
               {masters.sites.map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
                   {String(item.code ?? item.name)}
@@ -1199,6 +1199,15 @@ function FishDetail({
               <label>
                 {thai ? "เหตุผลที่แก้ไข" : "Correction reason"}
                 <input required value={reason} onChange={(event) => setReason(event.target.value)} />
+              </label>
+              <label>
+                {thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}
+                <textarea
+                  rows={3}
+                  aria-label={thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}
+                  value={String(editing.notes ?? "")}
+                  onChange={(event) => setEditing({ ...editing, notes: event.target.value })}
+                />
               </label>
               <div className="button-row">
                 <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save correction"}</button>

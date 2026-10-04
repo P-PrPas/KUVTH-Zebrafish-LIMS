@@ -36,7 +36,7 @@ const masterConfig: Record<
   },
   operators: { label: "Operators", fields: [{ key: "name", label: "Name", required: true }] },
   "donor-cell-lines": {
-    label: "Donor cell lines",
+    label: "Donor cells",
     fields: [
       { key: "strain", label: "Strain", required: true },
       { key: "preparation", label: "Types of Specimen", options: ["DISSOCIATED", "CHUNKS"], required: true },
@@ -49,12 +49,15 @@ const masterConfig: Record<
     label: "Recipient egg lots",
     fields: [
       { key: "breed", label: "Breed", required: true },
-      { key: "lotDate", label: "Egg collection date", type: "date" },
+      { key: "lotDate", label: "Egg stripping date", type: "date" },
       { key: "donorFishCode", label: "Donor fish code" },
       { key: "label", label: "Label", required: true, placeholder: "[E1...] YYYY-MM-DD" },
     ],
   },
-  "csof-lots": { label: "CSOF lots", fields: [{ key: "lotCode", label: "Lot code", required: true }] },
+  "csof-lots": {
+    label: "Egg holding medium",
+    fields: [{ key: "lotCode", label: "Lot code", required: true, placeholder: "[medium name] YYYY-NN" }],
+  },
   "treatment-groups": {
     label: "Treatment groups",
     fields: [
@@ -74,9 +77,9 @@ const masterConfig: Record<
 const thaiResource: Record<MasterResource, string> = {
   "experiment-groups": "โครงการวิจัย",
   operators: "ผู้ปฏิบัติงาน",
-  "donor-cell-lines": "สายเซลล์ผู้ให้",
+  "donor-cell-lines": "เซลล์ผู้ให้",
   "recipient-egg-lots": "ชุดไข่ผู้รับ",
-  "csof-lots": "ชุดน้ำยา CSOF",
+  "csof-lots": "อาหารเลี้ยงไข่ (Egg holding medium)",
   "treatment-groups": "แขนการทดลอง",
   "fish-boxes": "ตู้ปลา",
 };
@@ -89,7 +92,7 @@ const thaiField: Record<string, string> = {
   batchCode: "รหัสชุด",
   sampleInfo: "รายละเอียดตัวอย่าง/หลอดแช่แข็ง",
   breed: "สายพันธุ์",
-  lotDate: "วันที่เก็บไข่",
+  lotDate: "วันที่รีดไข่",
   donorFishCode: "รหัสปลาผู้ให้ไข่",
   label: "ชื่อเรียก",
   lotCode: "รหัสชุด",
@@ -499,6 +502,11 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
                 {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
               </span>
             )}
+            {resource === "csof-lots" && field.key === "lotCode" && (
+              <span className="field-hint">
+                {thai ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN" : "Requested format: [medium name] YYYY-NN"}
+              </span>
+            )}
           </label>
         ))}
         <button className="button button--primary" type="submit">
@@ -517,6 +525,11 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
               {resource === "recipient-egg-lots" && field.key === "label" && (
                 <span className="field-hint">
                   {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
+                </span>
+              )}
+              {resource === "csof-lots" && field.key === "lotCode" && (
+                <span className="field-hint">
+                  {thai ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN" : "Requested format: [medium name] YYYY-NN"}
                 </span>
               )}
             </label>
