@@ -774,9 +774,11 @@ class Analytics:
             lambda: {status: 0 for status in (*FISH_STATUS_ORDER, "UNKNOWN")}
         )
         for item in self.fish.values():
+            status = str(item.get("status") or "UNKNOWN")
+            if status in {"FROZEN", "DISCARDED"}:
+                continue
             box_id = str(item.get("fishBoxId") or "")
             box_counts[box_id] += 1
-            status = str(item.get("status") or "UNKNOWN")
             if status not in FISH_STATUS_ORDER:
                 status = "UNKNOWN"
             box_status_counts[box_id][status] += 1
