@@ -467,6 +467,19 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
       />
     );
   };
+  const formatHint = (field: { key: string }) => {
+    const hint =
+      resource === "recipient-egg-lots" && field.key === "label"
+        ? thai
+          ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD"
+          : "Requested format: [E1...] YYYY-MM-DD"
+        : resource === "csof-lots" && field.key === "lotCode"
+          ? thai
+            ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN"
+            : "Requested format: [medium name] YYYY-NN"
+          : null;
+    return hint ? <span className="field-hint">{hint}</span> : null;
+  };
   const label = (field: { key: string; label: string }) => (thai ? (thaiField[field.key] ?? field.label) : field.label);
   return (
     <section className="master-catalog task-surface">
@@ -497,16 +510,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
           <label key={field.key}>
             {label(field)}
             {fieldEditor(field, form[field.key] ?? "", (value) => setForm({ ...form, [field.key]: value }))}
-            {resource === "recipient-egg-lots" && field.key === "label" && (
-              <span className="field-hint">
-                {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
-              </span>
-            )}
-            {resource === "csof-lots" && field.key === "lotCode" && (
-              <span className="field-hint">
-                {thai ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN" : "Requested format: [medium name] YYYY-NN"}
-              </span>
-            )}
+            {formatHint(field)}
           </label>
         ))}
         <button className="button button--primary" type="submit">
@@ -522,16 +526,7 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
               {fieldEditor(field, String(editing[field.key] ?? ""), (value) =>
                 setEditing({ ...editing, [field.key]: value }),
               )}
-              {resource === "recipient-egg-lots" && field.key === "label" && (
-                <span className="field-hint">
-                  {thai ? "รูปแบบตามบรีฟ: [E1...] YYYY-MM-DD" : "Requested format: [E1...] YYYY-MM-DD"}
-                </span>
-              )}
-              {resource === "csof-lots" && field.key === "lotCode" && (
-                <span className="field-hint">
-                  {thai ? "รูปแบบตามบรีฟ: [ชื่อ medium] YYYY-NN" : "Requested format: [medium name] YYYY-NN"}
-                </span>
-              )}
+              {formatHint(field)}
             </label>
           ))}
           <div className="button-row">
