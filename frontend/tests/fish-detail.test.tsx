@@ -130,9 +130,15 @@ describe("fish record detail", () => {
     const fishCode = Array.from(document.querySelectorAll("label"))
       .find((label) => label.textContent?.startsWith("Fish code"))
       ?.querySelector("input") as HTMLInputElement;
+    const fishReason = Array.from(document.querySelectorAll("label"))
+      .find((label) => label.textContent?.startsWith("Correction reason"))
+      ?.querySelector("textarea") as HTMLTextAreaElement;
+    const setTextarea = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
     await act(async () => {
       setValue?.call(fishCode, "F-009");
       fishCode.dispatchEvent(new Event("input", { bubbles: true }));
+      setTextarea?.call(fishReason, "checked paper log");
+      fishReason.dispatchEvent(new Event("input", { bubbles: true }));
       fishCode.closest("form")?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
       await settle();
     });

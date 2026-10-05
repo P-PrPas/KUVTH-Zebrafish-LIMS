@@ -926,6 +926,19 @@ function FishDetail({
       setError((e as Error).message);
     }
   };
+  const saveFishOperations = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!detail) return;
+    const previous = detail;
+    const changes = { sex: fishEdit.sex, fishBoxId: fishEdit.fishBoxId || null };
+    setDetail({ ...detail, ...changes, sex: changes.sex as ApiItem["sex"] });
+    try {
+      await putQueue(`/fish/${fishId}`, changes, "application/json", "PATCH");
+    } catch (e) {
+      setDetail(previous);
+      setError((e as Error).message);
+    }
+  };
   const saveSpecimen = async (event: FormEvent) => {
     event.preventDefault();
     if (!detail) return;
@@ -1134,7 +1147,9 @@ function FishDetail({
                     </p>
                     <div className="timeline__actions">
                       <CorrectionRequestButton table="fish_observation" item={item} language={thai ? "th" : "en"} />
-                      {cachedUser()?.role === "admin" && (
+                      {(cachedUser()?.role === "admin" ||
+                        (Boolean(item.createdAt) &&
+                          Date.now() - new Date(String(item.createdAt)).getTime() <= 86_400_000)) && (
                         <button
                           className="inline-action"
                           onClick={() => {
@@ -1151,7 +1166,9 @@ function FishDetail({
                           {thai ? "แก้ไขผล" : "Correct"}
                         </button>
                       )}
-                      {cachedUser()?.role === "admin" && (
+                      {(cachedUser()?.role === "admin" ||
+                        (Boolean(item.createdAt) &&
+                          Date.now() - new Date(String(item.createdAt)).getTime() <= 86_400_000)) && (
                         <button className="inline-action inline-action--danger" onClick={() => void remove(item)}>
                           {thai ? "ลบรายการ" : "Delete"}
                         </button>
@@ -1162,7 +1179,7 @@ function FishDetail({
               ))}
             </div>
           )}
-          {editing && cachedUser()?.role === "admin" && (
+          {editing && (
             <form className="task-surface form-card" onSubmit={correct}>
               {!outcomes.includes(String(editing.recordedOutcome) as FishOutcome) && (
                 <p className="field-hint">
@@ -1352,7 +1369,7 @@ function FishDetail({
           )}
         </div>
       )}
-      {tab === "details" && cachedUser()?.role === "member" && (
+      {tab === "details" && cachedUser()?.role === "member" && !detail.canEditDirectly && (
         <section
           id="fish-detail-panel-details"
           role="tabpanel"
@@ -1369,10 +1386,41 @@ function FishDetail({
           <p>
             {thai ? "หมายเหตุ" : "Remarks"}: {String(detail.remarks ?? "—")}
           </p>
+          <form onSubmit={saveFishOperations}>
+            <h3>{thai ? "บันทึกเพศและย้ายตู้ปลา" : "Record sex and move fish"}</h3>
+            {String(detail.sex ?? "UNKNOWN") === "UNKNOWN" && (
+              <label>
+                {thai ? "เพศ" : "Sex"}
+                <select
+                  value={fishEdit.sex}
+                  onChange={(event) => setFishEdit({ ...fishEdit, sex: event.target.value })}
+                >
+                  <option value="UNKNOWN">{sexLabel("UNKNOWN", thai)}</option>
+                  <option value="M">{sexLabel("M", thai)}</option>
+                  <option value="F">{sexLabel("F", thai)}</option>
+                </select>
+              </label>
+            )}
+            <label>
+              {thai ? "ตู้ปลา" : "Fish box"}
+              <select
+                value={fishEdit.fishBoxId}
+                onChange={(event) => setFishEdit({ ...fishEdit, fishBoxId: event.target.value })}
+              >
+                <option value="">{thai ? "ยังไม่ระบุ" : "No box"}</option>
+                {masters["fish-boxes"].map((item) => (
+                  <option key={String(item.id)} value={String(item.id)}>
+                    {String(item.boxCode ?? item.code)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="button button--primary">{thai ? "บันทึกข้อมูลปลา" : "Save fish"}</button>
+          </form>
           <CorrectionRequestButton table="clone_fish" item={detail} language={thai ? "th" : "en"} />
         </section>
       )}
-      {tab === "details" && cachedUser()?.role === "admin" && (
+      {tab === "details" && (cachedUser()?.role === "admin" || detail.canEditDirectly === true) && (
         <form
           id="fish-detail-panel-details"
           role="tabpanel"

@@ -92,7 +92,13 @@ describe("batch detail actions", () => {
     );
     vi.stubGlobal(
       "prompt",
-      vi.fn().mockReturnValueOnce("2026-09-02").mockReturnValueOnce("7").mockReturnValueOnce("duplicate entry"),
+      vi
+        .fn()
+        .mockReturnValueOnce("2026-09-02")
+        .mockReturnValueOnce("7")
+        .mockReturnValueOnce("correct well")
+        .mockReturnValueOnce("clear well")
+        .mockReturnValueOnce("duplicate entry"),
     );
     const rootElement = document.createElement("div");
     document.body.append(rootElement);
@@ -306,11 +312,12 @@ describe("batch detail actions", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Duplicate code");
+    const beforeDrain = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches")).length;
     await act(async () => {
       window.dispatchEvent(new Event("chronofish:queue-drained"));
       await settle();
     });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches"))).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches"))).toHaveLength(beforeDrain + 1);
     root.unmount();
   });
 

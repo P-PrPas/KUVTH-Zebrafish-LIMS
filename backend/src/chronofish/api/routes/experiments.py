@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query, Request
 
 from ...domain.rules import enu_window, stage_label, stage_number
 from ...domain.state import State
+from ...runtime.edit_policy import recent_creator
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, uuid7
@@ -339,13 +340,16 @@ def build_experiments_router(store: Store) -> APIRouter:
         return store.execute_mutation(request, body, operation)
 
     @router.get("/batches/{id}")
-    def get_batch(id: str) -> dict[str, Any]:
+    def get_batch(id: str, request: Request) -> dict[str, Any]:
         batch_id = id
         state = store.snapshot()
         batch = state.entities["batches"].get(batch_id)
         if not batch or batch.get("active") is False or batch.get("deletedAt") is not None:
             raise APIError(404, "not_found", "ไม่พบ batch")
         result = copy.deepcopy(batch)
+        result["canEditDirectly"] = request.state.user["role"] == "admin" or recent_creator(
+            state, store, request, "experiment_batch", batch
+        )
         result["hasOpenEmbryos"] = _has_open_embryos(state, batch_id)
         lots = []
         for lot in _active_injection_lots(state, batch_id):
@@ -371,8 +375,6 @@ def build_experiments_router(store: Store) -> APIRouter:
         batch_id = id
         body = normalize(body)
         correction_reason = body.get("correctionReason")
-        if not isinstance(correction_reason, str) or not correction_reason.strip():
-            raise APIError(422, "validation_error", "A correction reason is required")
 
         def operation(state: State):
             current = state.entities["batches"].get(batch_id)
@@ -381,6 +383,11 @@ def build_experiments_router(store: Store) -> APIRouter:
             user = request.state.user
             if user["role"] == "member" and current.get("operatorId") != user.get("operatorId"):
                 raise APIError(403, "operator_mismatch", "This account cannot edit another operator's experiment")
+            own_recent = recent_creator(state, store, request, "experiment_batch", current)
+            if user["role"] == "member" and not own_recent:
+                raise APIError(403, "correction_request_required", "Ask an admin to approve a correction request")
+            if not own_recent and (not isinstance(correction_reason, str) or not correction_reason.strip()):
+                raise APIError(422, "validation_error", "A correction reason is required")
             old = copy.deepcopy(current)
             if body.get("protocolId") not in (None, current.get("protocolId")):
                 raise APIError(409, "invalid_state", "protocolId ของ batch ที่สร้างแล้วเปลี่ยนไม่ได้")
@@ -413,7 +420,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                 "experiment_batch",
                 batch_id,
                 old,
-                {**updated, "correctionReason": correction_reason},
+                {**updated, **({"correctionReason": correction_reason.strip()} if correction_reason else {})},
             )
             return 200, updated
 
@@ -599,13 +606,14 @@ def build_experiments_router(store: Store) -> APIRouter:
             embryo = state.entities["embryos"].get(embryo_id)
             if not embryo or embryo.get("active") is False or embryo.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ embryo")
-            if request.state.user["role"] == "member" and (
-                embryo.get("wellPosition") is not None or body.get("wellPosition") is None
-            ):
+            own_recent = recent_creator(state, store, request, "embryo", embryo)
+            if request.state.user["role"] == "member" and embryo.get("wellPosition") is not None and not own_recent:
                 raise APIError(403, "admin_required", "Existing well assignments require an admin correction")
             correction_reason = body.get("correctionReason")
-            if embryo.get("wellPosition") is not None and (
-                not isinstance(correction_reason, str) or not correction_reason.strip()
+            if (
+                embryo.get("wellPosition") is not None
+                and not own_recent
+                and (not isinstance(correction_reason, str) or not correction_reason.strip())
             ):
                 raise APIError(422, "validation_error", "A correction reason is required")
             old = copy.deepcopy(embryo)

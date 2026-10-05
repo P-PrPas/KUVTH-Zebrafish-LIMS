@@ -666,7 +666,7 @@ export interface paths {
         head?: never;
         /**
          * Update a batch
-         * @description Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
+         * @description Members may correct a batch they originally recorded within 24 hours. Older work uses a correction request. Admins may correct any batch; an audit reason is required outside the 24-hour window.
          */
         patch: operations["updateBatch"];
         trace?: never;
@@ -1105,7 +1105,7 @@ export interface paths {
         head?: never;
         /**
          * Update a fish
-         * @description Sex is usually only determinable weeks in (FR-609), so it can be set at any time.
+         * @description Members may fill an unknown sex or move a fish box as routine work. Other fields may be corrected by the original recorder within 24 hours; older work uses a correction request. Admin corrections outside that window require a reason.
          */
         patch: operations["updateFish"];
         trace?: never;
@@ -1500,10 +1500,14 @@ export interface components {
             targetTable: string;
             /** Format: uuid */
             targetId: string;
+            targetLabel?: string;
             fieldName: string;
             oldValue: unknown;
+            oldLabel?: string | null;
             proposedValue: unknown;
+            proposedLabel?: string | null;
             currentValue?: unknown;
+            currentLabel?: string | null;
             sourceUpdatedAt: string;
             reason: string;
             /** @enum {string} */
@@ -1887,6 +1891,7 @@ export interface components {
             notes?: string | null;
         };
         BatchDetail: components["schemas"]["Batch"] & {
+            canEditDirectly?: boolean;
             injectionLots?: components["schemas"]["InjectionLot"][];
         };
         InjectionLot: {
@@ -2303,6 +2308,7 @@ export interface components {
             overrideReason?: string | null;
         };
         CloneFishDetail: components["schemas"]["CloneFish"] & {
+            canEditDirectly?: boolean;
             observations?: {
                 /** Format: uuid */
                 id: string;

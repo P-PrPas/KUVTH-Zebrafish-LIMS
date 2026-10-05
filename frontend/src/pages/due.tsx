@@ -1,6 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
-import { cachedUser } from "../auth";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import {
@@ -1320,7 +1319,7 @@ function ObservationRound({
                   </p>
                 )}
               </section>
-              {savedCount > 0 && cachedUser()?.role === "admin" && (
+              {savedCount > 0 && (
                 <form
                   className="checkpoint-correction"
                   onSubmit={(event) => {
