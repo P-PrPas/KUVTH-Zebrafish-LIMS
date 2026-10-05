@@ -96,8 +96,12 @@ def test_authentication_migration_rolls_back_on_mysql():
         migrate(rollback_config)
         engine = create_database_engine(rollback_config)
         try:
+            correction_down = (rollback_config.migrations_dir / "000013_correction_requests.down.sql").read_text(
+                encoding="utf-8"
+            )
             down = (rollback_config.migrations_dir / "000012_authentication.down.sql").read_text(encoding="utf-8")
             with engine.begin() as connection:
+                _execute_script(connection, correction_down)
                 _execute_script(connection, down)
             with engine.connect() as connection:
                 assert connection.execute(text("SHOW TABLES LIKE 'auth_user'")).first() is None

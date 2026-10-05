@@ -25,6 +25,14 @@ Members may view and record observations in another operator's experiment. They 
 
 The API is not a TLS terminator. Production traffic must reach it through an HTTPS reverse proxy or private VPN, with the proxy enforcing the approved IP/CIDR allowlist. Set `IP_ALLOWLIST` as a second control when the API can be reached outside that proxy. Do not trust arbitrary forwarded headers from public clients.
 
+## Admin and correction requests
+
+Admins open `/admin` directly or use the Admin link in the research workspace. Membership, invitations, roles, lab reference data, timing profiles, correction decisions, and audit history are in this area. Master and timing writes still require an active operator selected in the admin header for audit attribution.
+
+Members may directly correct a record they originally created for 24 hours. They may assign an empty embryo well, record a fish's previously unknown sex, and move a fish between eligible boxes as routine work. After the direct-edit window, they submit a correction from the saved experiment or observation while online. Each request changes one input field and includes a proposed value and reason. An admin approves to apply the value atomically or rejects with a reason. If the source record changed since submission, approval is blocked; the request shows related audit log links and must be rejected before the member submits a fresh request. A member can withdraw their own pending request. Direct cancellation by a member is limited to their latest observation within the 24-hour window.
+
+New requests email active verified admins. Decisions email the requester and, on approval, the account that originally created the record when known. Delivery failures are logged and do not roll back the recorded decision. Set `APP_BASE_URL` to the public web URL so the email links to `/admin` and the member request page resolve correctly.
+
 ## Build and deploy
 
 Build the API image from the repository root so migration files are included:

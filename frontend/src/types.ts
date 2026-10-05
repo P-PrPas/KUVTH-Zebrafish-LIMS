@@ -11,7 +11,10 @@ export type Page =
   | "controls"
   | "audit"
   | "export"
-  | "members";
+  | "members"
+  | "admin"
+  | "corrections"
+  | "my-requests";
 export type Language = "th" | "en";
 export type AppText = typeof text.th;
 
