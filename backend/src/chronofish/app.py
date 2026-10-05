@@ -157,11 +157,7 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             resource = path.removeprefix("/api/v1/").split("/", 1)[0]
             if request.method in {"POST", "PUT", "PATCH", "DELETE"} and resource in master_resources:
                 admin_only = True
-            if request.method in {"PATCH", "DELETE"} and resource in {"batches", "fish"}:
-                admin_only = True
             if request.method == "DELETE" and resource == "embryos":
-                admin_only = True
-            if request.method in {"PATCH", "DELETE"} and resource == "observations":
                 admin_only = True
             if admin_only and user["role"] != "admin":
                 return secure(error_response(APIError(403, "admin_required", "Admin access is required")))

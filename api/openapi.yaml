@@ -976,7 +976,7 @@ paths:
     patch:
       tags: [Experiments]
       summary: Update a batch
-      description: Members may update metadata only for a batch owned by their linked operator. Admins may update any batch.
+      description: Members may correct a batch they originally recorded within 24 hours. Older work uses a correction request. Admins may correct any batch; an audit reason is required outside the 24-hour window.
       operationId: updateBatch
       parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
@@ -1685,7 +1685,7 @@ paths:
     patch:
       tags: [Fish]
       summary: Update a fish
-      description: Sex is usually only determinable weeks in (FR-609), so it can be set at any time.
+      description: Members may fill an unknown sex or move a fish box as routine work. Other fields may be corrected by the original recorder within 24 hours; older work uses a correction request. Admin corrections outside that window require a reason.
       operationId: updateFish
       parameters: [ $ref: '#/components/parameters/OperatorId', $ref: '#/components/parameters/DeviceId', $ref: '#/components/parameters/IdempotencyKey', $ref: '#/components/parameters/ActorUserId' ]
       requestBody:
@@ -2152,6 +2152,7 @@ paths:
       tags: [Corrections]
       summary: Submit a single-field correction request
       operationId: createCorrection
+      x-account-write: true
       parameters:
         - $ref: '#/components/parameters/DeviceId'
         - $ref: '#/components/parameters/ActorUserId'
@@ -2215,6 +2216,7 @@ paths:
       tags: [Corrections]
       summary: Withdraw an own pending request
       operationId: withdrawCorrection
+      x-account-write: true
       parameters:
         - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
         - $ref: '#/components/parameters/DeviceId'
@@ -2237,6 +2239,7 @@ paths:
       tags: [Corrections]
       summary: Approve and apply or reject a pending request as an admin
       operationId: decideCorrection
+      x-account-write: true
       parameters:
         - { name: request_id, in: path, required: true, schema: { type: string, format: uuid } }
         - $ref: '#/components/parameters/DeviceId'
@@ -2408,10 +2411,14 @@ components:
         recordedByUserId: { type: [string, 'null'], format: uuid }
         targetTable: { type: string }
         targetId: { type: string, format: uuid }
+        targetLabel: { type: string }
         fieldName: { type: string }
         oldValue: {}
+        oldLabel: { type: [string, 'null'] }
         proposedValue: {}
+        proposedLabel: { type: [string, 'null'] }
         currentValue: {}
+        currentLabel: { type: [string, 'null'] }
         sourceUpdatedAt: { type: string }
         reason: { type: string }
         status: { type: string, enum: [pending, approved, rejected, withdrawn] }
@@ -2816,6 +2823,7 @@ components:
         - $ref: '#/components/schemas/Batch'
         - type: object
           properties:
+            canEditDirectly: { type: boolean }
             injectionLots:
               type: array
               items: { $ref: '#/components/schemas/InjectionLot' }
@@ -3241,6 +3249,7 @@ components:
         - $ref: '#/components/schemas/CloneFish'
         - type: object
           properties:
+            canEditDirectly: { type: boolean }
             observations:
               type: array
               items:

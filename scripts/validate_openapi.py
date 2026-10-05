@@ -69,7 +69,6 @@ def main() -> int:
     operation_ids: set[str] = set()
     mutation_methods = {"post", "put", "patch", "delete"}
     required_write_headers = {
-        "#/components/parameters/OperatorId",
         "#/components/parameters/DeviceId",
         "#/components/parameters/IdempotencyKey",
     }
@@ -83,8 +82,15 @@ def main() -> int:
             # operator/idempotency headers required for research-data writes.
             if path.startswith("/auth/"):
                 continue
-            references = {parameter.get("$ref") for parameter in operation.get("parameters", []) if isinstance(parameter, dict)}
-            for required_header in required_write_headers - references:
+            required = required_write_headers.copy()
+            if not operation.get("x-account-write"):
+                required.add("#/components/parameters/OperatorId")
+            references = {
+                parameter.get("$ref")
+                for parameter in operation.get("parameters", [])
+                if isinstance(parameter, dict)
+            }
+            for required_header in required - references:
                 errors.append(f"{method.upper()} {path} is missing {required_header}")
 
     for node in walk(document):
@@ -105,7 +111,9 @@ def main() -> int:
         print("\n".join(errors), file=sys.stderr)
         return 1
 
-    print(f"OpenAPI checks passed: {len(document['paths'])} paths, {len(operation_ids)} operations.")
+    print(
+        f"OpenAPI checks passed: {len(document['paths'])} paths, {len(operation_ids)} operations."
+    )
     return 0
 
 

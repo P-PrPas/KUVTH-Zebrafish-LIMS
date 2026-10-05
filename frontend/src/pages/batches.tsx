@@ -569,7 +569,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   }, [batch.id, load]);
   const setLotValue = (key: string, value: string) => setLot((current) => ({ ...current, [key]: value }));
   const existingLots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
-  const canEditBatch = signedInUser?.role === "admin";
+  const canEditBatch = signedInUser?.role === "admin" || detail?.canEditDirectly === true;
   const fallbackNextLotNo = Math.max(0, ...existingLots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
   const nextLotNo = String(detail?.nextLotNo ?? fallbackNextLotNo);
   const currentLotNo = templateId ? lot.lotNo : nextLotNo;
@@ -1132,7 +1132,6 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                         <select
                           aria-label={`${thai ? "หลุมของ" : "Well for"} ${String(embryo.embryoCode)}`}
                           value={String(embryo.wellPosition ?? "")}
-                          disabled={signedInUser?.role === "member" && embryo.wellPosition != null}
                           onChange={(event) => void updateWell(embryo, event.target.value)}
                         >
                           <option value="">{thai ? "ยังไม่กำหนด" : "Unassigned"}</option>

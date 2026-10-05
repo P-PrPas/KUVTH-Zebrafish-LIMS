@@ -153,8 +153,8 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     localStorage.setItem("chronofish.language", language);
   }, [language]);
   useEffect(() => {
-    document.title = `${currentNav.label} · ${productName}`;
-  }, [currentNav.label]);
+    document.title = `${currentNav.label} · ${adminMode ? "KUVACB Admin" : productName}`;
+  }, [adminMode, currentNav.label]);
   useEffect(() => {
     if ((!adminMode && adminPages.includes(page)) || (adminMode && !adminPages.includes(page))) {
       const fallback = adminMode ? "admin" : "dashboard";

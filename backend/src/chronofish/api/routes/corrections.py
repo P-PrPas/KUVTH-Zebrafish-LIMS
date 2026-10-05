@@ -18,6 +18,7 @@ from ...domain.rules import (
     fish_outcome_valid,
     is_backdated,
     round4,
+    stage_label,
     stage_number,
 )
 from ...domain.state import State
@@ -62,6 +63,34 @@ FIELDS = {
     "clone_fish": {"fishCode", "fishBoxId", "sex", "finClipped", "remarks"},
     "fish_observation": {"observedOn", "outcome", "condition", "healthStatus", "notes"},
 }
+REFERENCE_FIELDS = {
+    "siteId": "sites",
+    "operatorId": "operators",
+    "experimentGroupId": "experiment-groups",
+    "treatmentGroupId": "treatment-groups",
+    "recipientEggLotId": "recipient-egg-lots",
+    "csofLotId": "csof-lots",
+    "donorCellLineId": "donor-cell-lines",
+    "fishBoxId": "fish-boxes",
+}
+
+
+def _value_label(state: State, field: str, value: Any) -> str | None:
+    resource = REFERENCE_FIELDS.get(field)
+    if not resource or value is None:
+        return None
+    item = state.entities[resource].get(str(value))
+    if not item:
+        return None
+    return str(
+        item.get("name")
+        or item.get("code")
+        or item.get("label")
+        or item.get("boxCode")
+        or item.get("lotCode")
+        or item.get("strain")
+        or value
+    )
 
 
 def _target(state: State, table: str, target_id: str) -> dict[str, Any]:
@@ -99,6 +128,25 @@ def _operator_id(state: State, table: str, item: dict[str, Any]) -> str | None:
         embryo = state.entities["embryos"].get(str(item.get("embryoId")), {})
         return _operator_id(state, "embryo", embryo)
     return None
+
+
+def _target_label(state: State, table: str, item: dict[str, Any]) -> str:
+    if table == "experiment_batch":
+        return str(item.get("batchCode") or item.get("id"))
+    if table == "injection_lot":
+        batch = state.entities["batches"].get(str(item.get("batchId")), {})
+        return f"{batch.get('batchCode', '')} / lot {item.get('lotNo', '')}".strip(" /")
+    if table == "embryo":
+        return str(item.get("embryoCode") or item.get("id"))
+    if table == "embryo_observation":
+        embryo = state.entities["embryos"].get(str(item.get("embryoId")), {})
+        return f"{embryo.get('embryoCode', '')} / {stage_label(stage_number(str(item.get('stageCode', ''))))}".strip(
+            " /"
+        )
+    if table == "clone_fish":
+        return str(item.get("fishCode") or item.get("id"))
+    fish = state.entities["fish"].get(str(item.get("cloneFishId")), {})
+    return f"{fish.get('fishCode', '')} / {item.get('observedOn', '')}".strip(" /")
 
 
 def _validate_and_apply(
@@ -236,14 +284,16 @@ def _validate_and_apply(
 def build_corrections_router(store: Store) -> APIRouter:
     router = APIRouter(prefix="/api/v1/corrections", tags=["corrections"])
 
-    def view(row: dict[str, Any], state: State, request: Request) -> dict[str, Any]:
+    def view(row: dict[str, Any], state: State, request: Request, *, validate: bool = False) -> dict[str, Any]:
         item = copy.deepcopy(row)
         target = None
-        if row["status"] == "pending":
-            try:
-                target = _target(state, row["targetTable"], row["targetId"])
-            except APIError:
-                pass
+        try:
+            target = _target(state, row["targetTable"], row["targetId"])
+        except APIError:
+            pass
+        item["targetLabel"] = _target_label(state, row["targetTable"], target) if target else row["targetId"]
+        item["oldLabel"] = _value_label(state, row["fieldName"], row["oldValue"])
+        item["proposedLabel"] = _value_label(state, row["fieldName"], row["proposedValue"])
         item["conflict"] = row["status"] == "pending" and (
             target is None
             or target.get(row["fieldName"]) != row["oldValue"]
@@ -251,6 +301,7 @@ def build_corrections_router(store: Store) -> APIRouter:
         )
         if item["conflict"]:
             item["currentValue"] = target.get(row["fieldName"]) if target else None
+            item["currentLabel"] = _value_label(state, row["fieldName"], item["currentValue"])
             query = getattr(store, "query_audits", None)
             if query:
                 logs, _ = query(
@@ -272,7 +323,7 @@ def build_corrections_router(store: Store) -> APIRouter:
             item["relatedAuditIds"] = [entry["id"] for entry in logs if str(entry["occurredAt"]) > row["createdAt"]][
                 :10
             ]
-        elif row["status"] == "pending":
+        elif row["status"] == "pending" and validate:
             try:
                 _validate_and_apply(
                     copy.deepcopy(state),
@@ -316,7 +367,7 @@ def build_corrections_router(store: Store) -> APIRouter:
                 ):
                     rows.append(
                         {
-                            **row,
+                            **view(row, state, request),
                             "requesterId": "",
                             "requesterEmail": "",
                             "reason": "",
@@ -551,6 +602,6 @@ def build_corrections_router(store: Store) -> APIRouter:
         row = state.correction_requests.get(request_id)
         if not row or (request.state.user["role"] != "admin" and row["requesterId"] != request.state.user["id"]):
             raise APIError(404, "not_found", "Request not found")
-        return view(row, state, request)
+        return view(row, state, request, validate=True)
 
     return router

@@ -21,6 +21,7 @@ from ...domain.rules import (
     stage_number,
 )
 from ...domain.state import State
+from ...runtime.edit_policy import recent_creator
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
@@ -534,20 +535,29 @@ def build_observations_router(store: Store) -> APIRouter:
             observation = state.observations.get(observation_id)
             if not observation or observation.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ observation")
+            own_recent = recent_creator(state, store, request, "embryo_observation", observation)
+            if request.state.user["role"] == "member" and not own_recent:
+                raise APIError(403, "correction_request_required", "Ask an admin to approve a correction request")
             old = copy.deepcopy(observation)
             if request.method == "DELETE":
                 if not reason.strip():
                     raise APIError(422, "validation_error", "reason is required")
+                if (
+                    request.state.user["role"] == "member"
+                    and _latest_embryo_observation(state, str(observation["embryoId"])) != observation
+                ):
+                    raise APIError(409, "not_latest", "Only the latest observation can be cancelled directly")
                 observation.update({"deletedAt": iso_now(), "overrideReason": reason.strip(), "updatedAt": iso_now()})
                 status, result = 204, b""
                 action = "DELETE"
             else:
                 correction = str(payload.get("correctionReason") or payload.get("overrideReason") or "").strip()
-                if not correction:
+                if not correction and not own_recent:
                     raise APIError(422, "validation_error", "ต้องระบุ correctionReason")
                 allowed = {"observedAt", "outcome", "condition", "notes"}
                 candidate = {**observation, **{key: value for key, value in payload.items() if key in allowed}}
-                candidate["overrideReason"] = correction
+                if correction:
+                    candidate["overrideReason"] = correction
                 if message := _validate_observation(state, candidate, observation_id):
                     raise APIError(422, "validation_error", message)
                 if candidate["outcome"] in {"DEAD", "DEGENERATED"} and any(

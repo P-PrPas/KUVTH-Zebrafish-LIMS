@@ -11,10 +11,14 @@ type Correction = {
   requesterId: string;
   targetTable: string;
   targetId: string;
+  targetLabel?: string;
   fieldName: string;
   oldValue: unknown;
+  oldLabel?: string | null;
   proposedValue: unknown;
+  proposedLabel?: string | null;
   currentValue?: unknown;
+  currentLabel?: string | null;
   reason: string;
   status: "pending" | "approved" | "rejected" | "withdrawn";
   decisionReason?: string | null;
@@ -33,6 +37,39 @@ type Field = {
   kind?: "date" | "datetime" | "number" | "boolean";
   options?: string[];
   resource?: string;
+};
+const tableLabels: Record<string, [string, string]> = {
+  experiment_batch: ["การทดลอง", "Experiment"],
+  injection_lot: ["ล็อตฉีด", "Injection lot"],
+  embryo: ["ตัวอ่อน", "Embryo"],
+  embryo_observation: ["ผลตรวจตัวอ่อน", "Embryo observation"],
+  clone_fish: ["ปลา", "Fish"],
+  fish_observation: ["ผลตรวจปลา", "Fish observation"],
+};
+const statusLabels: Record<Correction["status"], [string, string]> = {
+  pending: ["รอพิจารณา", "Pending"],
+  approved: ["อนุมัติ", "Approved"],
+  rejected: ["ปฏิเสธ", "Rejected"],
+  withdrawn: ["ถอนคำร้อง", "Withdrawn"],
+};
+const valueLabels: Record<string, [string, string]> = {
+  ALIVE: ["มีชีวิต", "Alive"],
+  DEAD: ["ตาย", "Dead"],
+  DEGENERATED: ["เสื่อมสภาพ", "Degenerated"],
+  FROZEN: ["แช่แข็ง", "Frozen"],
+  DISCARDED: ["คัดทิ้ง", "Discarded"],
+  NOT_OBSERVED: ["ไม่ได้ตรวจ", "Not observed"],
+  NORMAL: ["ปกติ", "Normal"],
+  ABNORMAL: ["ผิดปกติ", "Abnormal"],
+  UNDETERMINED: ["ยังไม่ระบุ", "Undetermined"],
+  UNKNOWN: ["ยังไม่ทราบ", "Unknown"],
+  HEALTHY: ["สุขภาพดี", "Healthy"],
+  WEAK: ["อ่อนแอ", "Weak"],
+  SICK: ["ป่วย", "Sick"],
+  DISABLED: ["พิการ", "Disabled"],
+  AGED: ["ชรา", "Aged"],
+  M: ["เพศผู้", "Male"],
+  F: ["เพศเมีย", "Female"],
 };
 export const correctionFields: Record<string, Field[]> = {
   experiment_batch: [
@@ -88,9 +125,10 @@ export const correctionFields: Record<string, Field[]> = {
   ],
 };
 
-function display(value: unknown): string {
+function display(value: unknown, language: Language = "en"): string {
   if (value === null || value === undefined || value === "") return "—";
-  return typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
+  if (typeof value === "boolean") return language === "th" ? (value ? "ใช่" : "ไม่ใช่") : value ? "Yes" : "No";
+  return valueLabels[String(value)]?.[language === "th" ? 0 : 1] ?? String(value);
 }
 
 export function CorrectionRequestButton({
@@ -212,7 +250,7 @@ export function CorrectionRequestButton({
             </select>
           </label>
           <p>
-            {thai ? "ค่าเดิม" : "Current value"}: <strong>{display(item[fieldName])}</strong>
+            {thai ? "ค่าเดิม" : "Current value"}: <strong>{display(item[fieldName], language)}</strong>
           </p>
           {pendingFields.includes(fieldName) && (
             <p role="status">
@@ -232,7 +270,15 @@ export function CorrectionRequestButton({
                 <option value="">{clearable ? (thai ? "ไม่ระบุ" : "None") : thai ? "เลือกค่า" : "Select a value"}</option>
                 {options.map((option) => (
                   <option key={String(option.id)} value={String(option.id)}>
-                    {String(option.name ?? option.code ?? option.label ?? option.id)}
+                    {String(
+                      option.name ??
+                        option.code ??
+                        option.label ??
+                        option.boxCode ??
+                        option.lotCode ??
+                        option.strain ??
+                        option.id,
+                    )}
                   </option>
                 ))}
               </select>
@@ -285,13 +331,15 @@ export function CorrectionRequestButton({
 function useCorrections() {
   const [items, setItems] = useState<Correction[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const refresh = useCallback(() => {
     void get("/corrections")
       .then((data) => {
         setItems((data.items ?? []) as unknown as Correction[]);
         setError("");
       })
-      .catch((cause: Error) => setError(cause.message));
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setLoading(false));
   }, []);
   useEffect(() => {
     refresh();
@@ -303,7 +351,7 @@ function useCorrections() {
       window.removeEventListener("focus", onFocus);
     };
   }, [refresh]);
-  return { items, error, refresh };
+  return { items, error, loading, refresh };
 }
 
 function RequestCard({
@@ -321,6 +369,21 @@ function RequestCard({
   const [rejectReason, setRejectReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reviewed, setReviewed] = useState<Correction | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const review = async () => {
+    setReviewing(true);
+    setError("");
+    try {
+      const result = await get(`/corrections/${row.id}`);
+      setReviewed(result as unknown as Correction);
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setReviewing(false);
+    }
+  };
+  const detail = reviewed ?? row;
   const act = async (action: "approve" | "reject" | "withdraw") => {
     if (
       action === "approve" &&
@@ -348,10 +411,13 @@ function RequestCard({
     <article className="correction-card">
       <div className="correction-card__header">
         <strong>{thai ? (label?.th ?? row.fieldName) : (label?.en ?? row.fieldName)}</strong>
-        <span className={`correction-status correction-status--${row.status}`}>{row.status}</span>
+        <span className={`correction-status correction-status--${row.status}`}>
+          {statusLabels[row.status][thai ? 0 : 1]}
+        </span>
       </div>
       <small>
-        {row.targetTable} · {row.targetId} · {new Date(row.createdAt).toLocaleString()}
+        {tableLabels[row.targetTable]?.[thai ? 0 : 1] ?? row.targetTable}: {row.targetLabel ?? row.targetId} ·{" "}
+        {new Date(row.createdAt).toLocaleString()}
       </small>
       {admin && (
         <p>
@@ -360,11 +426,11 @@ function RequestCard({
       )}
       <div className="correction-values">
         <span>
-          {thai ? "เดิม" : "Before"} <strong>{display(row.oldValue)}</strong>
+          {thai ? "เดิม" : "Before"} <strong>{display(row.oldLabel ?? row.oldValue, language)}</strong>
         </span>
         <span>→</span>
         <span>
-          {thai ? "เสนอ" : "Proposed"} <strong>{display(row.proposedValue)}</strong>
+          {thai ? "เสนอ" : "Proposed"} <strong>{display(row.proposedLabel ?? row.proposedValue, language)}</strong>
         </span>
       </div>
       {row.notificationOnly && (
@@ -379,7 +445,7 @@ function RequestCard({
           {thai ? "เหตุผล" : "Reason"}: {row.reason}
         </p>
       )}
-      {row.conflict && (
+      {detail.conflict && (
         <div className="error" role="alert">
           <strong>
             {thai
@@ -387,7 +453,7 @@ function RequestCard({
               : "The original record has changed. This request cannot be approved."}
           </strong>
           <p>
-            {thai ? "ค่าปัจจุบัน" : "Current value"}: {display(row.currentValue)}
+            {thai ? "ค่าปัจจุบัน" : "Current value"}: {display(detail.currentLabel ?? detail.currentValue, language)}
           </p>
           {admin && (
             <p>
@@ -395,9 +461,9 @@ function RequestCard({
               <a href={audit}>{thai ? "เปิด audit log" : "Open audit log"}</a>
             </p>
           )}
-          {admin && row.relatedAuditIds?.length ? (
+          {admin && detail.relatedAuditIds?.length ? (
             <ul>
-              {row.relatedAuditIds.map((id) => (
+              {detail.relatedAuditIds.map((id) => (
                 <li key={id}>
                   <a
                     href={`/admin?auditTable=${encodeURIComponent(row.targetTable)}&auditRecordId=${encodeURIComponent(row.targetId)}&auditLogId=${encodeURIComponent(id)}#audit`}
@@ -410,10 +476,10 @@ function RequestCard({
           ) : null}
         </div>
       )}
-      {row.validationMessage && (
+      {detail.validationMessage && (
         <div className="error" role="alert">
           {thai ? "ค่าใหม่ยังใช้ไม่ได้: " : "The proposed value cannot be applied: "}
-          {row.validationMessage}
+          {detail.validationMessage}
         </div>
       )}
       {row.decisionReason && (
@@ -426,7 +492,15 @@ function RequestCard({
       {row.status === "pending" &&
         (admin ? (
           <div className="correction-actions">
-            {!row.conflict && !row.validationMessage && (
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={reviewing}
+              onClick={() => void review()}
+            >
+              {reviewing ? (thai ? "กำลังตรวจ…" : "Checking…") : thai ? "ตรวจข้อมูลก่อนตัดสินใจ" : "Review before decision"}
+            </button>
+            {reviewed && !detail.conflict && !detail.validationMessage && (
               <button
                 className="button button--primary"
                 type="button"
@@ -469,7 +543,7 @@ function RequestCard({
 }
 
 export function MyRequests({ language }: { language: Language }) {
-  const { items, error, refresh } = useCorrections();
+  const { items, error, loading, refresh } = useCorrections();
   const thai = language === "th";
   return (
     <section className="corrections-page">
@@ -478,7 +552,9 @@ export function MyRequests({ language }: { language: Language }) {
         {thai ? "ติดตามผลคำร้องและถอนคำร้องที่ยังไม่ถูกตัดสิน" : "Track your requests and withdraw pending ones."}
       </p>
       {error && <ErrorMessage message={error} />}
-      {items.length ? (
+      {loading ? (
+        <p role="status">{thai ? "กำลังโหลดคำร้อง…" : "Loading requests…"}</p>
+      ) : items.length ? (
         items.map((row) => <RequestCard key={row.id} row={row} language={language} admin={false} onChanged={refresh} />)
       ) : (
         <p>{thai ? "ยังไม่มีคำร้อง" : "No requests yet."}</p>
@@ -488,7 +564,7 @@ export function MyRequests({ language }: { language: Language }) {
 }
 
 export function AdminRequests({ language }: { language: Language }) {
-  const { items, error, refresh } = useCorrections();
+  const { items, error, loading, refresh } = useCorrections();
   const [status, setStatus] = useState("pending");
   const thai = language === "th";
   const shown = items.filter((row) => status === "all" || row.status === status);
@@ -508,7 +584,9 @@ export function AdminRequests({ language }: { language: Language }) {
         </select>
       </label>
       {error && <ErrorMessage message={error} />}
-      {shown.length ? (
+      {loading ? (
+        <p role="status">{thai ? "กำลังโหลดคำร้อง…" : "Loading requests…"}</p>
+      ) : shown.length ? (
         shown.map((row) => <RequestCard key={row.id} row={row} language={language} admin onChanged={refresh} />)
       ) : (
         <p>{thai ? "ไม่มีคำร้องในสถานะนี้" : "No requests in this status."}</p>
