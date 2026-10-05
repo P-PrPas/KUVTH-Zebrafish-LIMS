@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from test_experiments import create_batch
+from test_fish import BANGKOK
 
 from chronofish.api.routes import corrections
 from chronofish.runtime.values import uuid7
@@ -198,7 +199,8 @@ def test_member_can_record_unknown_fish_sex_and_move_box_without_correction(corr
         headers={**write_headers, "X-Idempotency-Key": uuid7()},
         json={
             "fishCode": "CARE-FISH",
-            "dob": datetime.now().date().isoformat(),
+            # The API decides backdating by the lab's Bangkok date, not the runner's.
+            "dob": datetime.now(BANGKOK).date().isoformat(),
             "donorCellLineId": donor["id"],
             "recipientEggLotId": batch["recipientEggLotId"],
         },
