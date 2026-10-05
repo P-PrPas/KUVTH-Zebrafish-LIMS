@@ -17,14 +17,16 @@ def validate_write_context(request: Request, state: State, body: Any) -> tuple[s
     operator_id = request.headers.get("X-Operator-Id", "").strip()
     device_id = request.headers.get("X-Device-Id", "").strip()
     key = request.headers.get("X-Idempotency-Key", "").strip()
-    try:
-        UUID(operator_id)
-    except ValueError as error:
-        raise APIError(400, "invalid_context", "X-Operator-Id ต้องเป็น UUID") from error
+    account_write = request.url.path.startswith("/api/v1/corrections")
+    if not account_write:
+        try:
+            UUID(operator_id)
+        except ValueError as error:
+            raise APIError(400, "invalid_context", "X-Operator-Id ต้องเป็น UUID") from error
     user = getattr(request.state, "user", None)
     if not user:
         raise APIError(401, "authentication_required", "Sign in to continue")
-    if user["role"] == "member":
+    if user["role"] == "member" and not account_write:
         linked_operator = user.get("operatorId") or user.get("operator_id")
         if not linked_operator:
             raise APIError(403, "operator_link_required", "Ask an admin to link your account to an operator")
@@ -35,13 +37,17 @@ def validate_write_context(request: Request, state: State, body: Any) -> tuple[s
     if not device_id or len(device_id) > 64 or "\n" in device_id or "\r" in device_id:
         raise APIError(400, "invalid_context", "X-Device-Id ต้องมีความยาว 1-64 ตัวอักษร")
     operator = state.entities["operators"].get(operator_id)
-    if request.url.path != "/api/v1/operators" and (not operator or operator.get("active") is False):
+    if (
+        not account_write
+        and request.url.path != "/api/v1/operators"
+        and (not operator or operator.get("active") is False)
+    ):
         raise APIError(400, "invalid_context", "operator ไม่ถูกต้องหรือถูกปิดใช้งาน")
     try:
         UUID(key)
     except ValueError as error:
         raise APIError(400, "invalid_context", "ทุกการบันทึกต้องมี X-Idempotency-Key ที่เป็น UUID") from error
-    return operator_id, device_id, key
+    return operator_id if not account_write else "", device_id, key
 
 
 def audit(

@@ -18,6 +18,7 @@ from ...domain.rules import (
     stage_number,
 )
 from ...domain.state import State
+from ...runtime.edit_policy import recent_creator
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
@@ -378,13 +379,16 @@ def build_fish_router(store: Store) -> APIRouter:
         return store.execute_mutation(request, body, operation)
 
     @router.get("/fish/{id}")
-    def get_fish(id: str) -> dict[str, Any]:
+    def get_fish(id: str, request: Request) -> dict[str, Any]:
         fish_id = id
         state = store.snapshot()
         fish = state.entities["fish"].get(fish_id)
         if not fish or fish.get("active") is False or fish.get("deletedAt") is not None:
             raise APIError(404, "not_found", "ไม่พบปลา")
         result = enrich_fish(state, fish)
+        result["canEditDirectly"] = request.state.user["role"] == "admin" or recent_creator(
+            state, store, request, "clone_fish", fish
+        )
         result["observations"] = sorted(
             (
                 copy.deepcopy(item)
@@ -412,10 +416,34 @@ def build_fish_router(store: Store) -> APIRouter:
     async def update_fish(id: str, request: Request, body: dict[str, Any]):
         fish_id = id
         body = normalize(body)
+        correction_reason = body.get("correctionReason")
+        changes = {key: value for key, value in body.items() if key != "correctionReason"}
 
         def operation(state: State):
-            old, fish = apply_fish_update(state, fish_id, body)
-            audit(state, request, "UPDATE", "clone_fish", fish_id, old, fish)
+            current = state.entities["fish"].get(fish_id)
+            if not current or current.get("active") is False or current.get("deletedAt") is not None:
+                raise APIError(404, "not_found", "Fish not found")
+            changed_fields = {key for key, value in changes.items() if current.get(key) != value}
+            operational = changed_fields <= {"fishBoxId", "sex"} and (
+                "sex" not in changed_fields or current.get("sex") in (None, "UNKNOWN")
+            )
+            own_recent = recent_creator(state, store, request, "clone_fish", current)
+            if request.state.user["role"] == "member" and not (operational or own_recent):
+                raise APIError(403, "correction_request_required", "Ask an admin to approve a correction request")
+            if not (operational or own_recent) and (
+                not isinstance(correction_reason, str) or not correction_reason.strip()
+            ):
+                raise APIError(422, "validation_error", "A correction reason is required")
+            old, fish = apply_fish_update(state, fish_id, changes)
+            audit(
+                state,
+                request,
+                "UPDATE",
+                "clone_fish",
+                fish_id,
+                old,
+                {**fish, **({"correctionReason": correction_reason.strip()} if correction_reason else {})},
+            )
             return 200, enrich_fish(state, fish)
 
         return store.execute_mutation(request, body, operation)
@@ -681,10 +709,21 @@ def build_fish_router(store: Store) -> APIRouter:
             observation = state.fish_observations.get(observation_id)
             if not observation or observation.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ observation")
+            own_recent = recent_creator(state, store, request, "fish_observation", observation)
+            if request.state.user["role"] == "member" and not own_recent:
+                raise APIError(403, "correction_request_required", "Ask an admin to approve a correction request")
             old = copy.deepcopy(observation)
             if request.method == "DELETE":
                 if not reason.strip():
                     raise APIError(422, "validation_error", "reason is required")
+                if request.state.user["role"] == "member" and any(
+                    other.get("id") != observation_id
+                    and other.get("cloneFishId") == observation["cloneFishId"]
+                    and other.get("deletedAt") is None
+                    and str(other.get("observedOn")) > str(observation["observedOn"])
+                    for other in state.fish_observations.values()
+                ):
+                    raise APIError(409, "not_latest", "Only the latest observation can be cancelled directly")
                 observation.update({"deletedAt": iso_now(), "overrideReason": reason.strip(), "updatedAt": iso_now()})
                 status, result, action = 204, b"", "DELETE"
             else:
@@ -692,7 +731,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 if unknown:
                     raise APIError(422, "validation_error", f"แก้ไข field นี้ไม่ได้: {sorted(unknown)[0]}")
                 correction = str(payload.get("overrideReason") or payload.get("correctionReason") or "").strip()
-                if not correction:
+                if not correction and not own_recent:
                     raise APIError(422, "validation_error", "ต้องระบุ correctionReason")
                 candidate = {
                     **observation,
@@ -713,9 +752,26 @@ def build_fish_router(store: Store) -> APIRouter:
                 observed = date.fromisoformat(str(candidate["observedOn"]))
                 if observed < date.fromisoformat(str(fish["dob"])) or observed > datetime.now(BANGKOK).date():
                     raise APIError(422, "validation_error", "invalid observedOn")
+                related = [
+                    other
+                    for other in state.fish_observations.values()
+                    if other.get("id") != observation_id
+                    and other.get("cloneFishId") == candidate["cloneFishId"]
+                    and other.get("deletedAt") is None
+                ]
+                if candidate["outcome"] in {"DEAD", "FROZEN", "DISCARDED"} and any(
+                    str(other.get("observedOn")) > str(candidate["observedOn"]) for other in related
+                ):
+                    raise APIError(422, "related_data_conflict", "A later fish observation already exists")
+                if any(
+                    other.get("outcome") in {"DEAD", "FROZEN", "DISCARDED"}
+                    and str(other.get("observedOn")) < str(candidate["observedOn"])
+                    for other in related
+                ):
+                    raise APIError(422, "related_data_conflict", "The fish has an earlier terminal observation")
                 candidate.update(
                     {
-                        "overrideReason": correction,
+                        "overrideReason": correction or observation.get("overrideReason"),
                         "ageDays": age_days_on(date.fromisoformat(fish["dob"]), observed),
                         "isBackdated": observed != datetime.now(BANGKOK).date(),
                         "updatedAt": iso_now(),
