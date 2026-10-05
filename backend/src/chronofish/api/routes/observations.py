@@ -24,6 +24,7 @@ from ...domain.state import State
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
+from ...services.fish import find_fish_for_embryo, recompute_fish
 from ...store import Store
 
 BANGKOK = ZoneInfo("Asia/Bangkok")
@@ -94,6 +95,32 @@ def _interval_metrics(
     interval_actual = round4(actual - float(previous.get("hpaActual", 0)))
     interval_expected = round4(expected - float(previous.get("hpaExpectedSnapshot", 0)))
     return interval_actual, interval_expected, round4(interval_actual - interval_expected)
+
+
+def _recompute_intervals(state: State, embryo_id: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    changes = []
+    observations = sorted(
+        (
+            item
+            for item in state.observations.values()
+            if item.get("embryoId") == embryo_id and item.get("deletedAt") is None
+        ),
+        key=lambda item: stage_number(str(item.get("stageCode", ""))),
+    )
+    previous = None
+    for item in observations:
+        old = copy.deepcopy(item)
+        for field in ("intervalActual", "intervalExpected", "intervalDeviationH"):
+            item.pop(field, None)
+        if previous:
+            actual = round4(float(item["hpaActual"]) - float(previous["hpaActual"]))
+            expected = round4(float(item["hpaExpectedSnapshot"]) - float(previous["hpaExpectedSnapshot"]))
+            item.update(intervalActual=actual, intervalExpected=expected, intervalDeviationH=round4(actual - expected))
+        if old != item:
+            item["updatedAt"] = iso_now()
+            changes.append((old, copy.deepcopy(item)))
+        previous = item
+    return changes
 
 
 def _recompute_embryo(state: State, embryo_id: str) -> None:
@@ -523,6 +550,14 @@ def build_observations_router(store: Store) -> APIRouter:
                 candidate["overrideReason"] = correction
                 if message := _validate_observation(state, candidate, observation_id):
                     raise APIError(422, "validation_error", message)
+                if candidate["outcome"] in {"DEAD", "DEGENERATED"} and any(
+                    other.get("id") != observation_id
+                    and other.get("embryoId") == candidate["embryoId"]
+                    and other.get("deletedAt") is None
+                    and str(other.get("observedAt")) > str(candidate["observedAt"])
+                    for other in state.observations.values()
+                ):
+                    raise APIError(422, "related_data_conflict", "A later embryo observation already exists")
                 lot = state.entities["injection-lots"][str(candidate["injectionLotId"])]
                 observed_at = parse_datetime(str(candidate["observedAt"]))
                 actual = round4((observed_at - parse_datetime(str(lot["activatedAt"]))).total_seconds() / 3600)
@@ -553,10 +588,28 @@ def build_observations_router(store: Store) -> APIRouter:
                 state.observations[observation_id] = observation = candidate
                 status, result, action = 200, observation, "UPDATE"
             embryo_id = str(observation["embryoId"])
+            interval_changes = _recompute_intervals(state, embryo_id)
+            for before_interval, after_interval in interval_changes:
+                if after_interval["id"] != observation_id:
+                    audit(
+                        state,
+                        request,
+                        "UPDATE",
+                        "embryo_observation",
+                        str(after_interval["id"]),
+                        before_interval,
+                        after_interval,
+                    )
             old_embryo = copy.deepcopy(state.entities["embryos"].get(embryo_id, {}))
             _recompute_embryo(state, embryo_id)
             if old_embryo != state.entities["embryos"].get(embryo_id):
                 audit(state, request, "UPDATE", "embryo", embryo_id, old_embryo, state.entities["embryos"][embryo_id])
+            if fish := find_fish_for_embryo(state, embryo_id):
+                fish_id = str(fish["id"])
+                old_fish = copy.deepcopy(fish)
+                recompute_fish(state, fish_id)
+                if old_fish != state.entities["fish"].get(fish_id):
+                    audit(state, request, "UPDATE", "clone_fish", fish_id, old_fish, state.entities["fish"][fish_id])
             audit(state, request, action, "embryo_observation", observation_id, old, observation)
             return status, result
 

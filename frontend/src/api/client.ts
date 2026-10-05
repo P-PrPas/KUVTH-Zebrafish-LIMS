@@ -128,13 +128,31 @@ export function mutationHeaders(key = uuidv7()): Record<string, string> {
   };
 }
 
+export function accountMutationHeaders(key = uuidv7()): Record<string, string> {
+  let actorUserId = "";
+  try {
+    actorUserId = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null")?.id ?? "";
+  } catch {
+    actorUserId = "";
+  }
+  return {
+    "X-Device-Id": deviceId(),
+    "X-Idempotency-Key": key,
+    ...(actorUserId ? { "X-Actor-User-Id": actorUserId } : {}),
+  };
+}
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const authRequest = path.startsWith("/auth/");
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(method !== "GET" && method !== "HEAD" && !authRequest ? mutationHeaders() : {}),
+    ...(method !== "GET" && method !== "HEAD" && !authRequest
+      ? path.startsWith("/corrections")
+        ? accountMutationHeaders()
+        : mutationHeaders()
+      : {}),
     ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: "include", headers });

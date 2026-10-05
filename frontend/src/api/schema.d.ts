@@ -1362,6 +1362,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List own correction requests or all requests for an admin */
+        get: operations["listCorrections"];
+        put?: never;
+        /** Submit a single-field correction request */
+        post: operations["createCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/markers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List fields with pending requests for one record, without exposing details */
+        get: operations["correctionMarkers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an own request or any request as an admin */
+        get: operations["getCorrection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw an own pending request */
+        post: operations["withdrawCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve and apply or reject a pending request as an admin */
+        post: operations["decideCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit-log": {
         parameters: {
             query?: never;
@@ -1369,7 +1455,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Change history */
+        /** Admin-only change history */
         get: operations["listAuditLog"];
         put?: never;
         post?: never;
@@ -1400,6 +1486,42 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CorrectionRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            requesterId: string;
+            /** Format: email */
+            requesterEmail: string;
+            /** Format: uuid */
+            recordedOperatorId?: string | null;
+            /** Format: uuid */
+            recordedByUserId?: string | null;
+            targetTable: string;
+            /** Format: uuid */
+            targetId: string;
+            fieldName: string;
+            oldValue: unknown;
+            proposedValue: unknown;
+            currentValue?: unknown;
+            sourceUpdatedAt: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected" | "withdrawn";
+            decisionReason?: string | null;
+            /** Format: uuid */
+            decidedByUserId?: string | null;
+            /** Format: uuid */
+            appliedAuditId?: string | null;
+            conflict?: boolean;
+            validationMessage?: string;
+            relatedAuditIds?: string[];
+            notificationOnly?: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /**
          * @description DEGENERATED is kept distinct from DEAD because the lab records the two separately.
          * @enum {string}
@@ -5317,11 +5439,190 @@ export interface operations {
             };
         };
     };
+    listCorrections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Correction requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CorrectionRequest"][];
+                    };
+                };
+            };
+        };
+    };
+    createCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    targetTable: string;
+                    /** Format: uuid */
+                    targetId: string;
+                    fieldName: string;
+                    proposedValue: unknown;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request submitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    correctionMarkers: {
+        parameters: {
+            query: {
+                targetTable: string;
+                targetId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending field names */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fields: string[];
+                        ownFields: string[];
+                    };
+                };
+            };
+        };
+    };
+    getCorrection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Correction request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    withdrawCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Withdrawn request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    decideCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "approve" | "reject";
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Decided request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
     listAuditLog: {
         parameters: {
             query?: {
                 table?: string;
                 recordId?: string;
+                auditId?: string;
                 operatorId?: string;
                 from?: string;
                 to?: string;

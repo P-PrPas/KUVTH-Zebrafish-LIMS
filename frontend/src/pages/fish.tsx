@@ -1,10 +1,12 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { type ApiItem, get } from "../api/client";
+import { cachedUser } from "../auth";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import { putQueue, type QueuedWrite } from "../offline";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
+import { CorrectionRequestButton } from "./corrections";
 
 type FishOutcome = "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
 type FishHealthStatus = "HEALTHY" | "WEAK" | "SICK" | "DISABLED" | "AGED" | "UNDETERMINED";
@@ -878,6 +880,7 @@ function FishDetail({
   const [tab, setTab] = useState<"history" | "specimens" | "details">("history");
   const [showSpecimenForm, setShowSpecimenForm] = useState(false);
   const [fishEdit, setFishEdit] = useState({ fishCode: "", sex: "UNKNOWN", fishBoxId: "", remarks: "" });
+  const [fishCorrectionReason, setFishCorrectionReason] = useState("");
   const [specimen, setSpecimen] = useState({
     specimenCode: "",
     specimenKind: "CL",
@@ -908,12 +911,13 @@ function FishDetail({
   const saveFish = async (event: FormEvent) => {
     event.preventDefault();
     if (!detail) return;
+    if (!fishCorrectionReason.trim()) return;
     const previous = detail;
     setDetail({ ...detail, ...fishEdit, sex: fishEdit.sex as ApiItem["sex"], fishBoxId: fishEdit.fishBoxId || null });
     try {
       await putQueue(
         `/fish/${fishId}`,
-        { ...fishEdit, fishBoxId: fishEdit.fishBoxId || null },
+        { ...fishEdit, fishBoxId: fishEdit.fishBoxId || null, correctionReason: fishCorrectionReason.trim() },
         "application/json",
         "PATCH",
       );
@@ -1129,31 +1133,36 @@ function FishDetail({
                         : `Age ${String(item.ageDays ?? "—")} days · ${healthStatusLabel(item.healthStatus, false)}`}
                     </p>
                     <div className="timeline__actions">
-                      <button
-                        className="inline-action"
-                        onClick={() => {
-                          const recordedOutcome = String(item.outcome ?? "");
-                          setEditing({
-                            ...item,
-                            recordedOutcome,
-                            outcome: outcomes.includes(recordedOutcome as FishOutcome) ? recordedOutcome : "",
-                          });
-                          setReason("");
-                          setError("");
-                        }}
-                      >
-                        {thai ? "แก้ไขผล" : "Correct"}
-                      </button>
-                      <button className="inline-action inline-action--danger" onClick={() => void remove(item)}>
-                        {thai ? "ลบรายการ" : "Delete"}
-                      </button>
+                      <CorrectionRequestButton table="fish_observation" item={item} language={thai ? "th" : "en"} />
+                      {cachedUser()?.role === "admin" && (
+                        <button
+                          className="inline-action"
+                          onClick={() => {
+                            const recordedOutcome = String(item.outcome ?? "");
+                            setEditing({
+                              ...item,
+                              recordedOutcome,
+                              outcome: outcomes.includes(recordedOutcome as FishOutcome) ? recordedOutcome : "",
+                            });
+                            setReason("");
+                            setError("");
+                          }}
+                        >
+                          {thai ? "แก้ไขผล" : "Correct"}
+                        </button>
+                      )}
+                      {cachedUser()?.role === "admin" && (
+                        <button className="inline-action inline-action--danger" onClick={() => void remove(item)}>
+                          {thai ? "ลบรายการ" : "Delete"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
               ))}
             </div>
           )}
-          {editing && (
+          {editing && cachedUser()?.role === "admin" && (
             <form className="task-surface form-card" onSubmit={correct}>
               {!outcomes.includes(String(editing.recordedOutcome) as FishOutcome) && (
                 <p className="field-hint">
@@ -1343,7 +1352,27 @@ function FishDetail({
           )}
         </div>
       )}
-      {tab === "details" && (
+      {tab === "details" && cachedUser()?.role === "member" && (
+        <section
+          id="fish-detail-panel-details"
+          role="tabpanel"
+          aria-labelledby="fish-detail-tab-details"
+          className="task-surface form-card"
+        >
+          <h2>{thai ? "ข้อมูลประจำตัวปลา" : "Fish details"}</h2>
+          <p>
+            {thai ? "รหัสปลา" : "Fish code"}: {String(detail.fishCode ?? "—")}
+          </p>
+          <p>
+            {thai ? "เพศ" : "Sex"}: {sexLabel(detail.sex, thai)}
+          </p>
+          <p>
+            {thai ? "หมายเหตุ" : "Remarks"}: {String(detail.remarks ?? "—")}
+          </p>
+          <CorrectionRequestButton table="clone_fish" item={detail} language={thai ? "th" : "en"} />
+        </section>
+      )}
+      {tab === "details" && cachedUser()?.role === "admin" && (
         <form
           id="fish-detail-panel-details"
           role="tabpanel"
@@ -1387,6 +1416,15 @@ function FishDetail({
             <input
               value={fishEdit.remarks}
               onChange={(event) => setFishEdit({ ...fishEdit, remarks: event.target.value })}
+            />
+          </label>
+          <label>
+            {thai ? "เหตุผลที่แก้ไข" : "Correction reason"}
+            <textarea
+              required
+              maxLength={2000}
+              value={fishCorrectionReason}
+              onChange={(event) => setFishCorrectionReason(event.target.value)}
             />
           </label>
           <div className="button-row">

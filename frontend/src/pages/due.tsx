@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
+import { cachedUser } from "../auth";
 import { Empty, ErrorMessage } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import {
@@ -13,6 +14,7 @@ import { type ApiQueueResult, putQueue, type QueuedWrite, queuedWriteItems } fro
 import { dateTimeLocalToRFC3339 } from "../time";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
+import { CorrectionRequestButton } from "./corrections";
 
 type EmbryoOutcome = "ALIVE" | "DEAD";
 type DraftOutcome = EmbryoOutcome | "";
@@ -1302,6 +1304,13 @@ function ObservationRound({
                           {String(item.operatorName ?? (thai ? "ไม่ระบุผู้บันทึก" : "Operator not recorded"))}
                         </small>
                         {item.notes && <p>{String(item.notes)}</p>}
+                        {!String(item.id).startsWith("queued-") && (
+                          <CorrectionRequestButton
+                            table="embryo_observation"
+                            item={item}
+                            language={thai ? "th" : "en"}
+                          />
+                        )}
                       </li>
                     ))}
                   </ol>
@@ -1311,7 +1320,7 @@ function ObservationRound({
                   </p>
                 )}
               </section>
-              {savedCount > 0 && (
+              {savedCount > 0 && cachedUser()?.role === "admin" && (
                 <form
                   className="checkpoint-correction"
                   onSubmit={(event) => {

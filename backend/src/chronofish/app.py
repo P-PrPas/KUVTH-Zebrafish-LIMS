@@ -14,6 +14,7 @@ from . import __version__
 from .api.routes.analytics import build_analytics_router
 from .api.routes.audit import build_audit_router
 from .api.routes.auth import build_auth_router
+from .api.routes.corrections import build_corrections_router
 from .api.routes.experiments import build_experiments_router
 from .api.routes.exports import build_export_router
 from .api.routes.fish import build_fish_router
@@ -140,7 +141,7 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
                             APIError(401, "actor_mismatch", "Sign in again as the account that recorded this work")
                         )
                     )
-            admin_only = path.startswith("/api/v1/auth/admin/")
+            admin_only = path.startswith("/api/v1/auth/admin/") or path.startswith("/api/v1/audit-log")
             master_resources = {
                 "sites",
                 "operators",
@@ -155,6 +156,12 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             }
             resource = path.removeprefix("/api/v1/").split("/", 1)[0]
             if request.method in {"POST", "PUT", "PATCH", "DELETE"} and resource in master_resources:
+                admin_only = True
+            if request.method in {"PATCH", "DELETE"} and resource in {"batches", "fish"}:
+                admin_only = True
+            if request.method == "DELETE" and resource == "embryos":
+                admin_only = True
+            if request.method in {"PATCH", "DELETE"} and resource == "observations":
                 admin_only = True
             if admin_only and user["role"] != "admin":
                 return secure(error_response(APIError(403, "admin_required", "Admin access is required")))
@@ -188,6 +195,7 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
         return {"status": "ok", "version": __version__}
 
     app.include_router(build_auth_router(auth))
+    app.include_router(build_corrections_router(store))
     app.include_router(build_master_router(store))
     app.include_router(build_timing_router(store))
     app.include_router(build_experiments_router(store))
