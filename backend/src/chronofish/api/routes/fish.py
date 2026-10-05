@@ -412,10 +412,14 @@ def build_fish_router(store: Store) -> APIRouter:
     async def update_fish(id: str, request: Request, body: dict[str, Any]):
         fish_id = id
         body = normalize(body)
+        correction_reason = body.get("correctionReason")
+        if not isinstance(correction_reason, str) or not correction_reason.strip():
+            raise APIError(422, "validation_error", "A correction reason is required")
+        changes = {key: value for key, value in body.items() if key != "correctionReason"}
 
         def operation(state: State):
-            old, fish = apply_fish_update(state, fish_id, body)
-            audit(state, request, "UPDATE", "clone_fish", fish_id, old, fish)
+            old, fish = apply_fish_update(state, fish_id, changes)
+            audit(state, request, "UPDATE", "clone_fish", fish_id, old, {**fish, "correctionReason": correction_reason})
             return 200, enrich_fish(state, fish)
 
         return store.execute_mutation(request, body, operation)
@@ -713,6 +717,23 @@ def build_fish_router(store: Store) -> APIRouter:
                 observed = date.fromisoformat(str(candidate["observedOn"]))
                 if observed < date.fromisoformat(str(fish["dob"])) or observed > datetime.now(BANGKOK).date():
                     raise APIError(422, "validation_error", "invalid observedOn")
+                related = [
+                    other
+                    for other in state.fish_observations.values()
+                    if other.get("id") != observation_id
+                    and other.get("cloneFishId") == candidate["cloneFishId"]
+                    and other.get("deletedAt") is None
+                ]
+                if candidate["outcome"] in {"DEAD", "FROZEN", "DISCARDED"} and any(
+                    str(other.get("observedOn")) > str(candidate["observedOn"]) for other in related
+                ):
+                    raise APIError(422, "related_data_conflict", "A later fish observation already exists")
+                if any(
+                    other.get("outcome") in {"DEAD", "FROZEN", "DISCARDED"}
+                    and str(other.get("observedOn")) < str(candidate["observedOn"])
+                    for other in related
+                ):
+                    raise APIError(422, "related_data_conflict", "The fish has an earlier terminal observation")
                 candidate.update(
                     {
                         "overrideReason": correction,

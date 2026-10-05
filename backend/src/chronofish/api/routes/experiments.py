@@ -5,6 +5,7 @@ import math
 import re
 from datetime import date
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query, Request
 
@@ -16,6 +17,7 @@ from ...runtime.values import iso_now, normalize, parse_datetime, uuid7
 from ...services.experiments import lot_number_sort_key, next_lot_number
 from ...store import Store
 
+BANGKOK = ZoneInfo("Asia/Bangkok")
 BATCH_INPUT_FIELDS = {
     "batchCode",
     "experimentDate",
@@ -368,6 +370,9 @@ def build_experiments_router(store: Store) -> APIRouter:
     async def update_batch(id: str, request: Request, body: dict[str, Any]):
         batch_id = id
         body = normalize(body)
+        correction_reason = body.get("correctionReason")
+        if not isinstance(correction_reason, str) or not correction_reason.strip():
+            raise APIError(422, "validation_error", "A correction reason is required")
 
         def operation(state: State):
             current = state.entities["batches"].get(batch_id)
@@ -386,8 +391,30 @@ def build_experiments_router(store: Store) -> APIRouter:
                 "updatedAt": iso_now(),
             }
             _validate_batch(state, updated, batch_id)
+            related_lots = [
+                lot
+                for lot in state.entities["injection-lots"].values()
+                if lot.get("batchId") == batch_id and lot.get("deletedAt") is None
+            ]
+            if updated.get("batchCode") != current.get("batchCode") and related_lots:
+                raise APIError(409, "related_data_conflict", "Cannot change a batch code after injection lots exist")
+            experiment_date = date.fromisoformat(str(updated["experimentDate"]))
+            if any(
+                lot.get("activatedAt")
+                and experiment_date > parse_datetime(str(lot["activatedAt"])).astimezone(BANGKOK).date()
+                for lot in related_lots
+            ):
+                raise APIError(422, "related_data_conflict", "Experiment date is after an injection lot activation")
             state.entities["batches"][batch_id] = updated
-            audit(state, request, "UPDATE", "experiment_batch", batch_id, old, updated)
+            audit(
+                state,
+                request,
+                "UPDATE",
+                "experiment_batch",
+                batch_id,
+                old,
+                {**updated, "correctionReason": correction_reason},
+            )
             return 200, updated
 
         return store.execute_mutation(request, body, operation)
@@ -572,6 +599,15 @@ def build_experiments_router(store: Store) -> APIRouter:
             embryo = state.entities["embryos"].get(embryo_id)
             if not embryo or embryo.get("active") is False or embryo.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ embryo")
+            if request.state.user["role"] == "member" and (
+                embryo.get("wellPosition") is not None or body.get("wellPosition") is None
+            ):
+                raise APIError(403, "admin_required", "Existing well assignments require an admin correction")
+            correction_reason = body.get("correctionReason")
+            if embryo.get("wellPosition") is not None and (
+                not isinstance(correction_reason, str) or not correction_reason.strip()
+            ):
+                raise APIError(422, "validation_error", "A correction reason is required")
             old = copy.deepcopy(embryo)
             well = body.get("wellPosition") if "wellPosition" in body else embryo.get("wellPosition")
             if well is not None and (not isinstance(well, str) or re.fullmatch(r"[A-H](?:1[0-2]|[1-9])", well) is None):
@@ -587,7 +623,15 @@ def build_experiments_router(store: Store) -> APIRouter:
                 raise APIError(409, "conflict", "wellPosition ซ้ำใน injection lot")
             updated = {**embryo, "wellPosition": well, "updatedAt": iso_now()}
             state.entities["embryos"][embryo_id] = updated
-            audit(state, request, "UPDATE", "embryo", embryo_id, old, updated)
+            audit(
+                state,
+                request,
+                "UPDATE",
+                "embryo",
+                embryo_id,
+                old,
+                {**updated, **({"correctionReason": correction_reason} if correction_reason else {})},
+            )
             return 200, updated
 
         return store.execute_mutation(request, body, operation)

@@ -77,6 +77,14 @@ def convert(sql: str, upgrade: bool) -> str:
         "ALTER TABLE injection_lot MODIFY activated_at DATETIME(3) NOT NULL;",
     )
     sql = sql.replace(
+        "ALTER TABLE request_idempotency ALTER COLUMN operator_id DROP NOT NULL;",
+        "ALTER TABLE request_idempotency MODIFY operator_id CHAR(36) NULL;",
+    )
+    sql = sql.replace(
+        "ALTER TABLE request_idempotency ALTER COLUMN operator_id SET NOT NULL;",
+        "ALTER TABLE request_idempotency MODIFY operator_id CHAR(36) NOT NULL;",
+    )
+    sql = sql.replace(
         "DROP INDEX IF EXISTS ix_request_idempotency_lease;",
         "DROP INDEX ix_request_idempotency_lease ON request_idempotency;",
     )
