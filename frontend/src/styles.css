@@ -4364,4 +4364,6 @@ button:disabled:hover {
 .import-page__error, .import-page__notice { padding: .75rem 1rem; border-radius: 8px; }
 .import-page__error { background: #ffe3db; color: #802a1c; }
 .import-page__notice { background: #e4f2ec; color: #205d40; }
+.import-page__interpretation { margin-top: .7rem; padding: .85rem; border-left: 3px solid #26747a; background: #f1f8f7; }
+.import-page__interpretation pre { overflow: auto; max-height: 260px; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

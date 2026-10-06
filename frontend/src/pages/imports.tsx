@@ -26,6 +26,7 @@ export function Imports({ language }: { language: Language }) {
   const [recordOffset, setRecordOffset] = useState(0);
   const [issueOffset, setIssueOffset] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
+  const [interpretation, setInterpretation] = useState<{ recordId: string; value: Record<string, unknown> } | null>(null);
   const [workingText, setWorkingText] = useState("");
   const [reason, setReason] = useState("");
   const [decisionReason, setDecisionReason] = useState<Record<string, string>>({});
@@ -49,6 +50,7 @@ export function Imports({ language }: { language: Language }) {
     setRecordOffset(nextRecords);
     setIssueOffset(nextIssues);
     setEditing(null);
+    setInterpretation(null);
   }
   useEffect(() => { void reloadJobs().catch((cause: Error) => setError(cause.message)); }, []);
 
@@ -125,6 +127,14 @@ export function Imports({ language }: { language: Language }) {
     } catch (cause) { setError((cause as Error).message); }
   }
 
+  async function showInterpretation(id: string) {
+    if (!detail) return;
+    try {
+      const result = await json<{ interpretation: Record<string, unknown> }>(`/imports/${detail.job.id}/records/${id}/interpretation`);
+      setInterpretation({ recordId: id, value: result.interpretation });
+    } catch (cause) { setError((cause as Error).message); }
+  }
+
   return <section className="import-page">
     <header className="import-page__header"><div><p className="eyebrow">ADMIN · DATA MIGRATION</p><h1>{th ? "นำเข้าข้อมูลย้อนหลัง" : "Historical import"}</h1>
       <p className="muted">{th ? "เลือกต้นทาง ตรวจข้อมูลและแก้ฉบับร่างก่อนนำเข้าระบบ" : "Select sources and review draft values before importing."}</p></div></header>
@@ -165,6 +175,11 @@ export function Imports({ language }: { language: Language }) {
       <div className="import-page__pager"><button disabled={issueOffset === 0} onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}>←</button><span>{issueOffset + 1}–{issueOffset + issues.length}</span><button disabled={issueOffset + issues.length >= detail.issueCount} onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}>→</button></div>
       <h3>{th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"}</h3>
       {records.map((row) => <article key={row.id} className="import-page__item"><div><strong>{row.sheetName} · {row.sourceLocator}</strong> <span>{row.recordKind}</span></div>
+        {(row.recordKind === "fish" || row.recordKind === "specimen") && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
+        {interpretation?.recordId === row.id && <div className="import-page__interpretation"><strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
+          <pre>{JSON.stringify({ ...interpretation.value, observations: undefined }, null, 2)}</pre>
+          {Array.isArray(interpretation.value.observations) && <p>{th ? "รายการสังเกต" : "Observations"}: {interpretation.value.observations.length}</p>}
+        </div>}
         <div className="import-page__comparison"><div><h4>{th ? "ต้นฉบับ" : "Original"}</h4><pre>{JSON.stringify(row.source, null, 2)}</pre></div><div><h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>{editing === row.id ? <><textarea rows={9} value={workingText} onChange={(event) => setWorkingText(event.target.value)} aria-label="Working JSON" /><label>{th ? "เหตุผลการแก้" : "Edit reason"}<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>{th ? "บันทึก" : "Save"}</button><button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button></> : <><pre>{JSON.stringify(row.working, null, 2)}</pre><button disabled={detail.job.status !== "draft"} onClick={() => { setEditing(row.id); setWorkingText(JSON.stringify(row.working, null, 2)); setReason(""); }}>{th ? "แก้ไขข้อมูล" : "Edit values"}</button></>}</div></div>
       </article>)}
       <div className="import-page__pager"><button disabled={recordOffset === 0} onClick={() => void openJob(detail.job.id, Math.max(0, recordOffset - 50), issueOffset)}>←</button><span>{recordOffset + 1}–{recordOffset + records.length}</span><button disabled={recordOffset + records.length >= detail.recordCount} onClick={() => void openJob(detail.job.id, recordOffset + 50, issueOffset)}>→</button></div>

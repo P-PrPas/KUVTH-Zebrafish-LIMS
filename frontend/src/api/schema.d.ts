@@ -162,6 +162,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/records/{recordId}/interpretation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        /** Interpret a fish or specimen source row without writing canonical data */
+        get: operations["interpretImportRecord"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/request-code": {
         parameters: {
             query?: never;
@@ -3177,6 +3197,41 @@ export interface operations {
             };
             /** @description Draft changed or issue was already decided */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    interpretImportRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Interpreted values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Source layout does not yet have an interpretation */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
