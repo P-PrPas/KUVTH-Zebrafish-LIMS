@@ -122,6 +122,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/records/{recordId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit a draft working copy while keeping source values unchanged */
+        patch: operations["reviseImportRecord"];
+        trace?: never;
+    };
+    "/imports/{jobId}/issues/{issueId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record an audited issue correction, bypass, or dismissal */
+        post: operations["decideImportIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/request-code": {
         parameters: {
             query?: never;
@@ -3043,6 +3083,96 @@ export interface operations {
             };
             /** @description File not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviseImportRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    working: {
+                        [key: string]: unknown;
+                    };
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated working values and job revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Draft changed or was finalized */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    decideImportIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    /** @enum {string} */
+                    decision: "corrected" | "bypassed" | "dismissed";
+                    reason: string;
+                    resolutionValue?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Issue decision and job revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Decision is invalid for the issue severity */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Draft changed or issue was already decided */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

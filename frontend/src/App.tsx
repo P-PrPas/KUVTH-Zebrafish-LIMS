@@ -29,6 +29,7 @@ import { Dashboard } from "./pages/dashboard";
 import { Due } from "./pages/due";
 import { Export } from "./pages/export";
 import { Fish } from "./pages/fish";
+import { Imports } from "./pages/imports";
 import { Login } from "./pages/login";
 import { Master } from "./pages/master";
 import { Members } from "./pages/members";
@@ -84,7 +85,7 @@ export function markInvalidFields(form: HTMLFormElement | null, page: Page, lang
 function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const isAdmin = user.role === "admin";
   const adminMode = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
-  const adminPages: Page[] = ["admin", "corrections", "master", "timing", "members", "audit"];
+  const adminPages: Page[] = ["admin", "corrections", "master", "timing", "members", "audit", "imports"];
   const initialPage = location.hash.slice(1) as Page;
   const [page, setPage] = useState<Page>(() =>
     adminMode
@@ -113,7 +114,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const validationFrame = useRef(0);
   const previousPage = useRef(page);
   const currentOperator = operatorId();
-  const writePage = !["dashboard", "audit", "export", "members", "admin", "corrections", "my-requests"].includes(page);
+  const writePage = !["dashboard", "audit", "export", "members", "admin", "corrections", "my-requests", "imports"].includes(page);
   const t = text[language];
   const navItems: NavItem[] = [
     { page: "dashboard", label: t.dashboard, icon: "dashboard", group: "primary" },
@@ -131,6 +132,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     { page: "admin", label: language === "th" ? "ดูแลระบบ" : "Administration", icon: "dashboard", group: "primary" },
     { page: "corrections", label: language === "th" ? "คำร้องแก้ไข" : "Corrections", icon: "audit", group: "primary" },
   ];
+  navItems.push({ page: "imports", label: language === "th" ? "นำเข้าข้อมูล" : "Imports", icon: "export", group: "system" });
   const visibleNav = adminMode
     ? navItems.filter((item) => adminPages.includes(item.page))
     : navItems.filter((item) => !adminPages.includes(item.page));
@@ -511,6 +513,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           {page === "my-requests" && <MyRequests language={language} />}
           {page === "admin" && isAdmin && <AdminHome language={language} onNavigate={navigate} />}
           {page === "corrections" && isAdmin && <AdminRequests language={language} />}
+          {page === "imports" && isAdmin && <Imports language={language} />}
           {page === "due" && <Due t={t} />}
           {page === "batches" && <Batches t={t} />}
           {page === "fish" && <Fish t={t} />}

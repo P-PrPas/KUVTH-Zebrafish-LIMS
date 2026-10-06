@@ -9,7 +9,7 @@ import zipfile
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, Body, File, Form, Request, Response, UploadFile
 
 from ...runtime.errors import APIError
 from ...services.import_sources import (
@@ -181,6 +181,31 @@ def build_import_router(store: Any) -> APIRouter:
         if offset < 0 or not 1 <= limit <= 100:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return {"items": repository.list_issues(job_id, offset, limit)}
+
+    @router.patch("/{job_id}/records/{record_id}")
+    def revise_record(request: Request, job_id: str, record_id: str,
+                      body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        if not isinstance(body.get("revision"), int) or isinstance(body["revision"], bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(body.get("working"), dict) or not isinstance(body.get("reason"), str):
+            raise APIError(400, "invalid_edit", "Provide working values and an edit reason")
+        return repository.revise_record(job_id, record_id, body["working"], body["reason"],
+                                        body["revision"], actor)
+
+    @router.post("/{job_id}/issues/{issue_id}/decision")
+    def decide_issue(request: Request, job_id: str, issue_id: str,
+                     body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        if not isinstance(body.get("revision"), int) or isinstance(body["revision"], bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(body.get("decision"), str) or not isinstance(body.get("reason"), str):
+            raise APIError(400, "invalid_decision", "Provide a decision and reason")
+        value = body.get("resolutionValue")
+        if value is not None and (not isinstance(value, str) or len(value) > 20000):
+            raise APIError(400, "invalid_resolution", "Resolution value must be text")
+        return repository.decide_issue(job_id, issue_id, body["decision"], body["reason"],
+                                       value, body["revision"], actor)
 
     @router.get("/{job_id}/files/{file_id}")
     def download_file(request: Request, job_id: str, file_id: str) -> Response:
