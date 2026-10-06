@@ -23,6 +23,6 @@ ALTER TABLE clone_fish ADD CONSTRAINT ck_fish_exit_consistent CHECK (
     (status = 'DEAD' AND exit_date IS NOT NULL AND exit_reason = 'DEAD') OR
     (status = 'FROZEN' AND exit_date IS NOT NULL AND exit_reason = 'FROZEN') OR
     (status = 'DISCARDED' AND exit_date IS NOT NULL AND exit_reason IN ('DISCARDED', 'LOST'))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+);
 ALTER TABLE clone_fish DROP COLUMN disposition;
 ALTER TABLE clone_fish DROP COLUMN life_state;
