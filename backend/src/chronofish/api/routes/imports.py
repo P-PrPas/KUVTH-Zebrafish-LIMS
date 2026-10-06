@@ -246,6 +246,11 @@ def build_import_router(store: Any) -> APIRouter:
         _actor(request)
         return {"items": repository.fish_statuses(job_id)}
 
+    @router.get("/{job_id}/historical-summary")
+    def historical_summary(request: Request, job_id: str) -> dict[str, Any]:
+        _actor(request)
+        return repository.historical_summary(job_id)
+
     @router.post("/{job_id}/fish-status/{fish_id}")
     def review_fish_status(request: Request, job_id: str, fish_id: str,
                            body: dict[str, Any] = Body(...)) -> dict[str, Any]:

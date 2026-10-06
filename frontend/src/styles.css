@@ -4374,5 +4374,9 @@ button:disabled:hover {
 .import-page__tabs { display: flex; gap: .5rem; margin: 1rem 0; }
 .import-page__tabs button[aria-current="page"] { font-weight: 700; border-color: #26747a; }
 .import-page__deferred-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .7rem; align-items: end; }
+.import-page__summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+.import-page__summary > div { overflow-x: auto; }
+.import-page__summary table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.import-page__summary th, .import-page__summary td { padding: .45rem; border-bottom: 1px solid #cbdcda; text-align: left; }
 @media (max-width: 760px) { .import-page__status-row { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

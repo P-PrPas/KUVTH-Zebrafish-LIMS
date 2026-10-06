@@ -39,7 +39,9 @@ def deferred_cells(kind: str, source: dict[str, Any]) -> list[tuple[str, Any]]:
     if kind == "sheet_metadata":
         return list(source.items())
     if kind == "embryo_candidate":
-        represented_context = {"B", "C", "V", "W", "X", "Y", "AC", "AF"}
+        represented_context = {"B", "C", "V", "W", "X", "Y", "AC", "AF",
+                               "D", "E", "F", "G", "H", "I", "J", "K",
+                               "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"}
         context = source.get("sourceContext", {})
         return [(f"sourceContext.{column}", entry.get("value"))
                 for column, entry in context.items() if column not in represented_context

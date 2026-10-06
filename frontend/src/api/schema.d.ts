@@ -316,6 +316,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/historical-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Historical-only stage counts and outcomes by source precision */
+        get: operations["getImportHistoricalSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/fish-status/{fishId}": {
         parameters: {
             query?: never;
@@ -3654,6 +3673,33 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Fish status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportHistoricalSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate historical counts and observations without operational timing metrics */
             200: {
                 headers: {
                     [name: string]: unknown;
