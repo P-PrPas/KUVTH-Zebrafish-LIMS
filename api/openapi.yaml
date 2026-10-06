@@ -447,7 +447,7 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       tags: [Imports]
-      summary: Atomically confirm a selected mix of fish, specimen, count, and V2 embryo sheets
+      summary: Confirm selected data sheets atomically and retain summary sheets as references
       operationId: confirmMixedImport
       requestBody:
         required: true
@@ -464,7 +464,7 @@ paths:
                 aggregateWarningBypassReason: { type: string }
                 embryoWarningBypassReason: { type: string }
       responses:
-        '200': { description: All supported sheets committed in one transaction }
+        '200': { description: Data committed atomically; reconciliation sheets retained without canonical writes }
         '403': { description: Admin access required }
         '409': { description: Any unresolved issue or validation failure rolls back the whole job }
   /imports/{jobId}/fish-status:

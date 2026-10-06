@@ -366,7 +366,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Atomically confirm a selected mix of fish, specimen, count, and V2 embryo sheets */
+        /** Confirm selected data sheets atomically and retain summary sheets as references */
         post: operations["confirmMixedImport"];
         delete?: never;
         options?: never;
@@ -3905,7 +3905,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description All supported sheets committed in one transaction */
+            /** @description Data committed atomically; reconciliation sheets retained without canonical writes */
             200: {
                 headers: {
                     [name: string]: unknown;
