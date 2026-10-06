@@ -4378,5 +4378,8 @@ button:disabled:hover {
 .import-page__summary > div { overflow-x: auto; }
 .import-page__summary table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .import-page__summary th, .import-page__summary td { padding: .45rem; border-bottom: 1px solid #cbdcda; text-align: left; }
+.import-page__warning details { margin: .65rem 0; overflow-x: auto; }
+.import-page__warning details table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.import-page__warning details th, .import-page__warning details td { padding: .4rem; border-bottom: 1px solid #dcc899; text-align: left; }
 @media (max-width: 760px) { .import-page__status-row { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

@@ -237,6 +237,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Compare this draft with exact prior files, source positions, and active codes */
+        get: operations["compareImportSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/confirm-fish-specimens": {
         parameters: {
             query?: never;
@@ -3514,6 +3533,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Master mappings and warnings before confirmation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    compareImportSources: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Advisory reimport matches without changing canonical data */
             200: {
                 headers: {
                     [name: string]: unknown;

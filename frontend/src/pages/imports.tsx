@@ -15,6 +15,7 @@ type FishStatusEdit = { status: string; lifeState: string; disposition: string; 
 type DeferredField = { id: string; jobId: string; sheetName: string; sourceLocator: string; sourceColumn: string; sourceValue: unknown; status: string; targetTable: string | null; targetId: string | null; targetField?: string | null; targetFields: string[]; rowVersion: number | null };
 type DeferredEdit = { targetField: string; value: string; reason: string };
 type HistoricalSummary = { stageCounts: { stageLabel: string; armType: string | null; sourceCount: number; nTotal: number | null; nAlive: number | null; nNormal: number | null; nAbnormal: number | null; numerator: number | null; denominator: number | null }[]; observations: { subjectType: string; stageLabel: string | null; outcome: string | null; timePrecision: string; count: number }[] };
+type ImportComparison = { matchedFiles: { currentFile: string; priorFile: string; priorJobId: string; priorJobStatus: string; sha256: string }[]; records: { recordId: string; sheetName: string; sourceLocator: string; recordKind: string; activeTargetId: string | null; previousJobId: string | null; previousRecordId: string | null; sameSourcePosition: boolean; sourceChanged: boolean | null; workingChanged: boolean | null; changedFieldCount: number; changedFields: { field: string; before: string | null; after: string | null }[] }[] };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -55,6 +56,7 @@ export function Imports({ language }: { language: Language }) {
   const [deferredEdits, setDeferredEdits] = useState<Record<string, DeferredEdit>>({});
   const [historicalSummary, setHistoricalSummary] = useState<HistoricalSummary | null>(null);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [comparison, setComparison] = useState<ImportComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -76,7 +78,7 @@ export function Imports({ language }: { language: Language }) {
     if (detail?.job.id !== id) {
       setSiteMappings({}); setDonorMappings({}); setZeroBypassReason("");
     }
-    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish, summary] = await Promise.all([
+    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish, summary, nextComparison] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
       json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
@@ -85,6 +87,7 @@ export function Imports({ language }: { language: Language }) {
       json<{ items: MasterOption[] }>("/donor-cell-lines?limit=500"),
       json<{ items: ImportedFishStatus[] }>(`/imports/${id}/fish-status`),
       json<HistoricalSummary>(`/imports/${id}/historical-summary`),
+      json<ImportComparison>(`/imports/${id}/comparison?offset=${nextRecords}&limit=50`),
     ]);
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
@@ -96,6 +99,7 @@ export function Imports({ language }: { language: Language }) {
     setDonorOptions(donorCatalog.items);
     setFishStatuses(importedFish.items);
     setHistoricalSummary(summary);
+    setComparison(nextComparison);
     setSummaryExpanded(false);
     setFishStatusEdits(Object.fromEntries(importedFish.items.map((fish) => [fish.id, {
       status: fish.status, lifeState: fish.lifeState, disposition: fish.disposition,
@@ -313,6 +317,17 @@ export function Imports({ language }: { language: Language }) {
     {detail && <section className="import-page__panel"><h2>{th ? "2. ตรวจฉบับร่าง" : "2. Review draft"}</h2>
       <p>{detail.recordCount} {th ? "รายการ" : "records"} · {detail.issueCount} {th ? "ประเด็น" : "issues"} · Revision {detail.job.revision}</p>
       <p className="muted">{th ? "ไฟล์ต้นฉบับเก็บแยกจากข้อมูลที่แก้ไข ทุกการตัดสินใจมีประวัติ" : "Original files are separate from edits. Every decision is audited."}</p>
+      {comparison && (comparison.matchedFiles.length > 0 || comparison.records.length > 0) && <div className="import-page__warning" role="alert">
+        <h3>{th ? "ตรวจไฟล์ซ้ำและความต่างก่อนนำเข้า" : "Review duplicate sources and changes"}</h3>
+        <p>{th ? "รหัสปลาหรือตัวอย่างที่มีอยู่จะนำเข้าซ้ำไม่ได้ ถ้าต้องแก้ข้อมูลเก่า ให้ตรวจ dependency และย้อนงานเดิมก่อน แล้วจึงนำเข้าไฟล์ที่แก้แล้ว" : "Existing fish or specimen codes cannot be imported twice. Review dependencies and revert the previous job before a corrected reimport."}</p>
+        {comparison.matchedFiles.map((match, index) => <p key={index}>{th ? "ไฟล์ตรงกันทุกไบต์" : "Exact file match"}: {match.currentFile} · {th ? "งานเดิม" : "prior job"} {match.priorJobId} ({match.priorJobStatus}) · SHA-256 {match.sha256.slice(0, 12)}…</p>)}
+        {comparison.records.map((match) => <details key={match.recordId}><summary><strong>{match.sheetName} · {match.sourceLocator}</strong> · {match.recordKind} · {match.activeTargetId ? (th ? "รหัสนี้มีอยู่แล้ว" : "active code exists") : (th ? "ตำแหน่งต้นทางเคยนำเข้า" : "source position imported before")}{match.workingChanged !== null ? ` · ${match.changedFieldCount} ${th ? "ค่าต่างกัน" : "changed fields"}` : ""}</summary>
+          {match.activeTargetId && <p>{th ? "ข้อมูลจริง" : "Active target"}: {match.activeTargetId}</p>}
+          {match.previousJobId && <button type="button" onClick={() => void openJob(match.previousJobId!).catch((cause: Error) => setError(cause.message))}>{th ? "เปิดงานนำเข้าเดิม" : "Open prior job"}</button>}
+          {match.changedFields.length > 0 && <table><thead><tr><th>{th ? "ฟิลด์" : "Field"}</th><th>{th ? "เดิม" : "Before"}</th><th>{th ? "ใหม่" : "After"}</th></tr></thead><tbody>{match.changedFields.map((change, index) => <tr key={index}><td>{change.field}</td><td>{change.before ?? "—"}</td><td>{change.after ?? "—"}</td></tr>)}</tbody></table>}
+          {match.changedFieldCount > match.changedFields.length && <p>{th ? "แสดงบางส่วน กรุณาเปิดไฟล์ต้นฉบับเพื่อตรวจทั้งหมด" : "Showing the first changes; inspect the source files for the rest."}</p>}
+        </details>)}
+      </div>}
       <div className="import-page__files">{detail.files.map((file) => <button type="button" key={file.id} onClick={() => void download(file.id, file.fileName)}>{file.fileName} ↓ <small>SHA-256 {file.sha256.slice(0, 12)}…</small></button>)}</div>
       {detail.job.status === "draft" && mappingRequirements?.canConfirmFishSpecimens && <div className="import-page__mapping"><h3>{th ? "3. จับคู่ข้อมูลก่อนยืนยัน" : "3. Map before confirmation"}</h3>
         <p className="muted">{th ? "เลือกสถานที่และ donor cell ที่มีอยู่จริง ระบบจะนำเข้าทั้งงานพร้อมกัน" : "Choose existing sites and donor cells. The job commits as one transaction."}</p>
