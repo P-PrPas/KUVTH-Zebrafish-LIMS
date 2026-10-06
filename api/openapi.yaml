@@ -267,7 +267,7 @@ paths:
       - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Imports]
-      summary: Interpret a fish or specimen source row without writing canonical data
+      summary: Interpret a V2 embryo, fish, or specimen row without writing canonical data
       operationId: interpretImportRecord
       responses:
         '200': { description: Interpreted values, observations, and unresolved meanings }
