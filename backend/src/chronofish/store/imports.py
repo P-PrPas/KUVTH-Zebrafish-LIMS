@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -618,6 +619,9 @@ class ImportRepository:
             sites.add(row["sheet_name"])
             if any(entry["outcome"] == "UNRESOLVED_ZERO" for entry in meaning["observations"]):
                 ambiguous_zero.append(f"{row['sheet_name']} {row.get('source_locator', '')}".strip())
+        groups = sum((bool(kinds & {"fish", "specimen"}),
+                      bool(kinds & {"legacy_lot", "scnt_aggregate", "control_aggregate"}),
+                      "embryo_candidate" in kinds))
         return {"donorSources": sorted(donor_sources), "sheetNames": sorted(sites),
                 "recordKinds": sorted(kinds), "ambiguousZeroRecords": ambiguous_zero,
                 "unresolvedIssueCount": unresolved_count,
@@ -629,11 +633,15 @@ class ImportRepository:
                 "canConfirmAggregate": bool(rows) and kinds <= {
                     "legacy_lot", "scnt_aggregate", "control_aggregate"},
                 "canConfirmEmbryos": "embryo_candidate" in kinds and kinds <= {
+                    "embryo_candidate", "sheet_metadata"},
+                "canConfirmMixed": groups >= 2 and kinds <= {
+                    "fish", "specimen", "legacy_lot", "scnt_aggregate", "control_aggregate",
                     "embryo_candidate", "sheet_metadata"}}
 
-    def confirm_aggregate(self, job_id: str, revision: int, actor: dict[str, Any],
-                          warning_reason: str) -> dict[str, Any]:
-        """Keep historical counts outside operational timing metrics, in one transaction."""
+    def confirm_all(self, job_id: str, revision: int, actor: dict[str, Any],
+                    site_mappings: dict[str, str], donor_mappings: dict[str, str],
+                    zero_reason: str, aggregate_reason: str, embryo_reason: str) -> dict[str, Any]:
+        """Commit all supported selected sheets in one database transaction."""
         if self.engine is None:
             raise APIError(503, "database_required", "Canonical import requires the configured database")
         now = _now()
@@ -643,12 +651,56 @@ class ImportRepository:
             if job is None:
                 raise APIError(404, "not_found", "Import job was not found")
             self._check_draft(job, revision)
+            kinds = {row[0] for row in connection.execute(text(
+                "SELECT DISTINCT record_kind FROM import_record WHERE job_id = :job"
+            ), {"job": job_id})}
+            supported = {"fish", "specimen", "legacy_lot", "scnt_aggregate",
+                         "control_aggregate", "embryo_candidate", "sheet_metadata"}
+            if not kinds or not kinds <= supported or ("sheet_metadata" in kinds and "embryo_candidate" not in kinds):
+                raise APIError(409, "not_ready", "This job has unsupported or incomplete sheet types")
+            results: dict[str, Any] = {}
+            if kinds & {"legacy_lot", "scnt_aggregate", "control_aggregate"}:
+                results["aggregate"] = self.confirm_aggregate(
+                    job_id, revision, actor, aggregate_reason, connection, False)
+            if "embryo_candidate" in kinds:
+                results["embryos"] = self.confirm_v2_embryos(
+                    job_id, revision, actor, site_mappings, embryo_reason, connection, False)
+            if kinds & {"fish", "specimen"}:
+                results["fishSpecimens"] = self.confirm_fish_specimens(
+                    job_id, revision, actor, site_mappings, donor_mappings, zero_reason, connection, False)
+            connection.execute(text(
+                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+            ), {"actor": actor["id"], "now": now, "id": job_id})
+            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                        {"status": "committed", "components": results,
+                         "zeroBypassReason": zero_reason.strip() or None,
+                         "aggregateWarningBypassReason": aggregate_reason.strip() or None,
+                         "embryoWarningBypassReason": embryo_reason.strip() or None}, now)
+            return {"jobId": job_id, "status": "committed", "revision": revision + 1,
+                    "components": results}
+
+    def confirm_aggregate(self, job_id: str, revision: int, actor: dict[str, Any],
+                          warning_reason: str, _connection: Any = None,
+                          _finalize: bool = True) -> dict[str, Any]:
+        """Keep historical counts outside operational timing metrics, in one transaction."""
+        if self.engine is None:
+            raise APIError(503, "database_required", "Canonical import requires the configured database")
+        now = _now()
+        with (self.engine.begin() if _connection is None else nullcontext(_connection)) as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
+                                     {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            self._check_draft(job, revision)
             records = [dict(row) for row in connection.execute(text(
-                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+                "SELECT * FROM import_record WHERE job_id = :id AND record_kind IN "
+                "('legacy_lot', 'scnt_aggregate', 'control_aggregate') ORDER BY sheet_name, row_no, id"
             ), {"id": job_id}).mappings()]
-            if not records or any(row["record_kind"] not in {
-                "legacy_lot", "scnt_aggregate", "control_aggregate"} for row in records):
+            if not records:
                 raise APIError(409, "not_ready", "Confirm a job containing only historical count sheets")
+            if _finalize:
+                self._check_record_kinds(connection, job_id, {"legacy_lot", "scnt_aggregate", "control_aggregate"})
             unresolved = connection.execute(text(
                 "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
                 "AND severity IN ('blocking', 'overridable')"
@@ -684,35 +736,38 @@ class ImportRepository:
             for record in records:
                 self._mark_imported(connection, record["id"], "historical_stage_count",
                                     first_ids[record["id"]], now)
-            connection.execute(text(
-                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
-                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
-            ), {"actor": actor["id"], "now": now, "id": job_id})
-            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
-                        {"status": "committed", "historicalCountRows": len(rows),
-                         "warningCount": len(warnings), "warningBypassReason": warning_reason.strip() or None}, now)
+            if _finalize:
+                connection.execute(text(
+                    "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                    "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+                ), {"actor": actor["id"], "now": now, "id": job_id})
+                self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                            {"status": "committed", "historicalCountRows": len(rows),
+                             "warningCount": len(warnings), "warningBypassReason": warning_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
                     "historicalCountRows": len(rows), "warningCount": len(warnings)}
 
     def confirm_v2_embryos(self, job_id: str, revision: int, actor: dict[str, Any],
-                           site_mappings: dict[str, str], warning_reason: str) -> dict[str, Any]:
+                           site_mappings: dict[str, str], warning_reason: str,
+                           _connection: Any = None, _finalize: bool = True) -> dict[str, Any]:
         """Commit V2 identities and observations without inventing operational lots."""
         if self.engine is None:
             raise APIError(503, "database_required", "Canonical import requires the configured database")
         now = _now()
-        with self.engine.begin() as connection:
+        with (self.engine.begin() if _connection is None else nullcontext(_connection)) as connection:
             job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
                                      {"id": job_id}).mappings().first()
             if job is None:
                 raise APIError(404, "not_found", "Import job was not found")
             self._check_draft(job, revision)
             records = [dict(row) for row in connection.execute(text(
-                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+                "SELECT * FROM import_record WHERE job_id = :id AND record_kind IN "
+                "('embryo_candidate', 'sheet_metadata') ORDER BY sheet_name, row_no, id"
             ), {"id": job_id}).mappings()]
-            if not any(row["record_kind"] == "embryo_candidate" for row in records) or any(
-                row["record_kind"] not in {"embryo_candidate", "sheet_metadata"} for row in records
-            ):
+            if not any(row["record_kind"] == "embryo_candidate" for row in records):
                 raise APIError(409, "not_ready", "Confirm a job containing only V2 embryo sheets")
+            if _finalize:
+                self._check_record_kinds(connection, job_id, {"embryo_candidate", "sheet_metadata"})
             unresolved = connection.execute(text(
                 "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
                 "AND severity IN ('blocking', 'overridable')"
@@ -840,17 +895,18 @@ class ImportRepository:
                 else:
                     self._mark_imported(connection, record["id"], "historical_embryo",
                                         record_targets[record["id"]], now)
-            connection.execute(text(
-                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
-                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
-            ), {"actor": actor["id"], "now": now, "id": job_id})
-            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
-                        {"status": "committed", "historicalEmbryoCount": len(embryo_rows),
-                         "historicalObservationCount": len(observation_rows),
-                         "historicalControlCount": len(control_rows),
-                         "sourceMetadataRetainedCount": len(records) - len(embryo_rows),
-                         "warningCount": len(warnings),
-                         "warningBypassReason": warning_reason.strip() or None}, now)
+            if _finalize:
+                connection.execute(text(
+                    "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                    "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+                ), {"actor": actor["id"], "now": now, "id": job_id})
+                self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                            {"status": "committed", "historicalEmbryoCount": len(embryo_rows),
+                             "historicalObservationCount": len(observation_rows),
+                             "historicalControlCount": len(control_rows),
+                             "sourceMetadataRetainedCount": len(records) - len(embryo_rows),
+                             "warningCount": len(warnings),
+                             "warningBypassReason": warning_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
                     "historicalEmbryoCount": len(embryo_rows),
                     "historicalObservationCount": len(observation_rows),
@@ -859,22 +915,26 @@ class ImportRepository:
 
     def confirm_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
                                site_mappings: dict[str, str], donor_mappings: dict[str, str],
-                               zero_bypass_reason: str) -> dict[str, Any]:
+                               zero_bypass_reason: str, _connection: Any = None,
+                               _finalize: bool = True) -> dict[str, Any]:
         """Atomically import selected fish/specimen sheets after explicit master mapping."""
         if self.engine is None:
             raise APIError(503, "database_required", "Canonical import requires the configured database")
         now = _now()
-        with self.engine.begin() as connection:
+        with (self.engine.begin() if _connection is None else nullcontext(_connection)) as connection:
             job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
                                      {"id": job_id}).mappings().first()
             if job is None:
                 raise APIError(404, "not_found", "Import job was not found")
             self._check_draft(job, revision)
             records = [dict(row) for row in connection.execute(text(
-                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+                "SELECT * FROM import_record WHERE job_id = :id AND record_kind IN "
+                "('fish', 'specimen') ORDER BY sheet_name, row_no, id"
             ), {"id": job_id}).mappings()]
-            if not records or any(row["record_kind"] not in {"fish", "specimen"} for row in records):
+            if not records:
                 raise APIError(409, "not_ready", "Confirm a job containing only fish and specimen sheets")
+            if _finalize:
+                self._check_record_kinds(connection, job_id, {"fish", "specimen"})
             unresolved = connection.execute(text(
                 "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
                 "AND severity IN ('blocking', 'overridable')"
@@ -1011,15 +1071,16 @@ class ImportRepository:
             connection.execute(text(
                 "UPDATE fish_running_sequence SET next_running_no = :next WHERE id = :id"
             ), {"next": next_no, "id": sequence_id})
-            connection.execute(text(
-                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
-                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
-            ), {"actor": actor["id"], "now": now, "id": job_id})
-            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
-                        {"status": "committed", "fishCount": fish_count,
-                         "specimenCount": len(specimen_plan),
-                         "historicalObservationCount": observation_count,
-                         "zeroBypassReason": zero_bypass_reason.strip() or None}, now)
+            if _finalize:
+                connection.execute(text(
+                    "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                    "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+                ), {"actor": actor["id"], "now": now, "id": job_id})
+                self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                            {"status": "committed", "fishCount": fish_count,
+                             "specimenCount": len(specimen_plan),
+                             "historicalObservationCount": observation_count,
+                             "zeroBypassReason": zero_bypass_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
                     "fishCount": fish_count, "specimenCount": len(specimen_plan),
                     "historicalObservationCount": observation_count}
@@ -1030,6 +1091,14 @@ class ImportRepository:
             "UPDATE import_record SET target_table = :table, target_id = :target, status = 'imported', "
             "updated_at = :now WHERE id = :id"
         ), {"table": table, "target": target_id, "now": now, "id": record_id})
+
+    @staticmethod
+    def _check_record_kinds(connection: Any, job_id: str, allowed: set[str]) -> None:
+        kinds = {row[0] for row in connection.execute(text(
+            "SELECT DISTINCT record_kind FROM import_record WHERE job_id = :job"
+        ), {"job": job_id})}
+        if not kinds <= allowed:
+            raise APIError(409, "mixed_job", "This job contains other sheets; use whole-job confirmation")
 
     @staticmethod
     def _audit_insert(connection: Any, actor: dict[str, Any], table: str,
@@ -1189,6 +1258,10 @@ class ImportRepository:
                 embryo_ids = [str(row["target_id"]) for row in targets]
                 for embryo_id in embryo_ids:
                     if connection.execute(text(
+                        "SELECT id FROM historical_embryo WHERE id = :id AND deleted_at IS NULL FOR UPDATE"
+                    ), {"id": embryo_id}).first() is None:
+                        raise APIError(409, "revert_dependency", f"Embryo {embryo_id} changed after import")
+                    if connection.execute(text(
                         "SELECT id FROM historical_observation WHERE historical_embryo_id = :id "
                         "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
                     ), {"id": embryo_id, "job": job_id}).first():
@@ -1216,8 +1289,21 @@ class ImportRepository:
                         "historicalEmbryoCount": len(embryo_ids)}
             fish_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "clone_fish"]
             specimen_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "specimen"]
-            if len(fish_ids) + len(specimen_ids) != len(targets):
+            embryo_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "historical_embryo"]
+            count_record_ids = [str(row["target_id"]) for row in targets
+                                if row["target_table"] == "historical_stage_count"]
+            if len(fish_ids) + len(specimen_ids) + len(embryo_ids) + len(count_record_ids) != len(targets):
                 raise APIError(409, "revert_unsupported", "This import contains other canonical record types")
+            for embryo_id in embryo_ids:
+                if connection.execute(text(
+                    "SELECT id FROM historical_embryo WHERE id = :id AND deleted_at IS NULL FOR UPDATE"
+                ), {"id": embryo_id}).first() is None:
+                    raise APIError(409, "revert_dependency", f"Embryo {embryo_id} changed after import")
+                if connection.execute(text(
+                    "SELECT id FROM historical_observation WHERE historical_embryo_id = :id "
+                    "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+                ), {"id": embryo_id, "job": job_id}).first():
+                    raise APIError(409, "revert_dependency", f"Embryo {embryo_id} is used by another import")
             fish_id_set = set(fish_ids)
             for fish_id in fish_ids:
                 version = connection.execute(text(
@@ -1266,6 +1352,14 @@ class ImportRepository:
                 "UPDATE historical_observation SET deleted_at = :now WHERE import_job_id = :job AND deleted_at IS NULL"
             ), {"now": now, "job": job_id})
             connection.execute(text(
+                "UPDATE historical_stage_count SET deleted_at = :now "
+                "WHERE import_job_id = :job AND deleted_at IS NULL"
+            ), {"now": now, "job": job_id})
+            connection.execute(text(
+                "UPDATE historical_embryo SET deleted_at = :now "
+                "WHERE import_job_id = :job AND deleted_at IS NULL"
+            ), {"now": now, "job": job_id})
+            connection.execute(text(
                 "UPDATE clone_fish SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 "
                 "WHERE import_job_id = :job AND deleted_at IS NULL"
             ), {"now": now, "job": job_id})
@@ -1279,9 +1373,13 @@ class ImportRepository:
             ), {"actor": actor["id"], "now": now, "job": job_id})
             self._audit(connection, actor, "import_job", job_id, {"status": "committed"},
                         {"status": "reverted", "reason": reason.strip(),
-                         "fishCount": len(fish_ids), "specimenCount": len(specimen_ids)}, now)
+                         "fishCount": len(fish_ids), "specimenCount": len(specimen_ids),
+                         "historicalEmbryoCount": len(embryo_ids),
+                         "historicalCountRecords": len(count_record_ids)}, now)
             return {"jobId": job_id, "status": "reverted", "revision": revision + 1,
-                    "fishCount": len(fish_ids), "specimenCount": len(specimen_ids)}
+                    "fishCount": len(fish_ids), "specimenCount": len(specimen_ids),
+                    "historicalEmbryoCount": len(embryo_ids),
+                    "historicalCountRecords": len(count_record_ids)}
 
     @staticmethod
     def _audit(connection: Any, actor: dict[str, Any], table: str, record_id: str,

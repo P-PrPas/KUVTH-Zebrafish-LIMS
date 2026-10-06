@@ -8,7 +8,7 @@ type Job = { id: string; status: string; inputKind: string; revision: number; cr
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number; deferredFieldCount: number };
 type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
-type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[]; canConfirmEmbryos: boolean; embryoWarningCount: number; embryoWarningPreview: string[] };
+type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[]; canConfirmEmbryos: boolean; embryoWarningCount: number; embryoWarningPreview: string[]; canConfirmMixed: boolean };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
@@ -254,6 +254,21 @@ export function Imports({ language }: { language: Language }) {
     finally { setBusy(false); }
   }
 
+  async function confirmAll() {
+    if (!detail || !mappingRequirements) return;
+    if (!window.confirm(th ? "ยืนยันนำเข้าทุกชีตในงานนี้พร้อมกัน?" : "Commit every selected sheet in one transaction?")) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/${detail.job.id}/confirm-all`, { method: "POST",
+        body: JSON.stringify({ revision: detail.job.revision, siteMappings, donorMappings,
+          zeroBypassReason, aggregateWarningBypassReason: aggregateWarningReason,
+          embryoWarningBypassReason: embryoWarningReason }) });
+      await reloadJobs(); await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว" : "All selected sheets were imported atomically.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function saveFishStatus(fish: ImportedFishStatus) {
     if (!detail) return;
     const edit = fishStatusEdits[fish.id];
@@ -329,6 +344,19 @@ export function Imports({ language }: { language: Language }) {
         </details>)}
       </div>}
       <div className="import-page__files">{detail.files.map((file) => <button type="button" key={file.id} onClick={() => void download(file.id, file.fileName)}>{file.fileName} ↓ <small>SHA-256 {file.sha256.slice(0, 12)}…</small></button>)}</div>
+      {detail.job.status === "draft" && mappingRequirements?.canConfirmMixed && <div className="import-page__mapping">
+        <h3>{th ? "ยืนยันงานที่มีหลายชนิดชีต" : "Confirm mixed-sheet job"}</h3>
+        <p className="muted">{th ? "ทุกชีตที่เลือกรวมเป็นงานเดียว หากส่วนใดผิดพลาดจะไม่นำเข้าส่วนอื่น" : "Every selected sheet commits together. Any validation failure rolls back the entire job."}</p>
+        {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}</p>}
+        {mappingRequirements.sheetNames.map((sheet) => <label key={sheet}>{th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+          <select value={siteMappings[sheet] ?? ""} onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}><option value="">{th ? "เลือกสถานที่" : "Select site"}</option>{siteOptions.filter((site) => site.timeZone).map((site) => <option key={site.id} value={site.id}>{site.code} · {site.timeZone}</option>)}</select></label>)}
+        {mappingRequirements.donorSources.map((source) => <label key={source}>{th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
+          <select value={donorMappings[source] ?? ""} onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}><option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>{donorOptions.map((donor) => <option key={donor.id} value={donor.id}>{donor.strain} · {donor.preparation}{donor.batchCode ? ` · ${donor.batchCode}` : ""}</option>)}</select></label>)}
+        {mappingRequirements.ambiguousZeroRecords.length > 0 && <label>{th ? `เหตุผลสำหรับค่า 0 ที่ยังไม่ชัดเจน (${mappingRequirements.ambiguousZeroRecords.length} รายการ)` : `Reason for unresolved zero flags (${mappingRequirements.ambiguousZeroRecords.length})`}<textarea rows={2} value={zeroBypassReason} onChange={(event) => setZeroBypassReason(event.target.value)} /></label>}
+        {mappingRequirements.aggregateWarningCount > 0 && <div className="import-page__warning"><strong>{mappingRequirements.aggregateWarningCount} {th ? "ข้อควรตรวจในข้อมูลนับจำนวน" : "aggregate warnings"}</strong><ul>{mappingRequirements.aggregateWarningPreview.map((item, index) => <li key={index}>{item}</li>)}</ul><label>{th ? "เหตุผลที่ยอมรับ" : "Reason to accept"}<textarea rows={2} value={aggregateWarningReason} onChange={(event) => setAggregateWarningReason(event.target.value)} /></label></div>}
+        {mappingRequirements.recordKinds.includes("embryo_candidate") && <div className={mappingRequirements.embryoWarningCount > 0 ? "import-page__warning" : ""}><strong>{mappingRequirements.embryoWarningCount} {th ? "ข้อควรตรวจในข้อมูลตัวอ่อน" : "embryo warnings"}</strong><ul>{mappingRequirements.embryoWarningPreview.map((item, index) => <li key={index}>{item}</li>)}</ul><label>{th ? "เหตุผลหากยอมรับเวลาหรือค่าที่ไม่ชัดเจน" : "Reason for uncertain embryo values or clocks"}<textarea rows={2} value={embryoWarningReason} onChange={(event) => setEmbryoWarningReason(event.target.value)} /></label></div>}
+        <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || mappingRequirements.donorSources.some((source) => !donorMappings[source]) || (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim()) || (mappingRequirements.aggregateWarningCount > 0 && !aggregateWarningReason.trim()) || (mappingRequirements.embryoWarningCount > 0 && !embryoWarningReason.trim())} onClick={() => void confirmAll()}>{th ? "ยืนยันนำเข้าทุกชีตพร้อมกัน" : "Confirm all selected sheets"}</button>
+      </div>}
       {detail.job.status === "draft" && mappingRequirements?.canConfirmFishSpecimens && <div className="import-page__mapping"><h3>{th ? "3. จับคู่ข้อมูลก่อนยืนยัน" : "3. Map before confirmation"}</h3>
         <p className="muted">{th ? "เลือกสถานที่และ donor cell ที่มีอยู่จริง ระบบจะนำเข้าทั้งงานพร้อมกัน" : "Choose existing sites and donor cells. The job commits as one transaction."}</p>
         {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{th ? `ยังมีประเด็นที่ต้องแก้หรือข้ามพร้อมเหตุผล ${mappingRequirements.unresolvedIssueCount} รายการ` : `${mappingRequirements.unresolvedIssueCount} blocking or overridable issues still need decisions.`}</p>}

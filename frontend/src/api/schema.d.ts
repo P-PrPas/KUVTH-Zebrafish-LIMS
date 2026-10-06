@@ -316,6 +316,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/confirm-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically confirm a selected mix of fish, specimen, count, and V2 embryo sheets */
+        post: operations["confirmMixedImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/fish-status": {
         parameters: {
             query?: never;
@@ -3702,6 +3721,55 @@ export interface operations {
                 content?: never;
             };
             /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmMixedImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                    aggregateWarningBypassReason?: string;
+                    embryoWarningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description All supported sheets committed in one transaction */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any unresolved issue or validation failure rolls back the whole job */
             409: {
                 headers: {
                     [name: string]: unknown;

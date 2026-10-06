@@ -397,6 +397,31 @@ paths:
         '200': { description: Historical embryo identities and observations with provenance }
         '403': { description: Admin access required }
         '409': { description: Stale draft, duplicate, unresolved issue, mapping or warnings }
+  /imports/{jobId}/confirm-all:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Atomically confirm a selected mix of fish, specimen, count, and V2 embryo sheets
+      operationId: confirmMixedImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+                aggregateWarningBypassReason: { type: string }
+                embryoWarningBypassReason: { type: string }
+      responses:
+        '200': { description: All supported sheets committed in one transaction }
+        '403': { description: Admin access required }
+        '409': { description: Any unresolved issue or validation failure rolls back the whole job }
   /imports/{jobId}/fish-status:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
