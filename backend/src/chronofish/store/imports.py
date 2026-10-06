@@ -276,6 +276,8 @@ class ImportRepository:
                 "source": json.loads(row["source_json"]),
                 "working": json.loads(row["working_json"]),
                 "status": row["status"],
+                "targetTable": row["target_table"],
+                "targetId": str(row["target_id"]) if row["target_id"] else None,
             }
             for row in rows
         ]
@@ -351,6 +353,226 @@ class ImportRepository:
         if meaning is None:
             raise APIError(422, "not_interpreted", "This source layout has no interpretation yet")
         return {"recordId": record_id, "interpretation": meaning}
+
+    def mapping_requirements(self, job_id: str) -> dict[str, Any]:
+        self._job(job_id)
+        if self.engine is None:
+            with self.lock:
+                rows = [row for row in self.store.import_records.values() if row["job_id"] == job_id]
+                unresolved_count = sum(1 for issue in self.store.import_issues.values()
+                                       if issue["job_id"] == job_id and issue["status"] == "open"
+                                       and issue["severity"] in {"blocking", "overridable"})
+        else:
+            with self.engine.connect() as connection:
+                rows = [dict(row) for row in connection.execute(text(
+                    "SELECT record_kind, sheet_name, source_locator, working_json FROM import_record WHERE job_id = :id"
+                ), {"id": job_id}).mappings()]
+                unresolved_count = int(connection.execute(text(
+                    "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
+                    "AND severity IN ('blocking', 'overridable')"
+                ), {"id": job_id}).scalar_one())
+        donor_sources: set[str] = set()
+        sites: set[str] = set()
+        kinds: set[str] = set()
+        ambiguous_zero: list[str] = []
+        for row in rows:
+            kinds.add(row["record_kind"])
+            if row["record_kind"] != "fish":
+                continue
+            meaning = interpret("fish", json.loads(row["working_json"])) or {}
+            donor_sources.add(str(meaning.get("donorSource") or "").strip())
+            sites.add(row["sheet_name"])
+            if any(entry["outcome"] == "UNRESOLVED_ZERO" for entry in meaning["observations"]):
+                ambiguous_zero.append(f"{row['sheet_name']} {row.get('source_locator', '')}".strip())
+        return {"donorSources": sorted(donor_sources), "sheetNames": sorted(sites),
+                "recordKinds": sorted(kinds), "ambiguousZeroRecords": ambiguous_zero,
+                "unresolvedIssueCount": unresolved_count,
+                "canConfirmFishSpecimens": bool(rows) and kinds <= {"fish", "specimen"}}
+
+    def confirm_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
+                               site_mappings: dict[str, str], donor_mappings: dict[str, str],
+                               zero_bypass_reason: str) -> dict[str, Any]:
+        """Atomically import selected fish/specimen sheets after explicit master mapping."""
+        if self.engine is None:
+            raise APIError(503, "database_required", "Canonical import requires the configured database")
+        now = _now()
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
+                                     {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            self._check_draft(job, revision)
+            records = [dict(row) for row in connection.execute(text(
+                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+            ), {"id": job_id}).mappings()]
+            if not records or any(row["record_kind"] not in {"fish", "specimen"} for row in records):
+                raise APIError(409, "not_ready", "Confirm a job containing only fish and specimen sheets")
+            unresolved = connection.execute(text(
+                "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
+                "AND severity IN ('blocking', 'overridable')"
+            ), {"id": job_id}).scalar_one()
+            if unresolved:
+                raise APIError(409, "issues_open", "Resolve blocking and overridable issues first")
+            sites = {str(row["id"]): row for row in connection.execute(text(
+                "SELECT id, time_zone FROM site WHERE active = TRUE AND deleted_at IS NULL"
+            )).mappings()}
+            donors = {str(row["id"]) for row in connection.execute(text(
+                "SELECT id FROM donor_cell_line WHERE active = TRUE AND deleted_at IS NULL"
+            )).mappings()}
+            fish_plan: list[tuple[dict[str, Any], dict[str, Any], str, str]] = []
+            specimen_plan: list[tuple[dict[str, Any], dict[str, Any]]] = []
+            fish_codes: set[str] = set()
+            specimen_codes: set[str] = set()
+            for record in records:
+                meaning = interpret(record["record_kind"], json.loads(record["working_json"]))
+                if meaning is None:
+                    raise APIError(409, "not_ready", "A selected source record cannot be interpreted")
+                if record["record_kind"] == "fish":
+                    code = str(meaning.get("fishCode") or "").strip()
+                    donor_source = str(meaning.get("donorSource") or "").strip()
+                    donor_id = donor_mappings.get(donor_source)
+                    site_id = site_mappings.get(record["sheet_name"])
+                    if not code or len(code) > 150 or not meaning.get("dob"):
+                        raise APIError(409, "fish_incomplete", f"{record['sheet_name']} {record['source_locator']}: fish code or DOB is missing")
+                    if donor_id not in donors or site_id not in sites or not sites[site_id]["time_zone"]:
+                        raise APIError(409, "master_mapping_missing", f"{record['sheet_name']} {record['source_locator']}: choose an active donor and site with time zone")
+                    norm = code.casefold()
+                    if norm in fish_codes:
+                        raise APIError(409, "duplicate_fish", f"Fish code {code} appears twice in this import")
+                    fish_codes.add(norm)
+                    if any(entry["outcome"] == "UNRESOLVED_ZERO" for entry in meaning["observations"]):
+                        if not zero_bypass_reason.strip() or len(zero_bypass_reason) > 2000:
+                            raise APIError(409, "ambiguous_survival", f"{record['sheet_name']} {record['source_locator']}: give a bypass reason for zeros after an undated disposition")
+                    if meaning["warnings"] and any("expected 1 or 0" in warning for warning in meaning["warnings"]):
+                        raise APIError(409, "invalid_survival", f"{record['sheet_name']} {record['source_locator']}: fix invalid day flags")
+                    fish_plan.append((record, meaning, site_id, donor_id))
+                else:
+                    code = str(meaning.get("specimenCode") or "").strip()
+                    if not code or len(code) > 50 or not meaning.get("specimenKind"):
+                        raise APIError(409, "specimen_incomplete", f"{record['sheet_name']} {record['source_locator']}: specimen code is invalid")
+                    norm = code.casefold()
+                    if norm in specimen_codes:
+                        raise APIError(409, "duplicate_specimen", f"Specimen code {code} appears twice in this import")
+                    specimen_codes.add(norm)
+                    specimen_plan.append((record, meaning))
+            for code in fish_codes:
+                found = connection.execute(text(
+                    "SELECT id FROM clone_fish WHERE fish_code_norm = :code"
+                ), {"code": code}).first()
+                if found:
+                    raise APIError(409, "duplicate_fish", f"Fish code {code} already exists")
+            all_specimens = [dict(row) for row in connection.execute(text(
+                "SELECT id, specimen_code, deleted_at FROM specimen"
+            )).mappings()]
+            existing_specimens = {str(row["specimen_code"]).strip().casefold(): str(row["id"])
+                                  for row in all_specimens if row["deleted_at"] is None}
+            all_specimen_codes = {str(row["specimen_code"]).strip().casefold() for row in all_specimens}
+            for code in specimen_codes:
+                if code in all_specimen_codes:
+                    raise APIError(409, "duplicate_specimen", f"Specimen code {code} already exists")
+            available_specimens = set(existing_specimens) | specimen_codes
+            for record, meaning, _, _ in fish_plan:
+                missing_codes = [str(code) for code in meaning["sourceSpecimenCodes"]
+                                 if str(code).strip().casefold() not in available_specimens]
+                if missing_codes:
+                    raise APIError(409, "specimen_missing",
+                                   f"{record['sheet_name']} {record['source_locator']}: import specimen {', '.join(missing_codes)} first")
+            sequence_id = "00000000-0000-7000-8000-000000000006"
+            next_no = connection.execute(text(
+                "SELECT next_running_no FROM fish_running_sequence WHERE id = :id FOR UPDATE"
+            ), {"id": sequence_id}).scalar_one()
+            inserted_specimens: dict[str, str] = dict(existing_specimens)
+            for record, meaning in specimen_plan:
+                specimen_id = uuid7()
+                code = meaning["specimenCode"]
+                connection.execute(text(
+                    "INSERT INTO specimen (id, clone_fish_id, specimen_code, specimen_kind, specimen_type, "
+                    "created_at, updated_at) VALUES (:id, NULL, :code, :kind, :type, :now, :now)"
+                ), {"id": specimen_id, "code": code, "kind": meaning["specimenKind"],
+                    "type": meaning["specimenType"], "now": now})
+                inserted_specimens[code.casefold()] = specimen_id
+                self._mark_imported(connection, record["id"], "specimen", specimen_id, now)
+                self._audit_insert(connection, actor, "specimen", specimen_id, meaning, now)
+            fish_count = 0
+            observation_count = 0
+            historical_rows: list[dict[str, Any]] = []
+            links: set[tuple[str, str]] = set()
+            for record, meaning, site_id, donor_id in fish_plan:
+                fish_id = uuid7()
+                exit_date = meaning["exitDate"] if meaning["status"] in {"DEAD", "FROZEN", "DISCARDED"} else None
+                exit_reason = meaning["status"] if exit_date else None
+                connection.execute(text(
+                    "INSERT INTO clone_fish (id, fish_code, running_no, dob, donor_cell_line_id, site_id, import_job_id, "
+                    "status, life_state, disposition, biological_condition, sex, fin_clipped, "
+                    "exit_date, exit_reason, created_at, updated_at) VALUES "
+                    "(:id, :code, :running, :dob, :donor, :site, :job, :status, :life, :disposition, "
+                    ":condition, 'UNKNOWN', FALSE, :exit_date, :exit_reason, :now, :now)"
+                ), {"id": fish_id, "code": meaning["fishCode"], "running": next_no,
+                    "dob": meaning["dob"], "donor": donor_id, "site": site_id, "job": job_id,
+                    "status": meaning["status"], "life": meaning["lifeState"],
+                    "disposition": meaning["disposition"], "condition": meaning["biologicalCondition"],
+                    "exit_date": exit_date, "exit_reason": exit_reason, "now": now})
+                next_no += 1
+                fish_count += 1
+                self._mark_imported(connection, record["id"], "clone_fish", fish_id, now)
+                self._audit_insert(connection, actor, "clone_fish", fish_id,
+                                   {"fishCode": meaning["fishCode"], "sourceRecordId": record["id"]}, now)
+                for code in meaning["sourceSpecimenCodes"]:
+                    specimen_id = inserted_specimens.get(str(code).strip().casefold())
+                    if specimen_id:
+                        links.add((specimen_id, fish_id))
+                for entry in meaning["observations"]:
+                    if not entry["observedOn"]:
+                        continue
+                    observation_id = uuid7()
+                    historical_rows.append({
+                        "id": observation_id, "import_job_id": job_id, "import_record_id": record["id"],
+                        "clone_fish_id": fish_id, "observed_on": entry["observedOn"],
+                        "time_precision": "date", "stage_label": f"d{entry['day']}",
+                        "outcome": entry["outcome"], "biological_condition": "UNDETERMINED",
+                        "raw_value": json.dumps({"column": entry["sourceColumn"], "value": entry["sourceValue"]}, ensure_ascii=False),
+                        "created_at": now,
+                    })
+                    observation_count += 1
+            self._insert_many(connection, "historical_observation", historical_rows)
+            for specimen_id, fish_id in sorted(links):
+                connection.execute(text(
+                    "INSERT INTO specimen_fish_link (specimen_id, clone_fish_id, linked_at) "
+                    "VALUES (:specimen, :fish, :now)"
+                ), {"specimen": specimen_id, "fish": fish_id, "now": now})
+            connection.execute(text(
+                "UPDATE fish_running_sequence SET next_running_no = :next WHERE id = :id"
+            ), {"next": next_no, "id": sequence_id})
+            connection.execute(text(
+                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+            ), {"actor": actor["id"], "now": now, "id": job_id})
+            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                        {"status": "committed", "fishCount": fish_count,
+                         "specimenCount": len(specimen_plan),
+                         "historicalObservationCount": observation_count,
+                         "zeroBypassReason": zero_bypass_reason.strip() or None}, now)
+            return {"jobId": job_id, "status": "committed", "revision": revision + 1,
+                    "fishCount": fish_count, "specimenCount": len(specimen_plan),
+                    "historicalObservationCount": observation_count}
+
+    @staticmethod
+    def _mark_imported(connection: Any, record_id: str, table: str, target_id: str, now: datetime) -> None:
+        connection.execute(text(
+            "UPDATE import_record SET target_table = :table, target_id = :target, status = 'imported', "
+            "updated_at = :now WHERE id = :id"
+        ), {"table": table, "target": target_id, "now": now, "id": record_id})
+
+    @staticmethod
+    def _audit_insert(connection: Any, actor: dict[str, Any], table: str,
+                      record_id: str, value: dict[str, Any], now: datetime) -> None:
+        connection.execute(text(
+            "INSERT INTO audit_log (id, table_name, record_id, action, new_values, "
+            "actor_user_id, actor_email, occurred_at) VALUES "
+            "(:id, :table, :record, 'INSERT', :new, :actor, :email, :now)"
+        ), {"id": uuid7(), "table": table, "record": record_id,
+            "new": json.dumps(value, ensure_ascii=False),
+            "actor": actor["id"], "email": actor["email"], "now": now})
 
     @staticmethod
     def _audit(connection: Any, actor: dict[str, Any], table: str, record_id: str,

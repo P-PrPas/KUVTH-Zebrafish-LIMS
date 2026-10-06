@@ -37,6 +37,7 @@ INDEX_TABLES = {
     "ix_fish_recipient_egg_lot": "clone_fish",
     "ix_audit_actor": "audit_log",
     "uq_embryo_live_well": "embryo",
+    "ix_fish_import_job": "clone_fish",
 }
 
 HEADER = (

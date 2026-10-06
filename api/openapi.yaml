@@ -273,6 +273,40 @@ paths:
         '200': { description: Interpreted values, observations, and unresolved meanings }
         '403': { description: Admin access required }
         '422': { description: Source layout does not yet have an interpretation }
+  /imports/{jobId}/mapping-requirements:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: List source donor labels, site sheets, and ambiguous fish zeros
+      operationId: getImportMappingRequirements
+      responses:
+        '200': { description: Master mappings required before fish/specimen confirmation }
+        '403': { description: Admin access required }
+  /imports/{jobId}/confirm-fish-specimens:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Atomically confirm a fish/specimen-only import draft
+      operationId: confirmFishSpecimenImport
+      description: Requires an active site with time zone per fish sheet and active donor cell per source label.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+      responses:
+        '200': { description: Canonical fish/specimen and historical observation counts }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, unresolved issue, duplicate, or missing master mapping }
 
   /auth/request-code:
     post:
