@@ -152,14 +152,16 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
             has_observation_row = any(
                 _text(following.get(column)).casefold() == "observation time" for column in marker_columns
             )
-            degen_index = index + 2 if has_observation_row else index + 1
+            if not has_observation_row:
+                continue
+            degen_index = index + 2
             if degen_index >= len(rows) or not any(
                 _text(value).casefold() == "degenerated" for value in rows[degen_index].values()
             ):
                 continue
             block = {
                 "result": row,
-                "observationTime": following if has_observation_row else {},
+                "observationTime": following,
                 "degenerated": rows[degen_index],
                 "observedDead": rows[degen_index + 1] if degen_index + 1 < len(rows) else {},
                 "condition": rows[degen_index + 2] if degen_index + 2 < len(rows) else {},
