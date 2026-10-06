@@ -2844,7 +2844,8 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            cloneFishId: string;
+            cloneFishId: string | null;
+            linkedFishIds?: string[];
             /** @example CL1 */
             specimenCode: string;
             specimenKind: components["schemas"]["SpecimenKind"];

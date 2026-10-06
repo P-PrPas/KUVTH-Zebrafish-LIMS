@@ -401,7 +401,8 @@ def build_fish_router(store: Store) -> APIRouter:
         result["specimens"] = [
             copy.deepcopy(item)
             for item in state.entities["specimens"].values()
-            if item.get("cloneFishId") == fish_id and item.get("active") is not False and item.get("deletedAt") is None
+            if (item.get("cloneFishId") == fish_id or fish_id in item.get("linkedFishIds", []))
+            and item.get("active") is not False and item.get("deletedAt") is None
         ]
         result["embryoTimeline"] = sorted(
             (
@@ -457,7 +458,7 @@ def build_fish_router(store: Store) -> APIRouter:
             "items": [
                 copy.deepcopy(item)
                 for item in state.entities["specimens"].values()
-                if item.get("cloneFishId") == fish_id
+                if (item.get("cloneFishId") == fish_id or fish_id in item.get("linkedFishIds", []))
                 and item.get("active") is not False
                 and item.get("deletedAt") is None
             ]

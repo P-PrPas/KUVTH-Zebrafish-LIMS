@@ -204,6 +204,15 @@ class SQLStore:
                     item["firstAbnormalStageCode"] = stage_by_id.get(str(item["firstAbnormalStageId"]))
                 records[str(item["id"])] = item
             state.entities[resource] = records
+        for row in connection.execute(text(
+            "SELECT specimen_id, clone_fish_id FROM specimen_fish_link"
+        )).mappings():
+            specimen = state.entities["specimens"].get(str(row["specimen_id"]))
+            if specimen is not None:
+                linked = specimen.setdefault("linkedFishIds", [])
+                fish_id = str(row["clone_fish_id"])
+                if fish_id not in linked:
+                    linked.append(fish_id)
         profiles = state.entities["timing-profiles"]
         for profile in profiles.values():
             profile["entries"] = []

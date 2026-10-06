@@ -355,7 +355,11 @@ def _fish_rows(
     specimens_by_fish: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for specimen in state.entities["specimens"].values():
         if specimen.get("deletedAt") is None:
-            specimens_by_fish[str(specimen.get("cloneFishId"))].append(specimen)
+            fish_ids = {str(fish_id) for fish_id in specimen.get("linkedFishIds", [])}
+            if specimen.get("cloneFishId"):
+                fish_ids.add(str(specimen["cloneFishId"]))
+            for fish_id in fish_ids:
+                specimens_by_fish[fish_id].append(specimen)
     register, observations, specimens = [], [], []
     for fish_id, item in sorted(fish.items()):
         donor = state.entities["donor-cell-lines"].get(str(item.get("donorCellLineId")), {})
