@@ -2705,7 +2705,7 @@ components:
       enum: [STAGE_1, STAGE_2]
     Preparation:
       type: string
-      enum: [DISSOCIATED, CHUNKS]
+      enum: [DISSOCIATED, CHUNKS, UNKNOWN]
     SpecimenKind:
       type: string
       enum: [CL, RT, DC]
@@ -2744,6 +2744,7 @@ components:
         id: { type: string, format: uuid }
         code: { type: string, examples: [KU] }
         name: { type: string, examples: [Kasetsart University] }
+        timeZone: { type: [string, 'null'], examples: [Asia/Bangkok] }
         active: { type: boolean }
     SiteInput:
       type: object
@@ -2751,6 +2752,7 @@ components:
       properties:
         code: { type: string, minLength: 1, maxLength: 20 }
         name: { type: string, minLength: 1, maxLength: 200 }
+        timeZone: { type: [string, 'null'], maxLength: 64 }
         active: { type: boolean, default: true }
     SitePatchInput:
       type: object
@@ -2758,6 +2760,7 @@ components:
       properties:
         code: { type: string, minLength: 1, maxLength: 20 }
         name: { type: string, minLength: 1, maxLength: 200 }
+        timeZone: { type: [string, 'null'], maxLength: 64 }
         active: { type: boolean }
 
     Operator:
@@ -2790,7 +2793,7 @@ components:
         id: { type: string, format: uuid }
         strain: { type: string, examples: [AB] }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, UNKNOWN, null] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], examples: [AB240426_e48h] }
         active: { type: boolean }
@@ -2800,7 +2803,7 @@ components:
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: string, enum: [FRESH, CRYOPRESERVED] }
+        preservation: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean, default: true }
@@ -2810,7 +2813,7 @@ components:
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, UNKNOWN, null] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean }
