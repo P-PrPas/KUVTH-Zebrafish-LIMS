@@ -49,7 +49,7 @@ def _columns(value: str) -> frozenset[str]:
 
 
 TABLE_COLUMNS = {
-    "site": "id code name active created_at updated_at deleted_at",
+    "site": "id code name time_zone active created_at updated_at deleted_at",
     "operator": "id site_id name active created_at updated_at deleted_at",
     "donor_cell_line": (
         "id strain preparation batch_code preservation sample_info active created_at updated_at deleted_at"

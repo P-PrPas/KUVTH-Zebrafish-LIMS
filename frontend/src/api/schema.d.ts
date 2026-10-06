@@ -1758,7 +1758,7 @@ export interface components {
         /** @enum {string} */
         StageScope: "STAGE_1" | "STAGE_2";
         /** @enum {string} */
-        Preparation: "DISSOCIATED" | "CHUNKS";
+        Preparation: "DISSOCIATED" | "CHUNKS" | "UNKNOWN";
         /**
          * @description Clone, Recipient Tail, Donor Cell.
          * @enum {string}
@@ -1790,17 +1790,21 @@ export interface components {
             code: string;
             /** @example Kasetsart University */
             name: string;
+            /** @example Asia/Bangkok */
+            timeZone?: string | null;
             active: boolean;
         };
         SiteInput: {
             code: string;
             name: string;
+            timeZone?: string | null;
             /** @default true */
             active: boolean;
         };
         SitePatchInput: {
             code?: string;
             name?: string;
+            timeZone?: string | null;
             active?: boolean;
         };
         Operator: {
@@ -1832,7 +1836,7 @@ export interface components {
             strain: string;
             preparation: components["schemas"]["Preparation"];
             /** @enum {string|null} */
-            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            preservation?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN" | null;
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             /** @example AB240426_e48h */
@@ -1843,7 +1847,7 @@ export interface components {
             strain: string;
             preparation: components["schemas"]["Preparation"];
             /** @enum {string} */
-            preservation: "FRESH" | "CRYOPRESERVED";
+            preservation: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             batchCode?: string | null;
@@ -1854,7 +1858,7 @@ export interface components {
             strain?: string;
             preparation?: components["schemas"]["Preparation"];
             /** @enum {string|null} */
-            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            preservation?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN" | null;
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             batchCode?: string | null;
