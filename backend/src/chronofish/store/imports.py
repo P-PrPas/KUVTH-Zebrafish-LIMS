@@ -1497,6 +1497,59 @@ class ImportRepository:
                                {"now": now, "id": job_id})
             return {"revision": int(job["revision"]) + 1, "status": decision}
 
+    def bypass_issues(self, job_id: str, issue_ids: list[str], reason: str,
+                      revision: int, actor: dict[str, Any]) -> dict[str, Any]:
+        if not issue_ids or len(issue_ids) > 100 or len(issue_ids) != len(set(issue_ids)):
+            raise APIError(400, "invalid_issues", "Choose 1 to 100 distinct issues")
+        if not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain the bulk bypass decision")
+        now = _now()
+        if self.engine is None:
+            with self.lock:
+                job = self.store.import_jobs.get(job_id)
+                if job is None:
+                    raise APIError(404, "not_found", "Import job was not found")
+                self._check_draft(job, revision)
+                issues = [self.store.import_issues.get(issue_id) for issue_id in issue_ids]
+                if any(issue is None or issue["job_id"] != job_id or
+                       issue["status"] != "open" or issue["severity"] != "overridable"
+                       for issue in issues):
+                    raise APIError(409, "issue_changed", "All selected issues must be open and overridable")
+                for issue_id, issue in zip(issue_ids, issues):
+                    issue.update(status="bypassed", resolution_reason=reason.strip(),
+                                 resolved_by_user_id=actor["id"], updated_at=now)
+                    self._memory_audit(actor, "import_issue", issue_id, {"status": "open"},
+                                       {"status": "bypassed", "reason": reason.strip()}, now)
+                job["revision"] += 1
+                job["updated_at"] = now
+                return {"revision": job["revision"], "bypassedCount": len(issue_ids)}
+        with self.engine.begin() as connection:
+            job = connection.execute(text(
+                "SELECT * FROM import_job WHERE id = :id FOR UPDATE"
+            ), {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            self._check_draft(job, revision)
+            for issue_id in issue_ids:
+                issue = connection.execute(text(
+                    "SELECT id, status, severity FROM import_issue "
+                    "WHERE id = :id AND job_id = :job FOR UPDATE"
+                ), {"id": issue_id, "job": job_id}).mappings().first()
+                if issue is None or issue["status"] != "open" or issue["severity"] != "overridable":
+                    raise APIError(409, "issue_changed", "All selected issues must be open and overridable")
+                connection.execute(text(
+                    "UPDATE import_issue SET status = 'bypassed', resolution_reason = :reason, "
+                    "resolved_by_user_id = :actor, updated_at = :now WHERE id = :id"
+                ), {"reason": reason.strip(), "actor": actor["id"],
+                    "now": now, "id": issue_id})
+                self._audit(connection, actor, "import_issue", issue_id, {"status": "open"},
+                            {"status": "bypassed", "reason": reason.strip()}, now)
+            connection.execute(text(
+                "UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"
+            ), {"now": now, "id": job_id})
+            return {"revision": int(job["revision"]) + 1,
+                    "bypassedCount": len(issue_ids)}
+
     def _memory_audit(self, actor: dict[str, Any], table: str, record_id: str,
                       before: dict[str, Any], after: dict[str, Any], now: datetime) -> None:
         self.store.state.audits.append({

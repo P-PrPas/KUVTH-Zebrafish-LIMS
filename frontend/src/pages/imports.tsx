@@ -38,6 +38,8 @@ export function Imports({ language }: { language: Language }) {
   const [workingText, setWorkingText] = useState("");
   const [reason, setReason] = useState("");
   const [decisionReason, setDecisionReason] = useState<Record<string, string>>({});
+  const [selectedIssueIds, setSelectedIssueIds] = useState<string[]>([]);
+  const [bulkBypassReason, setBulkBypassReason] = useState("");
   const [mappingRequirements, setMappingRequirements] = useState<MappingRequirements | null>(null);
   const [siteOptions, setSiteOptions] = useState<MasterOption[]>([]);
   const [donorOptions, setDonorOptions] = useState<MasterOption[]>([]);
@@ -92,6 +94,7 @@ export function Imports({ language }: { language: Language }) {
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
     setIssues(nextIssuePage.items);
+    setSelectedIssueIds([]);
     setRecordOffset(nextRecords);
     setIssueOffset(nextIssues);
     setMappingRequirements(requirements);
@@ -183,6 +186,21 @@ export function Imports({ language }: { language: Language }) {
       });
       await openJob(detail.job.id, recordOffset, issueOffset);
       setNotice(th ? "บันทึกการตัดสินใจแล้ว" : "Decision saved.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function bulkBypass() {
+    if (!detail || !selectedIssueIds.length || !bulkBypassReason.trim()) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/${detail.job.id}/issues/bulk-bypass`, { method: "POST",
+        body: JSON.stringify({ revision: detail.job.revision,
+          issueIds: selectedIssueIds, reason: bulkBypassReason }) });
+      await openJob(detail.job.id, recordOffset, issueOffset);
+      setBulkBypassReason("");
+      setNotice(th ? `ข้าม ${selectedIssueIds.length} ประเด็นพร้อมบันทึกเหตุผลแล้ว` :
+        `Bypassed ${selectedIssueIds.length} issues with an audit reason.`);
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -432,7 +450,14 @@ export function Imports({ language }: { language: Language }) {
         </div>
       </div>}
       <h3>{th ? "ประเด็นที่ต้องตรวจ" : "Issues"}</h3>
+      {detail.job.status === "draft" && issues.some((issue) => issue.status === "open" && issue.severity === "overridable") && <div className="import-page__mapping">
+        <h4>{th ? "ข้ามหลายประเด็นในหน้านี้" : "Bypass several issues on this page"}</h4>
+        <p className="muted">{th ? "เลือกได้เฉพาะประเด็นที่อนุญาตให้ข้าม ระบบจะเก็บเหตุผลเดียวกับทุกประเด็นที่เลือก" : "Select overridable issues only. The same reason is audited on every selected issue."}</p>
+        <label>{th ? "เหตุผลที่ยอมรับความเสี่ยง" : "Reason to accept the risk"}<textarea rows={2} value={bulkBypassReason} onChange={(event) => setBulkBypassReason(event.target.value)} /></label>
+        <button type="button" disabled={busy || !selectedIssueIds.length || !bulkBypassReason.trim()} onClick={() => void bulkBypass()}>{th ? `ข้าม ${selectedIssueIds.length} ประเด็น` : `Bypass ${selectedIssueIds.length} selected`}</button>
+      </div>}
       {issues.length ? issues.map((issue) => <article key={issue.id} className="import-page__item"><div><strong>{issue.sheetName}{issue.rowNo ? ` · ${issue.sourceColumn ?? ""}${issue.rowNo}` : ""}</strong> <span className={`import-page__badge import-page__badge--${issue.severity}`}>{issue.severity}</span> <span>{issue.status}</span></div>
+        {issue.status === "open" && issue.severity === "overridable" && <label className="import-page__choice"><input type="checkbox" checked={selectedIssueIds.includes(issue.id)} onChange={(event) => setSelectedIssueIds(event.target.checked ? [...selectedIssueIds, issue.id] : selectedIssueIds.filter((id) => id !== issue.id))} />{th ? "เลือกข้ามเป็นชุด" : "Select for bulk bypass"}</label>}
         <p>{issue.message}</p>{issue.sourceValue && <code>{issue.sourceValue}</code>}
         {issue.status === "open" && <div className="import-page__actions"><label>{th ? "เหตุผล" : "Reason"}<input value={decisionReason[issue.id] ?? ""} onChange={(event) => setDecisionReason({ ...decisionReason, [issue.id]: event.target.value })} /></label>
           <button disabled={busy || !decisionReason[issue.id]?.trim()} onClick={() => void decide(issue, "corrected")}>{th ? "แก้ไขแล้ว" : "Corrected"}</button>
