@@ -307,6 +307,63 @@ paths:
         '200': { description: Canonical fish/specimen and historical observation counts }
         '403': { description: Admin access required }
         '409': { description: Stale draft, unresolved issue, duplicate, or missing master mapping }
+  /imports/{jobId}/fish-status:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: List imported fish awaiting or having admin status review
+      operationId: listImportedFishStatuses
+      responses:
+        '200': { description: Fish status, life state, disposition, and row versions }
+        '403': { description: Admin access required }
+  /imports/{jobId}/fish-status/{fishId}:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: fishId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Review a historical fish status with evidence and optimistic version
+      operationId: reviewImportedFishStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rowVersion, status, lifeState, disposition, reason]
+              properties:
+                rowVersion: { type: integer, minimum: 1 }
+                status: { type: string, enum: [UNKNOWN, ALIVE, DEAD, FROZEN, DISCARDED] }
+                lifeState: { type: string, enum: [UNKNOWN, ALIVE, DEAD] }
+                disposition: { type: string, enum: [NONE, FROZEN, DISCARDED, LOST, UNKNOWN] }
+                exitDate: { type: [string, 'null'], format: date }
+                reason: { type: string }
+      responses:
+        '200': { description: Audited fish status change }
+        '403': { description: Admin access required }
+        '409': { description: Fish changed since review was opened }
+  /imports/{jobId}/revert:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Revert an entire committed fish/specimen import when no later work depends on it
+      operationId: revertFishSpecimenImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                reason: { type: string }
+      responses:
+        '200': { description: Whole job reverted and audit preserved }
+        '403': { description: Admin access required }
+        '409': { description: Later work, changes, or dependencies prevent revert }
 
   /auth/request-code:
     post:

@@ -457,7 +457,7 @@ class ImportRepository:
                     specimen_plan.append((record, meaning))
             for code in fish_codes:
                 found = connection.execute(text(
-                    "SELECT id FROM clone_fish WHERE fish_code_norm = :code"
+                    "SELECT id FROM clone_fish WHERE fish_code_norm = :code AND deleted_at IS NULL"
                 ), {"code": code}).first()
                 if found:
                     raise APIError(409, "duplicate_fish", f"Fish code {code} already exists")
@@ -466,7 +466,7 @@ class ImportRepository:
             )).mappings()]
             existing_specimens = {str(row["specimen_code"]).strip().casefold(): str(row["id"])
                                   for row in all_specimens if row["deleted_at"] is None}
-            all_specimen_codes = {str(row["specimen_code"]).strip().casefold() for row in all_specimens}
+            all_specimen_codes = set(existing_specimens)
             for code in specimen_codes:
                 if code in all_specimen_codes:
                     raise APIError(409, "duplicate_specimen", f"Specimen code {code} already exists")
@@ -537,9 +537,9 @@ class ImportRepository:
             self._insert_many(connection, "historical_observation", historical_rows)
             for specimen_id, fish_id in sorted(links):
                 connection.execute(text(
-                    "INSERT INTO specimen_fish_link (specimen_id, clone_fish_id, linked_at) "
-                    "VALUES (:specimen, :fish, :now)"
-                ), {"specimen": specimen_id, "fish": fish_id, "now": now})
+                    "INSERT INTO specimen_fish_link (specimen_id, clone_fish_id, linked_at, import_job_id) "
+                    "VALUES (:specimen, :fish, :now, :job)"
+                ), {"specimen": specimen_id, "fish": fish_id, "now": now, "job": job_id})
             connection.execute(text(
                 "UPDATE fish_running_sequence SET next_running_no = :next WHERE id = :id"
             ), {"next": next_no, "id": sequence_id})
@@ -573,6 +573,165 @@ class ImportRepository:
         ), {"id": uuid7(), "table": table, "record": record_id,
             "new": json.dumps(value, ensure_ascii=False),
             "actor": actor["id"], "email": actor["email"], "now": now})
+
+    def fish_statuses(self, job_id: str) -> list[dict[str, Any]]:
+        self._job(job_id)
+        if self.engine is None:
+            return []
+        with self.engine.connect() as connection:
+            rows = connection.execute(text(
+                "SELECT id, fish_code, status, life_state, disposition, exit_date, row_version "
+                "FROM clone_fish WHERE import_job_id = :job AND deleted_at IS NULL ORDER BY running_no"
+            ), {"job": job_id}).mappings()
+            return [{"id": str(row["id"]), "fishCode": row["fish_code"], "status": row["status"],
+                     "lifeState": row["life_state"], "disposition": row["disposition"],
+                     "exitDate": row["exit_date"].isoformat() if row["exit_date"] else None,
+                     "rowVersion": int(row["row_version"])} for row in rows]
+
+    def review_fish_status(self, job_id: str, fish_id: str, actor: dict[str, Any],
+                           body: dict[str, Any]) -> dict[str, Any]:
+        if self.engine is None:
+            raise APIError(503, "database_required", "Fish status review requires the configured database")
+        status = body.get("status")
+        life_state = body.get("lifeState")
+        disposition = body.get("disposition")
+        exit_date = body.get("exitDate")
+        reason = body.get("reason")
+        version = body.get("rowVersion")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain the fish status decision")
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise APIError(400, "invalid_version", "Provide the fish row version")
+        if status not in {"ALIVE", "DEAD", "FROZEN", "DISCARDED", "UNKNOWN"}:
+            raise APIError(400, "invalid_status", "Choose a supported fish status")
+        if life_state not in {"ALIVE", "DEAD", "UNKNOWN"} or disposition not in {
+            "NONE", "FROZEN", "DISCARDED", "LOST", "UNKNOWN"
+        }:
+            raise APIError(400, "invalid_status", "Choose a life state and disposition")
+        if exit_date is not None:
+            try:
+                from datetime import date
+                exit_date = date.fromisoformat(exit_date).isoformat()
+            except (TypeError, ValueError) as error:
+                raise APIError(400, "invalid_date", "Exit date must be YYYY-MM-DD") from error
+        if status == "ALIVE" and (life_state != "ALIVE" or disposition != "NONE" or exit_date):
+            raise APIError(400, "invalid_status", "An alive fish cannot have an exit date or disposition")
+        if status == "DEAD" and (life_state != "DEAD" or disposition != "NONE" or not exit_date):
+            raise APIError(400, "invalid_status", "A dead fish needs a known death date")
+        if status in {"FROZEN", "DISCARDED"} and (disposition != status or not exit_date):
+            raise APIError(400, "invalid_status", "A frozen or discarded fish needs a matching disposition and date")
+        if status == "UNKNOWN" and exit_date:
+            raise APIError(400, "invalid_status", "Unknown current status cannot have a confirmed exit date")
+        now = _now()
+        with self.engine.begin() as connection:
+            row = connection.execute(text(
+                "SELECT id, status, life_state, disposition, exit_date, row_version "
+                "FROM clone_fish WHERE id = :fish AND import_job_id = :job AND deleted_at IS NULL FOR UPDATE"
+            ), {"fish": fish_id, "job": job_id}).mappings().first()
+            if row is None:
+                raise APIError(404, "not_found", "Imported fish was not found")
+            if int(row["row_version"]) != version:
+                raise APIError(409, "fish_changed", "Fish changed; reload before reviewing status")
+            before = {"status": row["status"], "lifeState": row["life_state"],
+                      "disposition": row["disposition"],
+                      "exitDate": row["exit_date"].isoformat() if row["exit_date"] else None}
+            after = {"status": status, "lifeState": life_state, "disposition": disposition,
+                     "exitDate": exit_date, "reason": reason.strip()}
+            connection.execute(text(
+                "UPDATE clone_fish SET status = :status, life_state = :life, disposition = :disposition, "
+                "exit_date = :exit_date, exit_reason = :exit_reason, updated_at = :now, "
+                "row_version = row_version + 1 WHERE id = :fish"
+            ), {"status": status, "life": life_state, "disposition": disposition,
+                "exit_date": exit_date, "exit_reason": status if status in {"DEAD", "FROZEN", "DISCARDED"} else None,
+                "now": now, "fish": fish_id})
+            self._audit(connection, actor, "clone_fish", fish_id, before, after, now)
+            return {"id": fish_id, **after, "rowVersion": version + 1}
+
+    def revert_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
+                              reason: str) -> dict[str, Any]:
+        if self.engine is None:
+            raise APIError(503, "database_required", "Import revert requires the configured database")
+        if not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain why the import is being reverted")
+        now = _now()
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
+                                     {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            if job["status"] != "committed" or int(job["revision"]) != revision:
+                raise APIError(409, "import_changed", "Only an unchanged committed job can be reverted")
+            targets = [dict(row) for row in connection.execute(text(
+                "SELECT target_table, target_id FROM import_record WHERE job_id = :job AND status = 'imported'"
+            ), {"job": job_id}).mappings()]
+            fish_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "clone_fish"]
+            specimen_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "specimen"]
+            if len(fish_ids) + len(specimen_ids) != len(targets):
+                raise APIError(409, "revert_unsupported", "This import contains other canonical record types")
+            fish_id_set = set(fish_ids)
+            for fish_id in fish_ids:
+                version = connection.execute(text(
+                    "SELECT row_version FROM clone_fish WHERE id = :id AND deleted_at IS NULL FOR UPDATE"
+                ), {"id": fish_id}).scalar_one_or_none()
+                if version is None or int(version) != 1:
+                    raise APIError(409, "revert_dependency", f"Fish {fish_id} changed after import")
+                if connection.execute(text(
+                    "SELECT id FROM fish_observation WHERE clone_fish_id = :id AND deleted_at IS NULL LIMIT 1"
+                ), {"id": fish_id}).first():
+                    raise APIError(409, "revert_dependency", f"Fish {fish_id} has newer observations")
+                if connection.execute(text(
+                    "SELECT id FROM historical_observation WHERE clone_fish_id = :id "
+                    "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+                ), {"id": fish_id, "job": job_id}).first():
+                    raise APIError(409, "revert_dependency", f"Fish {fish_id} is used by another import")
+                if connection.execute(text(
+                    "SELECT specimen_id FROM specimen_fish_link WHERE clone_fish_id = :id "
+                    "AND (import_job_id IS NULL OR import_job_id <> :job) LIMIT 1"
+                ), {"id": fish_id, "job": job_id}).first():
+                    raise APIError(409, "revert_dependency", f"Fish {fish_id} has a newer specimen link")
+                if connection.execute(text(
+                    "SELECT id FROM audit_log WHERE table_name = 'clone_fish' AND record_id = :id "
+                    "AND action IN ('UPDATE', 'DELETE') AND occurred_at > :confirmed LIMIT 1"
+                ), {"id": fish_id, "confirmed": job["confirmed_at"]}).first():
+                    raise APIError(409, "revert_dependency", f"Fish {fish_id} changed after import")
+            for specimen_id in specimen_ids:
+                version = connection.execute(text(
+                    "SELECT row_version FROM specimen WHERE id = :id AND deleted_at IS NULL FOR UPDATE"
+                ), {"id": specimen_id}).scalar_one_or_none()
+                if version is None or int(version) != 1:
+                    raise APIError(409, "revert_dependency", f"Specimen {specimen_id} changed after import")
+                external = connection.execute(text(
+                    "SELECT clone_fish_id FROM specimen_fish_link WHERE specimen_id = :id"
+                ), {"id": specimen_id}).mappings().all()
+                if any(str(row["clone_fish_id"]) not in fish_id_set for row in external):
+                    raise APIError(409, "revert_dependency", f"Specimen {specimen_id} is linked to another fish")
+                if connection.execute(text(
+                    "SELECT id FROM audit_log WHERE table_name = 'specimen' AND record_id = :id "
+                    "AND action IN ('UPDATE', 'DELETE') AND occurred_at > :confirmed LIMIT 1"
+                ), {"id": specimen_id, "confirmed": job["confirmed_at"]}).first():
+                    raise APIError(409, "revert_dependency", f"Specimen {specimen_id} changed after import")
+            for fish_id in fish_ids:
+                connection.execute(text("DELETE FROM specimen_fish_link WHERE clone_fish_id = :id"), {"id": fish_id})
+            connection.execute(text(
+                "UPDATE historical_observation SET deleted_at = :now WHERE import_job_id = :job AND deleted_at IS NULL"
+            ), {"now": now, "job": job_id})
+            connection.execute(text(
+                "UPDATE clone_fish SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 "
+                "WHERE import_job_id = :job AND deleted_at IS NULL"
+            ), {"now": now, "job": job_id})
+            for specimen_id in specimen_ids:
+                connection.execute(text(
+                    "UPDATE specimen SET deleted_at = :now, updated_at = :now WHERE id = :id"
+                ), {"now": now, "id": specimen_id})
+            connection.execute(text(
+                "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
+                "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
+            ), {"actor": actor["id"], "now": now, "job": job_id})
+            self._audit(connection, actor, "import_job", job_id, {"status": "committed"},
+                        {"status": "reverted", "reason": reason.strip(),
+                         "fishCount": len(fish_ids), "specimenCount": len(specimen_ids)}, now)
+            return {"jobId": job_id, "status": "reverted", "revision": revision + 1,
+                    "fishCount": len(fish_ids), "specimenCount": len(specimen_ids)}
 
     @staticmethod
     def _audit(connection: Any, actor: dict[str, Any], table: str, record_id: str,

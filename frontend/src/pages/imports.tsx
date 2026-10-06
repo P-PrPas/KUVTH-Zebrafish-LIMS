@@ -10,6 +10,8 @@ type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordK
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
 type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
+type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
+type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -38,6 +40,9 @@ export function Imports({ language }: { language: Language }) {
   const [siteMappings, setSiteMappings] = useState<Record<string, string>>({});
   const [donorMappings, setDonorMappings] = useState<Record<string, string>>({});
   const [zeroBypassReason, setZeroBypassReason] = useState("");
+  const [fishStatuses, setFishStatuses] = useState<ImportedFishStatus[]>([]);
+  const [fishStatusEdits, setFishStatusEdits] = useState<Record<string, FishStatusEdit>>({});
+  const [revertReason, setRevertReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -50,13 +55,14 @@ export function Imports({ language }: { language: Language }) {
     if (detail?.job.id !== id) {
       setSiteMappings({}); setDonorMappings({}); setZeroBypassReason("");
     }
-    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog] = await Promise.all([
+    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
       json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
       json<MappingRequirements>(`/imports/${id}/mapping-requirements`),
       json<{ items: MasterOption[] }>("/sites?limit=500"),
       json<{ items: MasterOption[] }>("/donor-cell-lines?limit=500"),
+      json<{ items: ImportedFishStatus[] }>(`/imports/${id}/fish-status`),
     ]);
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
@@ -66,6 +72,11 @@ export function Imports({ language }: { language: Language }) {
     setMappingRequirements(requirements);
     setSiteOptions(siteCatalog.items);
     setDonorOptions(donorCatalog.items);
+    setFishStatuses(importedFish.items);
+    setFishStatusEdits(Object.fromEntries(importedFish.items.map((fish) => [fish.id, {
+      status: fish.status, lifeState: fish.lifeState, disposition: fish.disposition,
+      exitDate: fish.exitDate ?? "", reason: "",
+    }])));
     setEditing(null);
     setInterpretation(null);
   }
@@ -169,6 +180,36 @@ export function Imports({ language }: { language: Language }) {
     finally { setBusy(false); }
   }
 
+  async function saveFishStatus(fish: ImportedFishStatus) {
+    if (!detail) return;
+    const edit = fishStatusEdits[fish.id];
+    if (!edit) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/${detail.job.id}/fish-status/${fish.id}`, {
+        method: "POST", body: JSON.stringify({ ...edit, exitDate: edit.exitDate || null, rowVersion: fish.rowVersion }),
+      });
+      await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? "บันทึกการยืนยันสถานะปลาแล้ว" : "Fish status reviewed.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function revertJob() {
+    if (!detail || !revertReason.trim()) return;
+    if (!window.confirm(th ? "ยืนยันย้อนงานนำเข้าทั้งงาน? ระบบจะตรวจงานที่มาอ้างอิงก่อน" : "Revert this entire import? Dependencies will be checked first.")) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/${detail.job.id}/revert`, {
+        method: "POST", body: JSON.stringify({ revision: detail.job.revision, reason: revertReason }),
+      });
+      await reloadJobs(); await openJob(detail.job.id);
+      setRevertReason("");
+      setNotice(th ? "ย้อนงานนำเข้าแล้ว" : "Import reverted.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return <section className="import-page">
     <header className="import-page__header"><div><p className="eyebrow">ADMIN · DATA MIGRATION</p><h1>{th ? "นำเข้าข้อมูลย้อนหลัง" : "Historical import"}</h1>
       <p className="muted">{th ? "เลือกต้นทาง ตรวจข้อมูลและแก้ฉบับร่างก่อนนำเข้าระบบ" : "Select sources and review draft values before importing."}</p></div></header>
@@ -211,6 +252,28 @@ export function Imports({ language }: { language: Language }) {
           <p>{mappingRequirements.ambiguousZeroRecords.join(", ")}</p>
           <label>{th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}<textarea value={zeroBypassReason} onChange={(event) => setZeroBypassReason(event.target.value)} rows={3} /></label></div>}
         <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || mappingRequirements.donorSources.some((source) => !donorMappings[source]) || (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim())} onClick={() => void confirmFishSpecimens()}>{th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}</button>
+      </div>}
+      {detail.job.status === "committed" && <div className="import-page__mapping"><h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
+        <p className="muted">{th ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้" : "Confirm status from evidence. A later edit may prevent whole-job revert."}</p>
+        {fishStatuses.map((fish) => { const edit = fishStatusEdits[fish.id]; return edit && <div key={fish.id} className="import-page__status-row"><strong>{fish.fishCode}</strong>
+          <label>{th ? "สถานะ" : "Status"}<select value={edit.status} onChange={(event) => {
+            const status = event.target.value;
+            setFishStatusEdits({ ...fishStatusEdits, [fish.id]: { ...edit, status,
+              lifeState: status === "ALIVE" ? "ALIVE" : status === "DEAD" ? "DEAD" : "UNKNOWN",
+              disposition: status === "FROZEN" || status === "DISCARDED" ? status : "NONE",
+              exitDate: status === "ALIVE" || status === "UNKNOWN" ? "" : edit.exitDate } });
+          }}>{["UNKNOWN", "ALIVE", "DEAD", "FROZEN", "DISCARDED"].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>{th ? "การมีชีวิต" : "Life state"}<select value={edit.lifeState} onChange={(event) => setFishStatusEdits({ ...fishStatusEdits, [fish.id]: { ...edit, lifeState: event.target.value } })}>{["UNKNOWN", "ALIVE", "DEAD"].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>{th ? "การจัดการ" : "Disposition"}<select value={edit.disposition} onChange={(event) => setFishStatusEdits({ ...fishStatusEdits, [fish.id]: { ...edit, disposition: event.target.value } })}>{["NONE", "UNKNOWN", "FROZEN", "DISCARDED", "LOST"].map((value) => <option key={value}>{value}</option>)}</select></label>
+          <label>{th ? "วันที่ออกจากการติดตาม" : "Exit date"}<input type="date" value={edit.exitDate} onChange={(event) => setFishStatusEdits({ ...fishStatusEdits, [fish.id]: { ...edit, exitDate: event.target.value } })} /></label>
+          <label>{th ? "หลักฐานหรือเหตุผล" : "Evidence or reason"}<input value={edit.reason} onChange={(event) => setFishStatusEdits({ ...fishStatusEdits, [fish.id]: { ...edit, reason: event.target.value } })} /></label>
+          <button type="button" disabled={busy || !edit.reason.trim()} onClick={() => void saveFishStatus(fish)}>{th ? "บันทึกสถานะ" : "Save status"}</button>
+        </div>; })}
+        <div className="import-page__warning"><h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
+          <p>{th ? "ระบบจะปฏิเสธถ้ามีข้อมูลใหม่อ้างอิงหรือมีการแก้ไขหลังนำเข้า" : "Revert is refused if later records depend on this import or imported records changed."}</p>
+          <label>{th ? "เหตุผล" : "Reason"}<textarea rows={2} value={revertReason} onChange={(event) => setRevertReason(event.target.value)} /></label>
+          <button type="button" disabled={busy || !revertReason.trim()} onClick={() => void revertJob()}>{th ? "ตรวจและย้อนทั้งงาน" : "Check and revert job"}</button>
+        </div>
       </div>}
       <h3>{th ? "ประเด็นที่ต้องตรวจ" : "Issues"}</h3>
       {issues.length ? issues.map((issue) => <article key={issue.id} className="import-page__item"><div><strong>{issue.sheetName}{issue.rowNo ? ` · ${issue.sourceColumn ?? ""}${issue.rowNo}` : ""}</strong> <span className={`import-page__badge import-page__badge--${issue.severity}`}>{issue.severity}</span> <span>{issue.status}</span></div>
