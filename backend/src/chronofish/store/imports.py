@@ -711,17 +711,51 @@ class ImportRepository:
             rows: list[dict[str, Any]] = []
             first_ids: dict[str, str] = {}
             warnings: list[str] = []
+            msu_site_id = connection.execute(text(
+                "SELECT id FROM site WHERE code_norm = 'msu' AND active = TRUE "
+                "AND deleted_at IS NULL LIMIT 1"
+            )).scalar_one_or_none()
             for record in records:
-                meaning = interpret(record["record_kind"], json.loads(record["working_json"]))
+                working = json.loads(record["working_json"])
+                meaning = interpret(record["record_kind"], working)
                 if meaning is None or not meaning["counts"]:
                     raise APIError(409, "counts_missing", f"{record['sheet_name']} {record['source_locator']}: no usable counts")
                 warnings.extend(f"{record['sheet_name']} {record['source_locator']}: {warning}"
                                 for warning in meaning["warnings"])
+                cells = working.get("cells", working)
+                context = working.get("context", {})
+                if record["record_kind"] == "legacy_lot":
+                    experiment_id = self._historical_experiment(
+                        connection, job_id, now, "V1_RAW", record["sheet_name"],
+                        meaning["observedOn"], None, context.get("recipientEgg"),
+                        cells.get("G"), cells.get("H"), context.get("csofLot"),
+                        record["source_locator"])
+                    lot_id = self._historical_lot(
+                        connection, job_id, experiment_id, now, cells.get("M"), cells.get("I"))
+                elif record["record_kind"] == "scnt_aggregate":
+                    experiment_id = self._historical_experiment(
+                        connection, job_id, now, "MSU_AGGREGATE", record["sheet_name"],
+                        meaning["observedOn"], str(msu_site_id) if msu_site_id else None,
+                        group=record["sheet_name"], fallback=record["source_locator"])
+                    lot_id = None
+                else:
+                    experiment_id = self._historical_experiment(
+                        connection, job_id, now, "QC_CONTROL", record["sheet_name"],
+                        meaning["observedOn"], None, egg=cells.get("B"),
+                        fallback=record["source_locator"])
+                    lot_id = None
+                if lot_id is None and connection.execute(text(
+                    "SELECT id FROM historical_stage_count WHERE historical_experiment_id = :experiment "
+                    "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+                ), {"experiment": experiment_id, "job": job_id}).first():
+                    raise APIError(409, "duplicate_aggregate",
+                                   f"{record['sheet_name']} {record['source_locator']}: historical counts already imported")
                 for count in meaning["counts"]:
                     count_id = uuid7()
                     first_ids.setdefault(record["id"], count_id)
                     rows.append({
                         "id": count_id, "import_job_id": job_id, "import_record_id": record["id"],
+                        "historical_experiment_id": experiment_id, "historical_lot_id": lot_id,
                         "stage_label": count["stageLabel"], "observed_on": count["observedOn"],
                         "n_total": count.get("nTotal"), "n_alive": count.get("nAlive"),
                         "n_normal": count.get("nNormal"), "n_abnormal": count.get("nAbnormal"),
@@ -801,7 +835,9 @@ class ImportRepository:
                     raise APIError(409, "master_mapping_missing", f"{record['sheet_name']}: choose an active site with time zone")
                 egg_key = str(meaning.get("eggCodeSource") or "").strip().casefold()
                 lot_key = str(meaning.get("lotNoSource") or "").strip().casefold()
-                source_key = f"{site_id}|{day}|{egg_key}|{lot_key}|{running.casefold()}"
+                group_key = str(meaning.get("groupSource") or "").strip().casefold()
+                source_key = self._historical_key(site_id, day, egg_key, group_key, lot_key,
+                                                  running.casefold())
                 if len(source_key) > 300 or source_key in source_keys:
                     raise APIError(409, "duplicate_embryo", f"{record['sheet_name']} {record['source_locator']}: duplicate embryo identity")
                 source_keys.add(source_key)
@@ -822,10 +858,20 @@ class ImportRepository:
                           "injection_source": 150, "lot_no_source": 100}
                 if any(len(str(value)) > limits[name] for name, value in source_fields.items() if value is not None):
                     raise APIError(409, "embryo_incomplete", f"{record['sheet_name']} {record['source_locator']}: source label exceeds field limit")
+                experiment_id = self._historical_experiment(
+                    connection, job_id, now, "V2_RAW", record["sheet_name"], day,
+                    site_id, meaning.get("recipientSource"), meaning.get("eggCodeSource"),
+                    meaning.get("groupSource"), meaning.get("csofSource"),
+                    record["source_locator"])
+                lot_id = self._historical_lot(
+                    connection, job_id, experiment_id, now, meaning.get("lotNoSource"),
+                    injection=meaning.get("injectionSource"),
+                    activation_clock=meaning.get("activationLocalTime"))
                 embryo_id = uuid7()
                 record_targets[record["id"]] = embryo_id
                 embryo_rows.append({
                     "id": embryo_id, "import_job_id": job_id, "import_record_id": record["id"],
+                    "historical_experiment_id": experiment_id, "historical_lot_id": lot_id,
                     "source_key": source_key, "source_running_no": running,
                     "experiment_date": day, "site_id": site_id,
                     "activation_local_time": meaning["activationLocalTime"],
@@ -845,6 +891,7 @@ class ImportRepository:
                     control_sources[key] = entry["sourceValue"]
                     control_rows.append({
                         "id": uuid7(), "import_job_id": job_id, "import_record_id": record["id"],
+                        "historical_experiment_id": experiment_id, "historical_lot_id": None,
                         "arm_type": entry["armType"], "stage_label": entry["stageLabel"],
                         "observed_on": None, "n_normal": entry.get("nNormal"),
                         "n_abnormal": entry.get("nAbnormal"),
@@ -1104,6 +1151,113 @@ class ImportRepository:
             raise APIError(409, "mixed_job", "This job contains other sheets; use whole-job confirmation")
 
     @staticmethod
+    def _historical_key(*parts: Any) -> str:
+        return hashlib.sha256(json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+                              .encode("utf-8")).hexdigest()
+
+    def _historical_experiment(self, connection: Any, job_id: str, now: datetime,
+                               source_kind: str, sheet: str, day: str | None,
+                               site_id: str | None, recipient: Any = None, egg: Any = None,
+                               group: Any = None, csof: Any = None,
+                               fallback: str | None = None) -> str:
+        fields = {"recipient_source": recipient, "egg_code_source": egg,
+                  "group_source": group, "csof_source": csof}
+        limits = {"recipient_source": 300, "egg_code_source": 150,
+                  "group_source": 150, "csof_source": 150}
+        if any(len(str(value)) > limits[name] for name, value in fields.items() if value is not None):
+            raise APIError(409, "source_label_too_long", f"{sheet}: historical experiment label is too long")
+        key = self._historical_key(source_kind, sheet.casefold(), day, site_id,
+                                   *[str(value).strip().casefold() if value is not None else ""
+                                     for value in fields.values()], fallback if not day else None)
+        existing = connection.execute(text(
+            "SELECT id FROM historical_experiment WHERE source_key = :key "
+            "AND deleted_at IS NULL FOR UPDATE"
+        ), {"key": key}).scalar_one_or_none()
+        if existing:
+            return str(existing)
+        experiment_id = uuid7()
+        connection.execute(text(
+            "INSERT INTO historical_experiment "
+            "(id, import_job_id, source_key, source_sheet, source_kind, experiment_date, site_id, "
+            "recipient_source, egg_code_source, group_source, csof_source, created_at) "
+            "VALUES (:id, :job, :key, :sheet, :kind, :day, :site, :recipient, :egg, :group, :csof, :now)"
+        ), {"id": experiment_id, "job": job_id, "key": key, "sheet": sheet,
+            "kind": source_kind, "day": day, "site": site_id,
+            "recipient": str(recipient) if recipient is not None else None,
+            "egg": str(egg) if egg is not None else None,
+            "group": str(group) if group is not None else None,
+            "csof": str(csof) if csof is not None else None, "now": now})
+        return experiment_id
+
+    def _historical_lot(self, connection: Any, job_id: str, experiment_id: str,
+                        now: datetime, lot_no: Any, donor: Any = None,
+                        injection: Any = None, activation_clock: str | None = None) -> str | None:
+        lot = str(lot_no).strip() if lot_no is not None else ""
+        if not lot:
+            return None
+        if len(lot) > 100 or any(len(str(value)) > 300 for value in (donor, injection)
+                                  if value is not None):
+            raise APIError(409, "source_label_too_long", "Historical lot label is too long")
+        key = self._historical_key(experiment_id, lot.casefold())
+        existing = connection.execute(text(
+            "SELECT id, import_job_id FROM historical_lot WHERE source_key = :key "
+            "AND deleted_at IS NULL FOR UPDATE"
+        ), {"key": key}).mappings().first()
+        if existing:
+            if str(existing["import_job_id"]) != job_id:
+                raise APIError(409, "duplicate_lot", f"Historical lot {lot} was already imported")
+            return str(existing["id"])
+        lot_id = uuid7()
+        connection.execute(text(
+            "INSERT INTO historical_lot (id, import_job_id, historical_experiment_id, source_key, "
+            "lot_no_source, donor_source, injection_source, activation_local_time, created_at) "
+            "VALUES (:id, :job, :experiment, :key, :lot, :donor, :injection, :clock, :now)"
+        ), {"id": lot_id, "job": job_id, "experiment": experiment_id,
+            "key": key, "lot": lot, "donor": str(donor) if donor is not None else None,
+            "injection": str(injection) if injection is not None else None,
+            "clock": activation_clock, "now": now})
+        return lot_id
+
+    @staticmethod
+    def _revert_historical_structure(connection: Any, job_id: str, now: datetime) -> None:
+        lots = [str(row[0]) for row in connection.execute(text(
+            "SELECT id FROM historical_lot WHERE import_job_id = :job AND deleted_at IS NULL FOR UPDATE"
+        ), {"job": job_id})]
+        for lot_id in lots:
+            if connection.execute(text(
+                "SELECT id FROM historical_embryo WHERE historical_lot_id = :id "
+                "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+            ), {"id": lot_id, "job": job_id}).first() or connection.execute(text(
+                "SELECT id FROM historical_stage_count WHERE historical_lot_id = :id "
+                "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+            ), {"id": lot_id, "job": job_id}).first():
+                raise APIError(409, "revert_dependency", f"Historical lot {lot_id} is used by another import")
+        experiments = [str(row[0]) for row in connection.execute(text(
+            "SELECT id FROM historical_experiment WHERE import_job_id = :job "
+            "AND deleted_at IS NULL FOR UPDATE"
+        ), {"job": job_id})]
+        for experiment_id in experiments:
+            if connection.execute(text(
+                "SELECT id FROM historical_lot WHERE historical_experiment_id = :id "
+                "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+            ), {"id": experiment_id, "job": job_id}).first() or connection.execute(text(
+                "SELECT id FROM historical_embryo WHERE historical_experiment_id = :id "
+                "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+            ), {"id": experiment_id, "job": job_id}).first() or connection.execute(text(
+                "SELECT id FROM historical_stage_count WHERE historical_experiment_id = :id "
+                "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+            ), {"id": experiment_id, "job": job_id}).first():
+                raise APIError(409, "revert_dependency",
+                               f"Historical experiment {experiment_id} is used by another import")
+        connection.execute(text(
+            "UPDATE historical_lot SET deleted_at = :now WHERE import_job_id = :job AND deleted_at IS NULL"
+        ), {"now": now, "job": job_id})
+        connection.execute(text(
+            "UPDATE historical_experiment SET deleted_at = :now "
+            "WHERE import_job_id = :job AND deleted_at IS NULL"
+        ), {"now": now, "job": job_id})
+
+    @staticmethod
     def _audit_insert(connection: Any, actor: dict[str, Any], table: str,
                       record_id: str, value: dict[str, Any], now: datetime) -> None:
         connection.execute(text(
@@ -1163,6 +1317,52 @@ class ImportRepository:
                                   "stageLabel": row["stage_label"], "outcome": row["outcome"],
                                   "timePrecision": row["time_precision"],
                                   "count": int(row["observation_count"])} for row in observations]}
+
+    def historical_structure(self, job_id: str, offset: int, limit: int) -> dict[str, Any]:
+        self._job(job_id)
+        if self.engine is None:
+            return {"total": 0, "items": []}
+        filter_sql = (
+            "e.deleted_at IS NULL AND (e.import_job_id = :job OR EXISTS ("
+            "SELECT 1 FROM historical_stage_count c WHERE c.historical_experiment_id = e.id "
+            "AND c.import_job_id = :job AND c.deleted_at IS NULL) OR EXISTS ("
+            "SELECT 1 FROM historical_embryo h WHERE h.historical_experiment_id = e.id "
+            "AND h.import_job_id = :job AND h.deleted_at IS NULL))"
+        )
+        with self.engine.connect() as connection:
+            total = int(connection.execute(text(
+                f"SELECT COUNT(*) FROM historical_experiment e WHERE {filter_sql}"
+            ), {"job": job_id}).scalar_one())
+            experiments = [dict(row) for row in connection.execute(text(
+                f"SELECT e.* FROM historical_experiment e WHERE {filter_sql} "
+                "ORDER BY e.experiment_date, e.id LIMIT :limit OFFSET :offset"
+            ), {"job": job_id, "limit": limit, "offset": offset}).mappings()]
+            items = []
+            for experiment in experiments:
+                lots = [dict(row) for row in connection.execute(text(
+                    "SELECT id, import_job_id, lot_no_source, donor_source, injection_source, "
+                    "activation_local_time FROM historical_lot "
+                    "WHERE historical_experiment_id = :id AND deleted_at IS NULL "
+                    "ORDER BY lot_no_source, id"
+                ), {"id": experiment["id"]}).mappings()]
+                items.append({
+                    "id": str(experiment["id"]), "importJobId": str(experiment["import_job_id"]),
+                    "sourceSheet": experiment["source_sheet"],
+                    "sourceKind": experiment["source_kind"],
+                    "experimentDate": experiment["experiment_date"].isoformat()
+                        if experiment["experiment_date"] else None,
+                    "siteId": str(experiment["site_id"]) if experiment["site_id"] else None,
+                    "recipientSource": experiment["recipient_source"],
+                    "eggCodeSource": experiment["egg_code_source"],
+                    "groupSource": experiment["group_source"],
+                    "csofSource": experiment["csof_source"],
+                    "lots": [{"id": str(lot["id"]), "importJobId": str(lot["import_job_id"]),
+                              "lotNoSource": lot["lot_no_source"],
+                              "donorSource": lot["donor_source"],
+                              "injectionSource": lot["injection_source"],
+                              "activationLocalTime": lot["activation_local_time"]} for lot in lots],
+                })
+        return {"total": total, "items": items}
 
     def review_fish_status(self, job_id: str, fish_id: str, actor: dict[str, Any],
                            body: dict[str, Any]) -> dict[str, Any]:
@@ -1248,6 +1448,7 @@ class ImportRepository:
                     "UPDATE historical_stage_count SET deleted_at = :now "
                     "WHERE import_job_id = :job AND deleted_at IS NULL"
                 ), {"job": job_id, "now": now})
+                self._revert_historical_structure(connection, job_id, now)
                 connection.execute(text(
                     "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
                     "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
@@ -1281,6 +1482,7 @@ class ImportRepository:
                     "UPDATE historical_embryo SET deleted_at = :now "
                     "WHERE import_job_id = :job AND deleted_at IS NULL"
                 ), {"job": job_id, "now": now})
+                self._revert_historical_structure(connection, job_id, now)
                 connection.execute(text(
                     "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
                     "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
@@ -1362,6 +1564,7 @@ class ImportRepository:
                 "UPDATE historical_embryo SET deleted_at = :now "
                 "WHERE import_job_id = :job AND deleted_at IS NULL"
             ), {"now": now, "job": job_id})
+            self._revert_historical_structure(connection, job_id, now)
             connection.execute(text(
                 "UPDATE clone_fish SET deleted_at = :now, updated_at = :now, row_version = row_version + 1 "
                 "WHERE import_job_id = :job AND deleted_at IS NULL"

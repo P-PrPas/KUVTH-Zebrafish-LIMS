@@ -412,6 +412,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/historical-structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Page through historical experiments and their source lots */
+        get: operations["listHistoricalImportStructure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/fish-status/{fishId}": {
         parameters: {
             query?: never;
@@ -3948,6 +3967,36 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Aggregate historical counts and observations without operational timing metrics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHistoricalImportStructure: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Historical source experiments and lots with provenance */
             200: {
                 headers: {
                     [name: string]: unknown;

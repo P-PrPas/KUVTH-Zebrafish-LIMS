@@ -280,6 +280,14 @@ def build_import_router(store: Any) -> APIRouter:
         _actor(request)
         return repository.historical_summary(job_id)
 
+    @router.get("/{job_id}/historical-structure")
+    def historical_structure(request: Request, job_id: str, offset: int = 0,
+                             limit: int = 50) -> dict[str, Any]:
+        _actor(request)
+        if offset < 0 or not 1 <= limit <= 100:
+            raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
+        return repository.historical_structure(job_id, offset, limit)
+
     @router.post("/{job_id}/fish-status/{fish_id}")
     def review_fish_status(request: Request, job_id: str, fish_id: str,
                            body: dict[str, Any] = Body(...)) -> dict[str, Any]:
