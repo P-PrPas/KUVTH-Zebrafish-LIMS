@@ -85,6 +85,14 @@ def convert(sql: str, upgrade: bool) -> str:
         "ALTER TABLE request_idempotency ALTER COLUMN operator_id SET NOT NULL;",
         "ALTER TABLE request_idempotency MODIFY operator_id CHAR(36) NOT NULL;",
     )
+    sql = sql.replace(
+        "ALTER TABLE specimen ALTER COLUMN clone_fish_id DROP NOT NULL;",
+        "ALTER TABLE specimen MODIFY clone_fish_id CHAR(36) NULL;",
+    )
+    sql = sql.replace(
+        "ALTER TABLE specimen ALTER COLUMN clone_fish_id SET NOT NULL;",
+        "ALTER TABLE specimen MODIFY clone_fish_id CHAR(36) NOT NULL;",
+    )
     sql = re.sub(r"\bBYTEA\b", "LONGBLOB", sql)
     sql = sql.replace(
         "DROP INDEX IF EXISTS ix_request_idempotency_lease;",
