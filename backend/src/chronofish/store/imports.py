@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import nullcontext
 from datetime import UTC, date, datetime, time
 from typing import Any
@@ -1446,6 +1447,40 @@ class ImportRepository:
         if int(job["revision"]) != revision:
             raise APIError(409, "import_changed", "The import changed; reload before editing")
 
+    @staticmethod
+    def _issue_cells(record_kind: str, value: dict[str, Any]) -> dict[str, Any]:
+        if record_kind == "embryo_candidate":
+            return value.setdefault("result", {})
+        if record_kind in {"legacy_lot", "scnt_aggregate", "control_aggregate"}:
+            return value.setdefault("cells", {})
+        return value
+
+    @classmethod
+    def _validate_issue_correction(cls, issue: Any, record: Any,
+                                   working: dict[str, Any]) -> None:
+        if not issue["record_id"] or not issue["source_column"]:
+            raise APIError(409, "not_correctable", "This issue needs a corrected source upload")
+        column = issue["source_column"]
+        source = json.loads(record["source_json"])
+        old = cls._issue_cells(record["record_kind"], source).get(column)
+        new = cls._issue_cells(record["record_kind"], working).get(column)
+        if old == new or new is None or str(new).strip() == "":
+            raise APIError(409, "not_corrected", "Change the flagged source cell to a nonempty value first")
+        code = issue["code"]
+        valid = True
+        if code in {"invalid_survival_flag", "nonbinary_embryo_stage"}:
+            valid = str(new).strip() in {"0", "1", "0.0", "1.0"} and not isinstance(new, bool)
+        elif code == "fish_dob_missing":
+            valid = bool((interpret("fish", working) or {}).get("dob"))
+        elif code == "unknown_fish_status":
+            valid = str(new).strip().casefold() in {"alive", "dead", "frozen", "discarded"}
+        elif code == "unknown_specimen_material":
+            valid = (interpret("specimen", working) or {}).get("specimenType") != "UNKNOWN"
+        elif code == "invalid_specimen_code":
+            valid = bool(re.fullmatch(r"(?:CLA|CL|RT|DC)\d+", str(new).strip(), re.IGNORECASE))
+        if not valid:
+            raise APIError(409, "not_corrected", "The new value still fails this issue's validation")
+
     def decide_issue(self, job_id: str, issue_id: str, decision: str, reason: str,
                      resolution_value: str | None, revision: int, actor: dict[str, Any]) -> dict[str, Any]:
         if decision not in {"corrected", "bypassed", "dismissed"}:
@@ -1470,6 +1505,11 @@ class ImportRepository:
                     raise APIError(404, "not_found", "Import issue was not found")
                 self._check_draft(job, revision)
                 validate(issue)
+                if decision == "corrected":
+                    record = self.store.import_records.get(issue["record_id"])
+                    if record is None:
+                        raise APIError(409, "not_correctable", "This issue needs a corrected source upload")
+                    self._validate_issue_correction(issue, record, json.loads(record["working_json"]))
                 before = {"status": issue["status"]}
                 issue.update(status=decision, resolution_value=resolution_value,
                              resolution_reason=reason.strip(), resolved_by_user_id=actor["id"], updated_at=now)
@@ -1486,6 +1526,14 @@ class ImportRepository:
                 raise APIError(404, "not_found", "Import issue was not found")
             self._check_draft(job, revision)
             validate(issue)
+            if decision == "corrected":
+                record = connection.execute(text(
+                    "SELECT record_kind, source_json, working_json FROM import_record "
+                    "WHERE id = :id AND job_id = :job"
+                ), {"id": issue["record_id"], "job": job_id}).mappings().first() if issue["record_id"] else None
+                if record is None:
+                    raise APIError(409, "not_correctable", "This issue needs a corrected source upload")
+                self._validate_issue_correction(issue, record, json.loads(record["working_json"]))
             self._audit(connection, actor, "import_issue", issue_id, {"status": issue["status"]},
                         {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value}, now)
             connection.execute(text(
@@ -1496,6 +1544,86 @@ class ImportRepository:
             connection.execute(text("UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"),
                                {"now": now, "id": job_id})
             return {"revision": int(job["revision"]) + 1, "status": decision}
+
+    def correct_issue_cell(self, job_id: str, issue_id: str, value: str, reason: str,
+                           revision: int, actor: dict[str, Any]) -> dict[str, Any]:
+        if not value.strip() or len(value) > 20_000:
+            raise APIError(400, "invalid_value", "Enter a nonempty corrected cell value")
+        if not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain the cell correction")
+        now = _now()
+        if self.engine is None:
+            with self.lock:
+                job = self.store.import_jobs.get(job_id)
+                issue = self.store.import_issues.get(issue_id)
+                if job is None or issue is None or issue["job_id"] != job_id:
+                    raise APIError(404, "not_found", "Import issue was not found")
+                self._check_draft(job, revision)
+                if issue["status"] != "open" or not issue["record_id"] or not issue["source_column"]:
+                    raise APIError(409, "not_correctable", "This issue is closed or has no editable record")
+                record = self.store.import_records.get(issue["record_id"])
+                if record is None or record["job_id"] != job_id:
+                    raise APIError(409, "not_correctable", "This issue has no editable record")
+                working = json.loads(record["working_json"])
+                self._issue_cells(record["record_kind"], working)[issue["source_column"]] = value.strip()
+                self._validate_issue_correction(issue, record, working)
+                encoded = json.dumps(working, ensure_ascii=False, separators=(",", ":"))
+                if len(encoded) > 1_000_000:
+                    raise APIError(413, "record_too_large", "Corrected record is too large")
+                before = json.loads(record["working_json"])
+                record.update(working_json=encoded, updated_at=now)
+                issue.update(status="corrected", resolution_value=value.strip(),
+                             resolution_reason=reason.strip(), resolved_by_user_id=actor["id"],
+                             updated_at=now)
+                job["revision"] += 1
+                job["updated_at"] = now
+                self._memory_audit(actor, "import_record", record["id"], {"working": before},
+                                   {"working": working, "reason": reason.strip()}, now)
+                self._memory_audit(actor, "import_issue", issue_id, {"status": "open"},
+                                   {"status": "corrected", "value": value.strip(),
+                                    "reason": reason.strip()}, now)
+                return {"revision": job["revision"], "status": "corrected", "working": working}
+        with self.engine.begin() as connection:
+            job = connection.execute(text(
+                "SELECT * FROM import_job WHERE id = :id FOR UPDATE"
+            ), {"id": job_id}).mappings().first()
+            issue = connection.execute(text(
+                "SELECT * FROM import_issue WHERE id = :id AND job_id = :job FOR UPDATE"
+            ), {"id": issue_id, "job": job_id}).mappings().first()
+            if job is None or issue is None:
+                raise APIError(404, "not_found", "Import issue was not found")
+            self._check_draft(job, revision)
+            if issue["status"] != "open" or not issue["record_id"] or not issue["source_column"]:
+                raise APIError(409, "not_correctable", "This issue is closed or has no editable record")
+            record = connection.execute(text(
+                "SELECT * FROM import_record WHERE id = :id AND job_id = :job FOR UPDATE"
+            ), {"id": issue["record_id"], "job": job_id}).mappings().first()
+            if record is None:
+                raise APIError(409, "not_correctable", "This issue has no editable record")
+            working = json.loads(record["working_json"])
+            self._issue_cells(record["record_kind"], working)[issue["source_column"]] = value.strip()
+            self._validate_issue_correction(issue, record, working)
+            encoded = json.dumps(working, ensure_ascii=False, separators=(",", ":"))
+            if len(encoded) > 1_000_000:
+                raise APIError(413, "record_too_large", "Corrected record is too large")
+            self._audit(connection, actor, "import_record", str(record["id"]),
+                        {"working": json.loads(record["working_json"])},
+                        {"working": working, "reason": reason.strip()}, now)
+            self._audit(connection, actor, "import_issue", issue_id, {"status": "open"},
+                        {"status": "corrected", "value": value.strip(),
+                         "reason": reason.strip()}, now)
+            connection.execute(text(
+                "UPDATE import_record SET working_json = :working, updated_at = :now WHERE id = :id"
+            ), {"working": encoded, "now": now, "id": record["id"]})
+            connection.execute(text(
+                "UPDATE import_issue SET status = 'corrected', resolution_value = :value, "
+                "resolution_reason = :reason, resolved_by_user_id = :actor, updated_at = :now WHERE id = :id"
+            ), {"value": value.strip(), "reason": reason.strip(), "actor": actor["id"],
+                "now": now, "id": issue_id})
+            connection.execute(text(
+                "UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"
+            ), {"now": now, "id": job_id})
+            return {"revision": int(job["revision"]) + 1, "status": "corrected", "working": working}
 
     def bypass_issues(self, job_id: str, issue_ids: list[str], reason: str,
                       revision: int, actor: dict[str, Any]) -> dict[str, Any]:

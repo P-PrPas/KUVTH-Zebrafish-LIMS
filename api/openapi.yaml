@@ -252,6 +252,29 @@ paths:
         '200': { description: All selected issues bypassed atomically with audit }
         '403': { description: Admin access required }
         '409': { description: Stale revision or a selected issue cannot be bypassed }
+  /imports/{jobId}/issues/{issueId}/correct-cell:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Correct a flagged source cell in the working copy and resolve its issue atomically
+      operationId: correctImportIssueCell
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, value, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                value: { type: string }
+                reason: { type: string }
+      responses:
+        '200': { description: Working cell corrected while original source remains unchanged }
+        '403': { description: Admin access required }
+        '409': { description: New value is still invalid, issue has no editable row, or revision changed }
   /imports/{jobId}/files/{fileId}:
     parameters:
       - name: jobId

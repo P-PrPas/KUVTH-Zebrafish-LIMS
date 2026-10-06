@@ -157,6 +157,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/issues/{issueId}/correct-cell": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct a flagged source cell in the working copy and resolve its issue atomically */
+        post: operations["correctImportIssueCell"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/files/{fileId}": {
         parameters: {
             query?: never;
@@ -3440,6 +3460,49 @@ export interface operations {
                 content?: never;
             };
             /** @description Stale revision or a selected issue cannot be bypassed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    correctImportIssueCell: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    value: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Working cell corrected while original source remains unchanged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description New value is still invalid */
             409: {
                 headers: {
                     [name: string]: unknown;

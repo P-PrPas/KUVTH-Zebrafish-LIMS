@@ -251,6 +251,7 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                         sheet.name, index, "C", _text(row.get("C"))[:1000], f"C{index}",
                     ))
             elif code or _text(row.get("C")):
+                sheet.records.append(_record(sheet.name, index, "specimen", row, code))
                 sheet.issues.append(SourceIssue(
                     "blocking", "invalid_specimen_code",
                     "Specimen code must start CL, CLA, RT, or DC followed by digits",
