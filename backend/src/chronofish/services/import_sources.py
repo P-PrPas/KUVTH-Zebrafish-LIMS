@@ -149,22 +149,33 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
         for index in range(2, len(rows) - 1):
             row = rows[index]
             following = rows[index + 1]
-            if not any(_text(following.get(column)).casefold() == "observation time" for column in marker_columns):
-                continue
-            if index + 2 >= len(rows) or not any(
-                _text(value).casefold() == "degenerated" for value in rows[index + 2].values()
+            has_observation_row = any(
+                _text(following.get(column)).casefold() == "observation time" for column in marker_columns
+            )
+            degen_index = index + 2 if has_observation_row else index + 1
+            if degen_index >= len(rows) or not any(
+                _text(value).casefold() == "degenerated" for value in rows[degen_index].values()
             ):
                 continue
             block = {
                 "result": row,
-                "observationTime": following,
-                "degenerated": rows[index + 2] if index + 2 < len(rows) else {},
-                "observedDead": rows[index + 3] if index + 3 < len(rows) else {},
-                "condition": rows[index + 4] if index + 4 < len(rows) else {},
+                "observationTime": following if has_observation_row else {},
+                "degenerated": rows[degen_index],
+                "observedDead": rows[degen_index + 1] if degen_index + 1 < len(rows) else {},
+                "condition": rows[degen_index + 2] if degen_index + 2 < len(rows) else {},
             }
             row_no = index + 1
             record = _record(sheet.name, row_no, "embryo_candidate", block)
             sheet.records.append(record)
+            for stage_index in range(38, 59):
+                column = get_column_letter(stage_index)
+                value = row.get(column)
+                if value is not None and _text(value) not in {"0", "1", "0.0", "1.0"}:
+                    sheet.issues.append(SourceIssue(
+                        "overridable", "nonbinary_embryo_stage",
+                        "Expected 1 (alive) or 0 (not surviving); review this source cell",
+                        sheet.name, row_no, column, _text(value)[:1000], f"{column}{row_no}",
+                    ))
         # Header-level date, control counts, and lot metadata must survive too.
         for index, row in enumerate(rows[:8], 1):
             if any(_text(value).casefold() in {"observation time", "degenerated", "observed dead"} for value in row.values()):
@@ -190,11 +201,28 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                 _record(sheet.name, index, "legacy_lot", {"cells": row, "context": dict(context)}, row.get("G"))
             )
     elif kind in {"v1_fish", "v2_fish"}:
+        stage_columns = {
+            column for column, title in rows[0].items()
+            if re.match(r"^(?:d|day\s*)\d+\b", _text(title), re.IGNORECASE)
+        } if rows else set()
         for index, row in enumerate(rows[1:], 2):
             if not _text(row.get("A")).isdigit():
                 continue
             key = row.get("K") if kind == "v1_fish" else row.get("A")
             sheet.records.append(_record(sheet.name, index, "fish", row, key))
+            dob_column = "F" if kind == "v1_fish" else "B"
+            if not _text(row.get(dob_column)):
+                sheet.issues.append(SourceIssue(
+                    "blocking", "fish_dob_missing", "A fish date of birth is required",
+                    sheet.name, index, dob_column, None, f"{dob_column}{index}",
+                ))
+            for column in stage_columns & row.keys():
+                value = row[column]
+                if isinstance(value, bool) or _text(value) not in {"0", "1", "0.0", "1.0"}:
+                    sheet.issues.append(SourceIssue(
+                        "blocking", "invalid_survival_flag", "Survival must be 1 (alive) or 0 (not surviving)",
+                        sheet.name, index, column, _text(value)[:1000], f"{column}{index}",
+                    ))
     elif kind == "specimen":
         for index, row in enumerate(rows[1:], 2):
             code = _text(row.get("B"))
@@ -207,8 +235,16 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                 context["date"] = row["A"]
             code = _text(row.get("B"))
             if code:
+                continuation: list[dict[str, Any]] = []
+                for next_index in range(index, len(rows)):
+                    following = rows[next_index]
+                    if "B" in following or "A" in following:
+                        break
+                    if following:
+                        continuation.append({"rowNo": next_index + 1, "cells": following})
                 sheet.records.append(
-                    _record(sheet.name, index, "control_aggregate", {"cells": row, "context": dict(context)}, code)
+                    _record(sheet.name, index, "control_aggregate",
+                            {"cells": row, "context": dict(context), "continuation": continuation}, code)
                 )
     elif kind == "msu_aggregate":
         for index, row in enumerate(rows[2:], 3):
