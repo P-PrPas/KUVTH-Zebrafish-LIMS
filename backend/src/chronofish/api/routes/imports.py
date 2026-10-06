@@ -193,6 +193,11 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.revise_record(job_id, record_id, body["working"], body["reason"],
                                         body["revision"], actor)
 
+    @router.get("/{job_id}/records/{record_id}/interpretation")
+    def interpret_record(request: Request, job_id: str, record_id: str) -> dict[str, Any]:
+        _actor(request)
+        return repository.interpretation(job_id, record_id)
+
     @router.post("/{job_id}/issues/{issue_id}/decision")
     def decide_issue(request: Request, job_id: str, issue_id: str,
                      body: dict[str, Any] = Body(...)) -> dict[str, Any]:

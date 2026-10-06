@@ -12,6 +12,7 @@ from sqlalchemy import text
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.import_sources import ParsedSheet, SourceIssue, record_json
+from ..services.import_interpret import interpret
 
 
 def _now() -> datetime:
@@ -331,6 +332,25 @@ class ImportRepository:
                 if row is None:
                     raise APIError(404, "not_found", "Source file was not found")
         return str(row["file_name"]), str(row["media_type"]), bytes(row["content"])
+
+    def interpretation(self, job_id: str, record_id: str) -> dict[str, Any]:
+        self._job(job_id)
+        if self.engine is None:
+            with self.lock:
+                row = self.store.import_records.get(record_id)
+                if row is None or row["job_id"] != job_id:
+                    raise APIError(404, "not_found", "Import record was not found")
+        else:
+            with self.engine.connect() as connection:
+                row = connection.execute(text(
+                    "SELECT record_kind, working_json FROM import_record WHERE id = :id AND job_id = :job"
+                ), {"id": record_id, "job": job_id}).mappings().first()
+                if row is None:
+                    raise APIError(404, "not_found", "Import record was not found")
+        meaning = interpret(row["record_kind"], json.loads(row["working_json"]))
+        if meaning is None:
+            raise APIError(422, "not_interpreted", "This source layout has no interpretation yet")
+        return {"recordId": record_id, "interpretation": meaning}
 
     @staticmethod
     def _audit(connection: Any, actor: dict[str, Any], table: str, record_id: str,
