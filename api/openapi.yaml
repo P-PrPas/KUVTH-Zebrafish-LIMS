@@ -267,7 +267,7 @@ paths:
       - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Imports]
-      summary: Interpret a V2 embryo, fish, or specimen row without writing canonical data
+      summary: Interpret a historical embryo, fish, specimen, or aggregate row
       operationId: interpretImportRecord
       responses:
         '200': { description: Interpreted values, observations, and unresolved meanings }
@@ -278,10 +278,10 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     get:
       tags: [Imports]
-      summary: List source donor labels, site sheets, and ambiguous fish zeros
+      summary: List source mappings and unresolved import warnings
       operationId: getImportMappingRequirements
       responses:
-        '200': { description: Master mappings required before fish/specimen confirmation }
+        '200': { description: Master mappings and warnings before confirmation }
         '403': { description: Admin access required }
   /imports/{jobId}/confirm-fish-specimens:
     parameters:
@@ -307,6 +307,27 @@ paths:
         '200': { description: Canonical fish/specimen and historical observation counts }
         '403': { description: Admin access required }
         '409': { description: Stale draft, unresolved issue, duplicate, or missing master mapping }
+  /imports/{jobId}/confirm-aggregate:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Atomically confirm V1, MSU, or QC historical count sheets
+      operationId: confirmAggregateImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Historical count rows created with source provenance }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, unresolved issues, or warnings without bypass reason }
   /imports/{jobId}/fish-status:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -348,7 +369,7 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       tags: [Imports]
-      summary: Revert an entire committed fish/specimen import when no later work depends on it
+      summary: Revert an entire committed fish/specimen or count import when safe
       operationId: revertFishSpecimenImport
       requestBody:
         required: true

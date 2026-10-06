@@ -172,7 +172,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Interpret a V2 embryo, fish, or specimen row without writing canonical data */
+        /** Interpret a historical embryo, fish, specimen, or aggregate row */
         get: operations["interpretImportRecord"];
         put?: never;
         post?: never;
@@ -191,7 +191,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List source donor labels, site sheets, and ambiguous fish zeros */
+        /** List source mappings and unresolved import warnings */
         get: operations["getImportMappingRequirements"];
         put?: never;
         post?: never;
@@ -217,6 +217,25 @@ export interface paths {
          * @description Requires an active site with time zone per fish sheet and active donor cell per source label.
          */
         post: operations["confirmFishSpecimenImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically confirm V1, MSU, or QC historical count sheets */
+        post: operations["confirmAggregateImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -273,7 +292,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revert an entire committed fish/specimen import when no later work depends on it */
+        /** Revert an entire committed fish/specimen or count import when safe */
         post: operations["revertFishSpecimenImport"];
         delete?: never;
         options?: never;
@@ -3349,7 +3368,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Master mappings required before fish/specimen confirmation */
+            /** @description Master mappings and warnings before confirmation */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3390,6 +3409,47 @@ export interface operations {
         };
         responses: {
             /** @description Canonical fish/specimen and historical observation counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmAggregateImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Historical count rows created with source provenance */
             200: {
                 headers: {
                     [name: string]: unknown;

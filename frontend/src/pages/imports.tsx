@@ -8,7 +8,7 @@ type Job = { id: string; status: string; inputKind: string; revision: number; cr
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number };
 type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
-type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean };
+type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[] };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
@@ -40,6 +40,7 @@ export function Imports({ language }: { language: Language }) {
   const [siteMappings, setSiteMappings] = useState<Record<string, string>>({});
   const [donorMappings, setDonorMappings] = useState<Record<string, string>>({});
   const [zeroBypassReason, setZeroBypassReason] = useState("");
+  const [aggregateWarningReason, setAggregateWarningReason] = useState("");
   const [fishStatuses, setFishStatuses] = useState<ImportedFishStatus[]>([]);
   const [fishStatusEdits, setFishStatusEdits] = useState<Record<string, FishStatusEdit>>({});
   const [revertReason, setRevertReason] = useState("");
@@ -180,6 +181,22 @@ export function Imports({ language }: { language: Language }) {
     finally { setBusy(false); }
   }
 
+  async function confirmAggregate() {
+    if (!detail || !mappingRequirements) return;
+    if (!window.confirm(th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งหมดในงานนี้?" : "Commit every historical count in this job?")) return;
+    setBusy(true); setError("");
+    try {
+      const result = await json<{ historicalCountRows: number }>(`/imports/${detail.job.id}/confirm-aggregate`, {
+        method: "POST",
+        body: JSON.stringify({ revision: detail.job.revision, warningBypassReason: aggregateWarningReason }),
+      });
+      await reloadJobs(); await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว` :
+        `Imported ${result.historicalCountRows} historical count rows.`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function saveFishStatus(fish: ImportedFishStatus) {
     if (!detail) return;
     const edit = fishStatusEdits[fish.id];
@@ -253,8 +270,19 @@ export function Imports({ language }: { language: Language }) {
           <label>{th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}<textarea value={zeroBypassReason} onChange={(event) => setZeroBypassReason(event.target.value)} rows={3} /></label></div>}
         <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || mappingRequirements.donorSources.some((source) => !donorMappings[source]) || (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim())} onClick={() => void confirmFishSpecimens()}>{th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}</button>
       </div>}
-      {detail.job.status === "committed" && <div className="import-page__mapping"><h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
-        <p className="muted">{th ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้" : "Confirm status from evidence. A later edit may prevent whole-job revert."}</p>
+      {detail.job.status === "draft" && mappingRequirements?.canConfirmAggregate && <div className="import-page__mapping">
+        <h3>{th ? "ตรวจข้อมูลนับจำนวนก่อนนำเข้า" : "Review historical counts"}</h3>
+        <p className="muted">{th ? "ข้อมูล V1, MSU และ QC จะถูกเก็บพร้อมตำแหน่งเซลล์ต้นฉบับ โดยไม่สร้างเวลาสังเกตที่ไม่มีในไฟล์" : "V1, MSU and QC counts keep their source cell locations. Missing observation times are not invented."}</p>
+        {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}</p>}
+        {mappingRequirements.aggregateWarningCount > 0 && <div className="import-page__warning" role="alert">
+          <strong>{mappingRequirements.aggregateWarningCount} {th ? "ข้อควรตรวจ: ค่า/วันที่บางส่วนอ่านไม่ได้" : "warnings: some counts or dates could not be interpreted"}</strong>
+          <ul>{mappingRequirements.aggregateWarningPreview.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+          <label>{th ? "เหตุผลที่ยอมรับความเสี่ยงและนำเข้าเฉพาะค่าที่อ่านได้" : "Reason to import interpretable values"}<textarea rows={3} value={aggregateWarningReason} onChange={(event) => setAggregateWarningReason(event.target.value)} /></label>
+        </div>}
+        <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || (mappingRequirements.aggregateWarningCount > 0 && !aggregateWarningReason.trim())} onClick={() => void confirmAggregate()}>{th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งงาน" : "Confirm entire count job"}</button>
+      </div>}
+      {detail.job.status === "committed" && <div className="import-page__mapping">{fishStatuses.length > 0 && <><h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
+        <p className="muted">{th ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้" : "Confirm status from evidence. A later edit may prevent whole-job revert."}</p></>}
         {fishStatuses.map((fish) => { const edit = fishStatusEdits[fish.id]; return edit && <div key={fish.id} className="import-page__status-row"><strong>{fish.fishCode}</strong>
           <label>{th ? "สถานะ" : "Status"}<select value={edit.status} onChange={(event) => {
             const status = event.target.value;
@@ -287,12 +315,13 @@ export function Imports({ language }: { language: Language }) {
       <h3>{th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"}</h3>
       {records.map((row) => <article key={row.id} className="import-page__item"><div><strong>{row.sheetName} · {row.sourceLocator}</strong> <span>{row.recordKind}</span></div>
         {row.targetId && <p className="muted">{th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}</p>}
-        {(["fish", "specimen", "embryo_candidate"].includes(row.recordKind)) && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
+        {(["fish", "specimen", "embryo_candidate", "legacy_lot", "scnt_aggregate", "control_aggregate"].includes(row.recordKind)) && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
         {interpretation?.recordId === row.id && <div className="import-page__interpretation"><strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
-          <pre>{JSON.stringify({ ...interpretation.value, observations: undefined, stageObservations: undefined, dailySurvival: undefined }, null, 2)}</pre>
+          <pre>{JSON.stringify({ ...interpretation.value, observations: undefined, stageObservations: undefined, dailySurvival: undefined, counts: undefined }, null, 2)}</pre>
           {Array.isArray(interpretation.value.observations) && <p>{th ? "รายการสังเกต" : "Observations"}: {interpretation.value.observations.length}</p>}
           {Array.isArray(interpretation.value.stageObservations) && <p>{th ? "ระยะตัวอ่อนที่บันทึก" : "Recorded embryo stages"}: {interpretation.value.stageObservations.length}</p>}
           {Array.isArray(interpretation.value.dailySurvival) && <p>{th ? "วันที่ติดตาม" : "Daily tracking entries"}: {interpretation.value.dailySurvival.length}</p>}
+          {Array.isArray(interpretation.value.counts) && <p>{th ? "รายการนับจำนวน" : "Count values"}: {interpretation.value.counts.length}</p>}
         </div>}
         <div className="import-page__comparison"><div><h4>{th ? "ต้นฉบับ" : "Original"}</h4><pre>{JSON.stringify(row.source, null, 2)}</pre></div><div><h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>{editing === row.id ? <><textarea rows={9} value={workingText} onChange={(event) => setWorkingText(event.target.value)} aria-label="Working JSON" /><label>{th ? "เหตุผลการแก้" : "Edit reason"}<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>{th ? "บันทึก" : "Save"}</button><button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button></> : <><pre>{JSON.stringify(row.working, null, 2)}</pre><button disabled={detail.job.status !== "draft"} onClick={() => { setEditing(row.id); setWorkingText(JSON.stringify(row.working, null, 2)); setReason(""); }}>{th ? "แก้ไขข้อมูล" : "Edit values"}</button></>}</div></div>
       </article>)}
