@@ -199,6 +199,18 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_reason", "Bypass reason must be text")
         return repository.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero_reason)
 
+    @router.post("/{job_id}/confirm-aggregate")
+    def confirm_aggregate(request: Request, job_id: str,
+                          body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        warning_reason = body.get("warningBypassReason", "")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(warning_reason, str):
+            raise APIError(400, "invalid_reason", "Warning bypass reason must be text")
+        return repository.confirm_aggregate(job_id, revision, actor, warning_reason)
+
     @router.get("/{job_id}/fish-status")
     def fish_statuses(request: Request, job_id: str) -> dict[str, Any]:
         _actor(request)

@@ -221,6 +221,99 @@ def _specimen(cells: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+V1_COUNT_STAGES = (
+    "2-cell", "4-cell", "8-cell", "16-cell", "32-cell", "64-cell", "128-cell",
+    "256-cell", "512-cell", "1k-cell", "High", "Oblong", "Sphere", "Dome",
+    "30% epiboly", "50% epiboly", "Germ ring", "Shield", "75% epiboly",
+    "90% epiboly", "Day1", "Day2",
+)
+MSU_COUNT_STAGES = (
+    "4-cell", "8-cell", "16-cell", "32-cell", "64-cell", "256-cell",
+    "512-cell", "1k-cell", "High", "Oblong", "Sphere", "Dome",
+    "30% epiboly", "50% epiboly", "Germ ring", "Shield",
+    "75% epiboly", "90% epiboly",
+)
+QC_COUNT_STAGES = (
+    "2-cell", "4-cell", "8-cell", "16-cell", "32-cell", "64-cell",
+    "128-cell", "256-cell", "512-cell", "1k-cell", "High", "Oblong",
+    "Sphere", "Dome", "30% epiboly", "50% epiboly", "Germ ring",
+    "Shield", "75% epiboly", "90% epiboly", "Bud",
+)
+
+
+def _aggregate(kind: str, working: dict[str, Any]) -> dict[str, Any]:
+    cells = working.get("cells", working)
+    context = working.get("context", {})
+    observed = _day(context.get("date") if kind != "scnt_aggregate" else cells.get("A"))
+    counts: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    def add(column: str, stage: str, raw: Any, measure: str = "nAlive") -> None:
+        if raw is None or _text(raw) == "":
+            return
+        value = _text(raw)
+        if kind == "control_aggregate" and value.casefold().startswith("obs time"):
+            return
+        if re.fullmatch(r"\d+(?:\.0+)?", value):
+            count = int(float(value))
+            counts.append({"sourceColumn": column, "stageLabel": stage, measure: count,
+                           "sourceValue": raw, "observedOn": observed.isoformat() if observed else None})
+        else:
+            warnings.append(f"{column}: count is not a nonnegative integer ({value[:80]})")
+
+    if kind == "legacy_lot":
+        add("N", "Injected", cells.get("N"), "nTotal")
+        add("Q", "Activated", cells.get("Q"), "nTotal")
+        for index, stage in enumerate(V1_COUNT_STAGES, 19):
+            add(get_column_letter(index), stage, cells.get(get_column_letter(index)))
+        for column, stage in (("AV", "N_TU"), ("AX", "N_NHGRI"), ("AZ", "N_AB")):
+            add(column, stage, cells.get(column), "nTotal")
+    elif kind == "scnt_aggregate":
+        add("B", "Activated", cells.get("B"), "nTotal")
+        add("C", "2-cell", cells.get("C"), "nNormal")
+        add("D", "2-cell", cells.get("D"), "nAbnormal")
+        for index, stage in enumerate(MSU_COUNT_STAGES, 5):
+            add(get_column_letter(index), stage, cells.get(get_column_letter(index)))
+        add("W", "Day1", cells.get("W"), "nNormal")
+        add("X", "Day1", cells.get("X"), "nAbnormal")
+        for column, stage in (("Y", "Day3"), ("Z", "Swimming larva"), ("AA", "Stage indeterminate")):
+            add(column, stage, cells.get(column))
+    else:
+        add("D", "Total", cells.get("D"), "nTotal")
+        for index, stage in enumerate(QC_COUNT_STAGES, 5):
+            column = get_column_letter(index)
+            add(column, stage, cells.get(column))
+        for day, start in ((1, 26), (2, 29), (3, 32)):
+            add(get_column_letter(start + 1), f"Day{day}", cells.get(get_column_letter(start + 1)), "nNormal")
+            add(get_column_letter(start + 2), f"Day{day}", cells.get(get_column_letter(start + 2)), "nAbnormal")
+        for continuation in working.get("continuation", []):
+            for column, raw in continuation.get("cells", {}).items():
+                if not re.fullmatch(r"\d+\s*/\s*\d+", _text(raw)):
+                    continue
+                numerator, denominator = (int(part.strip()) for part in _text(raw).split("/"))
+                stage = next((label for index, label in enumerate(QC_COUNT_STAGES, 5)
+                              if get_column_letter(index) == column), f"QC {column}")
+                counts.append({"sourceColumn": column, "sourceRow": continuation.get("rowNo"),
+                               "stageLabel": stage, "numerator": numerator,
+                               "denominator": denominator, "sourceValue": raw,
+                               "observedOn": observed.isoformat() if observed else None})
+    total_column = "N" if kind == "legacy_lot" else "B" if kind == "scnt_aggregate" else "D"
+    total = next((entry["nTotal"] for entry in counts
+                  if entry["sourceColumn"] == total_column and "nTotal" in entry), None)
+    if total is not None:
+        for entry in counts:
+            measured = entry.get("nAlive", entry.get("nNormal", entry.get("nAbnormal")))
+            if measured is not None and measured > total:
+                warnings.append(f"{entry['sourceColumn']}: stage count {measured} exceeds total {total}")
+            if entry.get("numerator", 0) > entry.get("denominator", 0):
+                warnings.append(f"{entry['sourceColumn']}: fraction numerator exceeds denominator")
+    if observed is None:
+        warnings.append("Observation date is missing or invalid; counts retain unknown date")
+    return {"entity": "historical_stage_counts", "sourceKind": kind,
+            "observedOn": observed.isoformat() if observed else None,
+            "counts": counts, "warnings": warnings}
+
+
 def interpret(record_kind: str, working: dict[str, Any]) -> dict[str, Any] | None:
     if record_kind == "fish":
         return _fish(working)
@@ -228,4 +321,6 @@ def interpret(record_kind: str, working: dict[str, Any]) -> dict[str, Any] | Non
         return _specimen(working)
     if record_kind == "embryo_candidate":
         return _embryo(working)
+    if record_kind in {"legacy_lot", "scnt_aggregate", "control_aggregate"}:
+        return _aggregate(record_kind, working)
     return None

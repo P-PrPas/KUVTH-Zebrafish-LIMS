@@ -375,8 +375,15 @@ class ImportRepository:
         sites: set[str] = set()
         kinds: set[str] = set()
         ambiguous_zero: list[str] = []
+        aggregate_warnings: list[str] = []
         for row in rows:
             kinds.add(row["record_kind"])
+            if row["record_kind"] in {"legacy_lot", "scnt_aggregate", "control_aggregate"}:
+                meaning = interpret(row["record_kind"], json.loads(row["working_json"])) or {}
+                aggregate_warnings.extend(
+                    f"{row['sheet_name']} {row.get('source_locator', '')}: {warning}"
+                    for warning in meaning.get("warnings", [])
+                )
             if row["record_kind"] != "fish":
                 continue
             meaning = interpret("fish", json.loads(row["working_json"])) or {}
@@ -387,7 +394,74 @@ class ImportRepository:
         return {"donorSources": sorted(donor_sources), "sheetNames": sorted(sites),
                 "recordKinds": sorted(kinds), "ambiguousZeroRecords": ambiguous_zero,
                 "unresolvedIssueCount": unresolved_count,
-                "canConfirmFishSpecimens": bool(rows) and kinds <= {"fish", "specimen"}}
+                "aggregateWarningCount": len(aggregate_warnings),
+                "aggregateWarningPreview": aggregate_warnings[:30],
+                "canConfirmFishSpecimens": bool(rows) and kinds <= {"fish", "specimen"},
+                "canConfirmAggregate": bool(rows) and kinds <= {
+                    "legacy_lot", "scnt_aggregate", "control_aggregate"}}
+
+    def confirm_aggregate(self, job_id: str, revision: int, actor: dict[str, Any],
+                          warning_reason: str) -> dict[str, Any]:
+        """Keep historical counts outside operational timing metrics, in one transaction."""
+        if self.engine is None:
+            raise APIError(503, "database_required", "Canonical import requires the configured database")
+        now = _now()
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
+                                     {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            self._check_draft(job, revision)
+            records = [dict(row) for row in connection.execute(text(
+                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+            ), {"id": job_id}).mappings()]
+            if not records or any(row["record_kind"] not in {
+                "legacy_lot", "scnt_aggregate", "control_aggregate"} for row in records):
+                raise APIError(409, "not_ready", "Confirm a job containing only historical count sheets")
+            unresolved = connection.execute(text(
+                "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
+                "AND severity IN ('blocking', 'overridable')"
+            ), {"id": job_id}).scalar_one()
+            if unresolved:
+                raise APIError(409, "issues_open", "Resolve blocking and overridable issues first")
+            rows: list[dict[str, Any]] = []
+            first_ids: dict[str, str] = {}
+            warnings: list[str] = []
+            for record in records:
+                meaning = interpret(record["record_kind"], json.loads(record["working_json"]))
+                if meaning is None or not meaning["counts"]:
+                    raise APIError(409, "counts_missing", f"{record['sheet_name']} {record['source_locator']}: no usable counts")
+                warnings.extend(f"{record['sheet_name']} {record['source_locator']}: {warning}"
+                                for warning in meaning["warnings"])
+                for count in meaning["counts"]:
+                    count_id = uuid7()
+                    first_ids.setdefault(record["id"], count_id)
+                    rows.append({
+                        "id": count_id, "import_job_id": job_id, "import_record_id": record["id"],
+                        "stage_label": count["stageLabel"], "observed_on": count["observedOn"],
+                        "n_total": count.get("nTotal"), "n_alive": count.get("nAlive"),
+                        "n_normal": count.get("nNormal"), "n_abnormal": count.get("nAbnormal"),
+                        "numerator": count.get("numerator"), "denominator": count.get("denominator"),
+                        "raw_value": json.dumps({"column": count["sourceColumn"],
+                                                 "row": count.get("sourceRow", record["row_no"]),
+                                                 "value": count["sourceValue"]}, ensure_ascii=False),
+                        "created_at": now,
+                    })
+            if warnings and (not warning_reason.strip() or len(warning_reason) > 2000):
+                raise APIError(409, "aggregate_warning", "Some counts or dates could not be interpreted; provide a bypass reason")
+            self._insert_many(connection, "historical_stage_count", rows)
+            for record in records:
+                self._mark_imported(connection, record["id"], "historical_stage_count",
+                                    first_ids[record["id"]], now)
+            connection.execute(text(
+                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+            ), {"actor": actor["id"], "now": now, "id": job_id})
+            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                        {"status": "committed", "historicalCountRows": len(rows),
+                         "warningCount": len(warnings), "warningBypassReason": warning_reason.strip() or None}, now)
+            return {"jobId": job_id, "status": "committed", "revision": revision + 1,
+                    "historicalCountRows": len(rows), "warningCount": len(warnings)}
 
     def confirm_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
                                site_mappings: dict[str, str], donor_mappings: dict[str, str],
@@ -664,6 +738,23 @@ class ImportRepository:
             targets = [dict(row) for row in connection.execute(text(
                 "SELECT target_table, target_id FROM import_record WHERE job_id = :job AND status = 'imported'"
             ), {"job": job_id}).mappings()]
+            if targets and all(row["target_table"] == "historical_stage_count" for row in targets):
+                count = connection.execute(text(
+                    "SELECT COUNT(*) FROM historical_stage_count WHERE import_job_id = :job AND deleted_at IS NULL"
+                ), {"job": job_id}).scalar_one()
+                connection.execute(text(
+                    "UPDATE historical_stage_count SET deleted_at = :now "
+                    "WHERE import_job_id = :job AND deleted_at IS NULL"
+                ), {"job": job_id, "now": now})
+                connection.execute(text(
+                    "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
+                    "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
+                ), {"actor": actor["id"], "now": now, "job": job_id})
+                self._audit(connection, actor, "import_job", job_id, {"status": "committed"},
+                            {"status": "reverted", "reason": reason.strip(),
+                             "historicalCountRows": count}, now)
+                return {"jobId": job_id, "status": "reverted", "revision": revision + 1,
+                        "historicalCountRows": count}
             fish_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "clone_fish"]
             specimen_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "specimen"]
             if len(fish_ids) + len(specimen_ids) != len(targets):
