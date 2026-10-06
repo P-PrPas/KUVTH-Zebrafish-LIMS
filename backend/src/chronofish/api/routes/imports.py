@@ -320,6 +320,19 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_reason", "Explain the bulk bypass decision")
         return repository.bypass_issues(job_id, issue_ids, reason, revision, actor)
 
+    @router.post("/{job_id}/issues/{issue_id}/correct-cell")
+    def correct_issue_cell(request: Request, job_id: str, issue_id: str,
+                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        value = body.get("value")
+        reason = body.get("reason")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(value, str) or not isinstance(reason, str):
+            raise APIError(400, "invalid_value", "Provide a corrected value and reason")
+        return repository.correct_issue_cell(job_id, issue_id, value, reason, revision, actor)
+
     @router.patch("/{job_id}/records/{record_id}")
     def revise_record(request: Request, job_id: str, record_id: str,
                       body: dict[str, Any] = Body(...)) -> dict[str, Any]:

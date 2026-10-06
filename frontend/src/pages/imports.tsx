@@ -7,7 +7,7 @@ type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
 type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number; deferredFieldCount: number };
 type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
-type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
+type Issue = { id: string; recordId: string | null; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
 type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[]; canConfirmEmbryos: boolean; embryoWarningCount: number; embryoWarningPreview: string[]; canConfirmMixed: boolean };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
@@ -38,6 +38,7 @@ export function Imports({ language }: { language: Language }) {
   const [workingText, setWorkingText] = useState("");
   const [reason, setReason] = useState("");
   const [decisionReason, setDecisionReason] = useState<Record<string, string>>({});
+  const [correctedValues, setCorrectedValues] = useState<Record<string, string>>({});
   const [selectedIssueIds, setSelectedIssueIds] = useState<string[]>([]);
   const [bulkBypassReason, setBulkBypassReason] = useState("");
   const [mappingRequirements, setMappingRequirements] = useState<MappingRequirements | null>(null);
@@ -186,6 +187,19 @@ export function Imports({ language }: { language: Language }) {
       });
       await openJob(detail.job.id, recordOffset, issueOffset);
       setNotice(th ? "บันทึกการตัดสินใจแล้ว" : "Decision saved.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function correctCell(issue: Issue) {
+    if (!detail) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/${detail.job.id}/issues/${issue.id}/correct-cell`, { method: "POST",
+        body: JSON.stringify({ revision: detail.job.revision,
+          value: correctedValues[issue.id] ?? "", reason: decisionReason[issue.id] ?? "" }) });
+      await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? "แก้ค่าของเซลล์และปิดประเด็นแล้ว" : "Cell corrected and issue resolved.");
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -460,7 +474,11 @@ export function Imports({ language }: { language: Language }) {
         {issue.status === "open" && issue.severity === "overridable" && <label className="import-page__choice"><input type="checkbox" checked={selectedIssueIds.includes(issue.id)} onChange={(event) => setSelectedIssueIds(event.target.checked ? [...selectedIssueIds, issue.id] : selectedIssueIds.filter((id) => id !== issue.id))} />{th ? "เลือกข้ามเป็นชุด" : "Select for bulk bypass"}</label>}
         <p>{issue.message}</p>{issue.sourceValue && <code>{issue.sourceValue}</code>}
         {issue.status === "open" && <div className="import-page__actions"><label>{th ? "เหตุผล" : "Reason"}<input value={decisionReason[issue.id] ?? ""} onChange={(event) => setDecisionReason({ ...decisionReason, [issue.id]: event.target.value })} /></label>
-          <button disabled={busy || !decisionReason[issue.id]?.trim()} onClick={() => void decide(issue, "corrected")}>{th ? "แก้ไขแล้ว" : "Corrected"}</button>
+          {issue.recordId && issue.sourceColumn ? <>
+            <label>{th ? `ค่าใหม่ของ ${issue.sourceColumn}${issue.rowNo ?? ""}` : `New value for ${issue.sourceColumn}${issue.rowNo ?? ""}`}<input value={correctedValues[issue.id] ?? ""} onChange={(event) => setCorrectedValues({ ...correctedValues, [issue.id]: event.target.value })} /></label>
+            <button disabled={busy || !decisionReason[issue.id]?.trim() || !correctedValues[issue.id]?.trim()} onClick={() => void correctCell(issue)}>{th ? "แก้เซลล์และตรวจค่า" : "Apply and validate cell"}</button>
+            <button disabled={busy || !decisionReason[issue.id]?.trim()} onClick={() => void decide(issue, "corrected")}>{th ? "ตรวจค่าที่แก้ในแถวแล้ว" : "Validate edited row"}</button>
+          </> : <p className="muted">{th ? "ประเด็นนี้ไม่มีแถวให้แก้บนเว็บ กรุณาอัปโหลดต้นฉบับที่แก้แล้ว" : "No editable row is linked to this issue; upload a corrected source."}</p>}
           {issue.severity === "overridable" && <button disabled={busy || !decisionReason[issue.id]?.trim()} onClick={() => void decide(issue, "bypassed")}>{th ? "ข้ามพร้อมเหตุผล" : "Bypass with reason"}</button>}
           {issue.severity === "warning" && <button disabled={busy || !decisionReason[issue.id]?.trim()} onClick={() => void decide(issue, "dismissed")}>{th ? "รับทราบ" : "Acknowledge"}</button>}
         </div>}</article>) : <p className="muted">{th ? "ไม่มีประเด็นในหน้านี้" : "No issues on this page."}</p>}
