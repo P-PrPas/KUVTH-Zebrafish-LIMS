@@ -13,6 +13,7 @@ from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.import_sources import ParsedSheet, SourceIssue, record_json
 from ..services.import_interpret import interpret
+from ..services.import_deferred import deferred_cells
 
 
 def _now() -> datetime:
@@ -40,6 +41,8 @@ def _job_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 
 class ImportRepository:
+    BACKFILL_FIELDS = {"clone_fish": {"remarks"}, "specimen": {"notes"}}
+
     def __init__(self, store: Any) -> None:
         self.store = store
         self.engine = getattr(store, "engine", None)
@@ -49,6 +52,7 @@ class ImportRepository:
             store.import_files = getattr(store, "import_files", {})
             store.import_records = getattr(store, "import_records", {})
             store.import_issues = getattr(store, "import_issues", {})
+            store.import_unmapped_fields = getattr(store, "import_unmapped_fields", {})
 
     def create(
         self, actor_id: str, input_kind: str, selection: dict[str, Any],
@@ -91,6 +95,7 @@ class ImportRepository:
             )
         record_rows: list[dict[str, Any]] = []
         issue_rows: list[dict[str, Any]] = []
+        deferred_rows: list[dict[str, Any]] = []
         for file_index, sheet in parsed:
             file_id = file_rows[file_index]["id"]
             records_for_sheet: dict[str, str] = {}
@@ -119,6 +124,13 @@ class ImportRepository:
                 )
                 records_for_sheet[record.source_locator] = record_id
                 records_by_row[record.row_no] = record_id
+                for source_column, source_value in deferred_cells(record.record_kind, record.source):
+                    deferred_rows.append({
+                        "id": uuid7(), "job_id": job_id, "record_id": record_id,
+                        "source_column": source_column,
+                        "source_value": json.dumps(source_value, ensure_ascii=False),
+                        "status": "pending", "created_at": now,
+                    })
             for issue in sheet.issues:
                 issue_rows.append(
                     self._issue_row(
@@ -136,17 +148,21 @@ class ImportRepository:
                     self.store.import_records[row["id"]] = row
                 for row in issue_rows:
                     self.store.import_issues[row["id"]] = row
+                for row in deferred_rows:
+                    self.store.import_unmapped_fields[row["id"]] = row
         else:
             with self.engine.begin() as connection:
                 self._insert_many(connection, "import_job", [job])
                 self._insert_many(connection, "import_source_file", file_rows)
                 self._insert_many(connection, "import_record", record_rows)
                 self._insert_many(connection, "import_issue", issue_rows)
+                self._insert_many(connection, "import_unmapped_field", deferred_rows)
         return {
             "job": _job_payload(job),
             "files": [self._file_payload(row) for row in file_rows],
             "recordCount": len(record_rows),
             "issueCount": len(issue_rows),
+            "deferredFieldCount": len(deferred_rows),
             "sheets": [
                 {"name": sheet.name, "kind": sheet.kind, "recordCount": sheet.row_count, "issueCount": len(sheet.issues)}
                 for _, sheet in parsed
@@ -232,6 +248,8 @@ class ImportRepository:
                 files = [row for row in self.store.import_files.values() if row["job_id"] == job_id]
                 records = [row for row in self.store.import_records.values() if row["job_id"] == job_id]
                 issues = [row for row in self.store.import_issues.values() if row["job_id"] == job_id]
+                deferred_count = sum(1 for row in self.store.import_unmapped_fields.values()
+                                     if row["job_id"] == job_id)
         else:
             with self.engine.connect() as connection:
                 files = [dict(row) for row in connection.execute(
@@ -244,11 +262,15 @@ class ImportRepository:
                 issues = connection.execute(
                     text("SELECT COUNT(*) FROM import_issue WHERE job_id = :id"), {"id": job_id}
                 ).scalar_one()
+                deferred_count = int(connection.execute(text(
+                    "SELECT COUNT(*) FROM import_unmapped_field WHERE job_id = :id"
+                ), {"id": job_id}).scalar_one())
         return {
             "job": _job_payload(job),
             "files": [self._file_payload(row) for row in files],
             "recordCount": len(records) if isinstance(records, list) else int(records),
             "issueCount": len(issues) if isinstance(issues, list) else int(issues),
+            "deferredFieldCount": deferred_count,
         }
 
     def list_records(self, job_id: str, offset: int, limit: int) -> list[dict[str, Any]]:
@@ -316,6 +338,101 @@ class ImportRepository:
             }
             for row in rows
         ]
+
+    def list_deferred_fields(self, offset: int, limit: int) -> dict[str, Any]:
+        if self.engine is None:
+            with self.lock:
+                items = list(self.store.import_unmapped_fields.values())
+                items.sort(key=lambda row: (row["created_at"], row["id"]))
+                total = len(items)
+                rows = items[offset:offset + limit]
+            return {"total": total, "items": [
+                {"id": row["id"], "jobId": row["job_id"], "recordId": row["record_id"],
+                 "sourceColumn": row["source_column"], "sourceValue": json.loads(row["source_value"]),
+                 "status": row["status"], "targetTable": None, "targetId": None,
+                 "targetFields": [], "rowVersion": None} for row in rows]}
+        with self.engine.connect() as connection:
+            total = int(connection.execute(text("SELECT COUNT(*) FROM import_unmapped_field")).scalar_one())
+            rows = [dict(row) for row in connection.execute(text(
+                "SELECT f.*, r.sheet_name, r.source_locator, r.target_table AS record_target_table, "
+                "r.target_id AS record_target_id, j.status AS job_status "
+                "FROM import_unmapped_field f JOIN import_record r ON r.id = f.record_id "
+                "JOIN import_job j ON j.id = f.job_id "
+                "ORDER BY f.created_at, f.id LIMIT :limit OFFSET :offset"
+            ), {"limit": limit, "offset": offset}).mappings()]
+            result = []
+            for row in rows:
+                table = row["record_target_table"]
+                target_id = row["record_target_id"]
+                version = None
+                if table in self.BACKFILL_FIELDS and target_id and row["job_status"] == "committed":
+                    version = connection.execute(text(
+                        f"SELECT row_version FROM {table} WHERE id = :id AND deleted_at IS NULL"
+                    ), {"id": target_id}).scalar_one_or_none()
+                result.append({
+                    "id": str(row["id"]), "jobId": str(row["job_id"]),
+                    "recordId": str(row["record_id"]), "sheetName": row["sheet_name"],
+                    "sourceLocator": row["source_locator"], "sourceColumn": row["source_column"],
+                    "sourceValue": json.loads(row["source_value"]), "status": row["status"],
+                    "targetTable": table, "targetId": str(target_id) if target_id else None,
+                    "targetField": row["target_field"],
+                    "targetFields": sorted(self.BACKFILL_FIELDS.get(table, set())) if version else [],
+                    "rowVersion": int(version) if version else None,
+                })
+            return {"total": total, "items": result}
+
+    def apply_deferred_field(self, field_id: str, actor: dict[str, Any],
+                             body: dict[str, Any]) -> dict[str, Any]:
+        if self.engine is None:
+            raise APIError(503, "database_required", "Backfill requires the configured database")
+        field = body.get("targetField")
+        value = body.get("value")
+        reason = body.get("reason")
+        version = body.get("rowVersion")
+        if not isinstance(value, str) or not value.strip() or len(value) > 2000:
+            raise APIError(400, "invalid_value", "Enter a value of at most 2000 characters")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain this field mapping")
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise APIError(400, "invalid_version", "Provide the current target row version")
+        now = _now()
+        with self.engine.begin() as connection:
+            row = connection.execute(text(
+                "SELECT f.*, r.target_table AS record_target_table, r.target_id AS record_target_id, "
+                "j.status AS job_status FROM import_unmapped_field f "
+                "JOIN import_record r ON r.id = f.record_id "
+                "JOIN import_job j ON j.id = f.job_id WHERE f.id = :id FOR UPDATE"
+            ), {"id": field_id}).mappings().first()
+            if row is None:
+                raise APIError(404, "not_found", "Deferred field was not found")
+            table = row["record_target_table"]
+            target_id = row["record_target_id"]
+            if row["status"] != "pending" or row["job_status"] != "committed" or not target_id:
+                raise APIError(409, "not_ready", "Only an unapplied field from a committed import can be backfilled")
+            if field not in self.BACKFILL_FIELDS.get(table, set()):
+                raise APIError(400, "unsupported_field", "This target field is not supported for backfill")
+            target = connection.execute(text(
+                f"SELECT {field}, row_version FROM {table} WHERE id = :id AND deleted_at IS NULL FOR UPDATE"
+            ), {"id": target_id}).mappings().first()
+            if target is None or int(target["row_version"]) != version:
+                raise APIError(409, "target_changed", "Target changed; reload the deferred-field list")
+            if target[field] not in {None, ""}:
+                raise APIError(409, "target_has_value", "Target field already has a value")
+            connection.execute(text(
+                f"UPDATE {table} SET {field} = :value, updated_at = :now, "
+                "row_version = row_version + 1 WHERE id = :id"
+            ), {"value": value.strip(), "now": now, "id": target_id})
+            connection.execute(text(
+                "UPDATE import_unmapped_field SET status = 'applied', target_table = :table, "
+                "target_id = :target, target_field = :field, applied_by_user_id = :actor, "
+                "applied_at = :now WHERE id = :id"
+            ), {"table": table, "target": target_id, "field": field,
+                "actor": actor["id"], "now": now, "id": field_id})
+            self._audit(connection, actor, table, str(target_id),
+                        {field: target[field]}, {field: value.strip(), "reason": reason.strip(),
+                                                "sourceFieldId": field_id}, now)
+            return {"id": field_id, "status": "applied", "targetTable": table,
+                    "targetId": str(target_id), "targetField": field, "rowVersion": version + 1}
 
     def source_file(self, job_id: str, file_id: str) -> tuple[str, str, bytes]:
         self._job(job_id)

@@ -4371,5 +4371,8 @@ button:disabled:hover {
 .import-page__warning { margin: .8rem 0; padding: .8rem; border-left: 3px solid #b57908; background: #fff2d8; }
 .import-page__status-row { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)); gap: .5rem; align-items: end; padding: 1rem 0; border-top: 1px solid #cbdcda; }
 .import-page__status-row strong { grid-column: 1 / -1; }
+.import-page__tabs { display: flex; gap: .5rem; margin: 1rem 0; }
+.import-page__tabs button[aria-current="page"] { font-weight: 700; border-color: #26747a; }
+.import-page__deferred-edit { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .7rem; align-items: end; }
 @media (max-width: 760px) { .import-page__status-row { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

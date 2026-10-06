@@ -163,6 +163,19 @@ def build_import_router(store: Any) -> APIRouter:
         _actor(request)
         return {"items": repository.list_jobs()}
 
+    @router.get("/deferred-fields")
+    def list_deferred_fields(request: Request, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+        _actor(request)
+        if offset < 0 or not 1 <= limit <= 100:
+            raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
+        return repository.list_deferred_fields(offset, limit)
+
+    @router.post("/deferred-fields/{field_id}/apply")
+    def apply_deferred_field(request: Request, field_id: str,
+                             body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        return repository.apply_deferred_field(field_id, actor, body)
+
     @router.get("/{job_id}")
     def get_job(request: Request, job_id: str) -> dict[str, Any]:
         _actor(request)
