@@ -4339,3 +4339,29 @@ button:disabled:hover {
   outline: 3px solid #2f7e72;
   outline-offset: 2px;
 }
+.import-page { display: grid; gap: 1.25rem; max-width: 1280px; margin: 0 auto; }
+.import-page__header h1 { margin: .2rem 0; }
+.import-page__columns { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(250px, 1fr); gap: 1rem; align-items: start; }
+.import-page__panel { min-width: 0; padding: 1.25rem; border: 1px solid var(--border, #d7e0e2); border-radius: 14px; background: var(--surface, #fff); }
+.import-page__panel h2 { margin-top: 0; }
+.import-page__panel input[type="file"] { width: 100%; margin: .7rem 0; }
+.import-page__panel label { display: grid; gap: .3rem; margin: .5rem 0; }
+.import-page__choice { display: flex !important; align-items: center; gap: .5rem; }
+.import-page__csv, .import-page__item { border-top: 1px solid var(--border, #d7e0e2); padding: .85rem 0; }
+.import-page__csv pre, .import-page__comparison pre { overflow: auto; max-height: 260px; padding: .7rem; border-radius: 8px; background: #f3f6f6; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .78rem; }
+.import-page__jobs { display: grid; gap: .5rem; max-height: 380px; overflow: auto; }
+.import-page__jobs button { display: grid; gap: .2rem; text-align: left; }
+.import-page__jobs button[aria-current="true"] { outline: 2px solid #26747a; }
+.import-page__files, .import-page__actions, .import-page__pager { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.import-page__files button { overflow-wrap: anywhere; }
+.import-page__files small { color: #52636b; }
+.import-page__comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.import-page__comparison h4 { margin: .7rem 0 .3rem; }
+.import-page__comparison textarea { width: 100%; font-family: monospace; }
+.import-page__badge { display: inline-block; padding: .15rem .5rem; border-radius: 99px; background: #e4f1f3; }
+.import-page__badge--blocking { background: #ffe3db; color: #802a1c; }
+.import-page__badge--overridable { background: #fff0cb; color: #745000; }
+.import-page__error, .import-page__notice { padding: .75rem 1rem; border-radius: 8px; }
+.import-page__error { background: #ffe3db; color: #802a1c; }
+.import-page__notice { background: #e4f2ec; color: #205d40; }
+@media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

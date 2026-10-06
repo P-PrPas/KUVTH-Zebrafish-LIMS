@@ -214,6 +214,53 @@ paths:
         '200': { description: Original source bytes }
         '403': { description: Admin access required }
         '404': { description: File not found }
+  /imports/{jobId}/records/{recordId}:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      tags: [Imports]
+      summary: Edit a draft working copy while keeping source values unchanged
+      operationId: reviseImportRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, working, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                working: { type: object, additionalProperties: true }
+                reason: { type: string }
+      responses:
+        '200': { description: Updated working values and job revision }
+        '403': { description: Admin access required }
+        '409': { description: Draft changed or was finalized }
+  /imports/{jobId}/issues/{issueId}/decision:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Record an audited issue correction, bypass, or dismissal
+      operationId: decideImportIssue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, decision, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                decision: { type: string, enum: [corrected, bypassed, dismissed] }
+                reason: { type: string }
+                resolutionValue: { type: [string, 'null'] }
+      responses:
+        '200': { description: Issue decision and job revision }
+        '400': { description: Decision is invalid for the issue severity }
+        '409': { description: Draft changed or issue was already decided }
 
   /auth/request-code:
     post:

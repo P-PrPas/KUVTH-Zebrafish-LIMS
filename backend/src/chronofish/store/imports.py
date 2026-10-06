@@ -307,6 +307,9 @@ class ImportRepository:
                 "message": row["message"],
                 "sourceValue": row["source_value"],
                 "status": row["status"],
+                "resolutionValue": row["resolution_value"],
+                "resolutionReason": row["resolution_reason"],
+                "resolvedByUserId": str(row["resolved_by_user_id"]) if row["resolved_by_user_id"] else None,
             }
             for row in rows
         ]
@@ -328,3 +331,125 @@ class ImportRepository:
                 if row is None:
                     raise APIError(404, "not_found", "Source file was not found")
         return str(row["file_name"]), str(row["media_type"]), bytes(row["content"])
+
+    @staticmethod
+    def _audit(connection: Any, actor: dict[str, Any], table: str, record_id: str,
+               before: dict[str, Any], after: dict[str, Any], now: datetime) -> None:
+        connection.execute(text(
+            "INSERT INTO audit_log (id, table_name, record_id, action, old_values, new_values, "
+            "actor_user_id, actor_email, occurred_at) VALUES "
+            "(:id, :table, :record, 'UPDATE', :old, :new, :actor, :email, :now)"
+        ), {
+            "id": uuid7(), "table": table, "record": record_id,
+            "old": json.dumps(before, ensure_ascii=False),
+            "new": json.dumps(after, ensure_ascii=False),
+            "actor": actor["id"], "email": actor["email"], "now": now,
+        })
+
+    def revise_record(self, job_id: str, record_id: str, working: dict[str, Any],
+                      reason: str, revision: int, actor: dict[str, Any]) -> dict[str, Any]:
+        if not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain why the source value is being changed")
+        try:
+            encoded = json.dumps(working, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise APIError(400, "invalid_edit", "Working values must be valid JSON") from error
+        if len(encoded) > 1_000_000:
+            raise APIError(413, "record_too_large", "Edited record is too large")
+        now = _now()
+        if self.engine is None:
+            with self.lock:
+                job = self.store.import_jobs.get(job_id)
+                row = self.store.import_records.get(record_id)
+                if job is None or row is None or row["job_id"] != job_id:
+                    raise APIError(404, "not_found", "Import record was not found")
+                self._check_draft(job, revision)
+                before = {"working": json.loads(row["working_json"])}
+                after = {"working": working, "reason": reason.strip()}
+                row["working_json"] = encoded
+                row["updated_at"] = now
+                job["revision"] += 1
+                job["updated_at"] = now
+                self._memory_audit(actor, "import_record", record_id, before, after, now)
+                return {"revision": job["revision"], "working": working}
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"), {"id": job_id}).mappings().first()
+            row = connection.execute(text("SELECT * FROM import_record WHERE id = :id AND job_id = :job"),
+                                     {"id": record_id, "job": job_id}).mappings().first()
+            if job is None or row is None:
+                raise APIError(404, "not_found", "Import record was not found")
+            self._check_draft(job, revision)
+            self._audit(connection, actor, "import_record", record_id,
+                        {"working": json.loads(row["working_json"])},
+                        {"working": working, "reason": reason.strip()}, now)
+            connection.execute(text("UPDATE import_record SET working_json = :working, updated_at = :now WHERE id = :id"),
+                               {"working": encoded, "now": now, "id": record_id})
+            connection.execute(text("UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"),
+                               {"now": now, "id": job_id})
+            return {"revision": int(job["revision"]) + 1, "working": working}
+
+    @staticmethod
+    def _check_draft(job: Any, revision: int) -> None:
+        if job["status"] != "draft":
+            raise APIError(409, "import_not_draft", "This import can no longer be edited")
+        if int(job["revision"]) != revision:
+            raise APIError(409, "import_changed", "The import changed; reload before editing")
+
+    def decide_issue(self, job_id: str, issue_id: str, decision: str, reason: str,
+                     resolution_value: str | None, revision: int, actor: dict[str, Any]) -> dict[str, Any]:
+        if decision not in {"corrected", "bypassed", "dismissed"}:
+            raise APIError(400, "invalid_decision", "Choose corrected, bypassed, or dismissed")
+        if not reason.strip() or len(reason) > 2000:
+            raise APIError(400, "invalid_reason", "Explain the issue decision")
+        now = _now()
+
+        def validate(issue: Any) -> None:
+            if issue["status"] != "open":
+                raise APIError(409, "issue_decided", "This issue has already been decided")
+            if decision == "bypassed" and issue["severity"] != "overridable":
+                raise APIError(400, "cannot_bypass", "Only overridable issues may be bypassed")
+            if issue["severity"] == "blocking" and decision == "dismissed":
+                raise APIError(400, "cannot_dismiss", "Blocking issues require a correction")
+
+        if self.engine is None:
+            with self.lock:
+                job = self.store.import_jobs.get(job_id)
+                issue = self.store.import_issues.get(issue_id)
+                if job is None or issue is None or issue["job_id"] != job_id:
+                    raise APIError(404, "not_found", "Import issue was not found")
+                self._check_draft(job, revision)
+                validate(issue)
+                before = {"status": issue["status"]}
+                issue.update(status=decision, resolution_value=resolution_value,
+                             resolution_reason=reason.strip(), resolved_by_user_id=actor["id"], updated_at=now)
+                job["revision"] += 1
+                job["updated_at"] = now
+                self._memory_audit(actor, "import_issue", issue_id, before,
+                                   {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value}, now)
+                return {"revision": job["revision"], "status": decision}
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"), {"id": job_id}).mappings().first()
+            issue = connection.execute(text("SELECT * FROM import_issue WHERE id = :id AND job_id = :job"),
+                                       {"id": issue_id, "job": job_id}).mappings().first()
+            if job is None or issue is None:
+                raise APIError(404, "not_found", "Import issue was not found")
+            self._check_draft(job, revision)
+            validate(issue)
+            self._audit(connection, actor, "import_issue", issue_id, {"status": issue["status"]},
+                        {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value}, now)
+            connection.execute(text(
+                "UPDATE import_issue SET status = :status, resolution_value = :value, resolution_reason = :reason, "
+                "resolved_by_user_id = :actor, updated_at = :now WHERE id = :id"
+            ), {"status": decision, "value": resolution_value, "reason": reason.strip(),
+                "actor": actor["id"], "now": now, "id": issue_id})
+            connection.execute(text("UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"),
+                               {"now": now, "id": job_id})
+            return {"revision": int(job["revision"]) + 1, "status": decision}
+
+    def _memory_audit(self, actor: dict[str, Any], table: str, record_id: str,
+                      before: dict[str, Any], after: dict[str, Any], now: datetime) -> None:
+        self.store.state.audits.append({
+            "id": uuid7(), "tableName": table, "recordId": record_id, "action": "UPDATE",
+            "oldValues": before, "newValues": after, "operatorId": None, "deviceId": None,
+            "actorUserId": actor["id"], "actorEmail": actor["email"], "occurredAt": _iso(now),
+        })
