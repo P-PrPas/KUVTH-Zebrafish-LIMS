@@ -4381,5 +4381,7 @@ button:disabled:hover {
 .import-page__warning details { margin: .65rem 0; overflow-x: auto; }
 .import-page__warning details table { border-collapse: collapse; width: 100%; font-size: .85rem; }
 .import-page__warning details th, .import-page__warning details td { padding: .4rem; border-bottom: 1px solid #dcc899; text-align: left; }
+.import-page__experiment { padding: .5rem .2rem; border-bottom: 1px solid #cbdcda; }
+.import-page__experiment p { margin: .35rem 0 .35rem 1rem; }
 @media (max-width: 760px) { .import-page__status-row { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

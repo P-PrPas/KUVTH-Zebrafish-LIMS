@@ -487,6 +487,19 @@ paths:
       responses:
         '200': { description: Aggregate historical counts and observations without operational timing metrics }
         '403': { description: Admin access required }
+  /imports/{jobId}/historical-structure:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Page through historical experiments and their source lots
+      operationId: listHistoricalImportStructure
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Historical source experiments and lots with provenance }
+        '403': { description: Admin access required }
   /imports/{jobId}/fish-status/{fishId}:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }

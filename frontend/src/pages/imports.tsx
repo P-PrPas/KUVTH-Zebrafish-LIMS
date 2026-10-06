@@ -15,6 +15,7 @@ type FishStatusEdit = { status: string; lifeState: string; disposition: string; 
 type DeferredField = { id: string; jobId: string; sheetName: string; sourceLocator: string; sourceColumn: string; sourceValue: unknown; status: string; targetTable: string | null; targetId: string | null; targetField?: string | null; targetFields: string[]; rowVersion: number | null };
 type DeferredEdit = { targetField: string; value: string; reason: string };
 type HistoricalSummary = { stageCounts: { stageLabel: string; armType: string | null; sourceCount: number; nTotal: number | null; nAlive: number | null; nNormal: number | null; nAbnormal: number | null; numerator: number | null; denominator: number | null }[]; observations: { subjectType: string; stageLabel: string | null; outcome: string | null; timePrecision: string; count: number }[] };
+type HistoricalStructure = { total: number; items: { id: string; sourceSheet: string; sourceKind: string; experimentDate: string | null; siteId: string | null; recipientSource: string | null; eggCodeSource: string | null; groupSource: string | null; csofSource: string | null; lots: { id: string; lotNoSource: string | null; donorSource: string | null; injectionSource: string | null; activationLocalTime: string | null }[] }[] };
 type ImportComparison = { matchedFiles: { currentFile: string; priorFile: string; priorJobId: string; priorJobStatus: string; sha256: string }[]; records: { recordId: string; sheetName: string; sourceLocator: string; recordKind: string; activeTargetId: string | null; previousJobId: string | null; previousRecordId: string | null; sameSourcePosition: boolean; sourceChanged: boolean | null; workingChanged: boolean | null; changedFieldCount: number; changedFields: { field: string; before: string | null; after: string | null }[] }[] };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
@@ -58,6 +59,8 @@ export function Imports({ language }: { language: Language }) {
   const [deferredOffset, setDeferredOffset] = useState(0);
   const [deferredEdits, setDeferredEdits] = useState<Record<string, DeferredEdit>>({});
   const [historicalSummary, setHistoricalSummary] = useState<HistoricalSummary | null>(null);
+  const [historicalStructure, setHistoricalStructure] = useState<HistoricalStructure | null>(null);
+  const [structureOffset, setStructureOffset] = useState(0);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [comparison, setComparison] = useState<ImportComparison | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,11 +80,15 @@ export function Imports({ language }: { language: Language }) {
       reason: "",
     }])));
   }
+  async function loadStructure(jobId: string, offset = 0) {
+    const result = await json<HistoricalStructure>(`/imports/${jobId}/historical-structure?offset=${offset}&limit=50`);
+    setHistoricalStructure(result); setStructureOffset(offset);
+  }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
     if (detail?.job.id !== id) {
       setSiteMappings({}); setDonorMappings({}); setZeroBypassReason("");
     }
-    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish, summary, nextComparison] = await Promise.all([
+    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish, summary, nextComparison, structure] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
       json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
@@ -91,6 +98,7 @@ export function Imports({ language }: { language: Language }) {
       json<{ items: ImportedFishStatus[] }>(`/imports/${id}/fish-status`),
       json<HistoricalSummary>(`/imports/${id}/historical-summary`),
       json<ImportComparison>(`/imports/${id}/comparison?offset=${nextRecords}&limit=50`),
+      json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=50`),
     ]);
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
@@ -103,6 +111,7 @@ export function Imports({ language }: { language: Language }) {
     setDonorOptions(donorCatalog.items);
     setFishStatuses(importedFish.items);
     setHistoricalSummary(summary);
+    setHistoricalStructure(structure); setStructureOffset(0);
     setComparison(nextComparison);
     setSummaryExpanded(false);
     setFishStatusEdits(Object.fromEntries(importedFish.items.map((fish) => [fish.id, {
@@ -432,6 +441,13 @@ export function Imports({ language }: { language: Language }) {
       {detail.job.status === "committed" && historicalSummary && <div className="import-page__mapping">
         <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
         <p className="muted">{th ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing" : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}</p>
+        {historicalStructure && <div><h4>{th ? "การทดลองและ lot จากต้นฉบับ" : "Source experiments and lots"}</h4>
+          {historicalStructure.items.map((experiment) => <details key={experiment.id} className="import-page__experiment"><summary><strong>{experiment.sourceSheet}</strong> · {experiment.experimentDate ?? (th ? "ไม่ทราบวันที่" : "unknown date")} · {experiment.sourceKind} · {experiment.groupSource ?? "—"} · {experiment.lots.length} lot</summary>
+            <p>{th ? "ไข่" : "Egg"}: {experiment.eggCodeSource ?? "—"} · {th ? "ไข่รับ" : "Recipient"}: {experiment.recipientSource ?? "—"} · CSOF: {experiment.csofSource ?? "—"}</p>
+            {experiment.lots.map((lot) => <p key={lot.id}>{th ? "lot" : "Lot"} {lot.lotNoSource ?? "—"} · {th ? "เซลล์" : "Cell"} {lot.donorSource ?? "—"} · {th ? "ฉีด" : "Injection"} {lot.injectionSource ?? "—"} · {th ? "เวลาเริ่ม" : "Activation"} {lot.activationLocalTime ?? "—"}</p>)}
+          </details>)}
+          <div className="import-page__pager"><button disabled={structureOffset === 0} onClick={() => void loadStructure(detail.job.id, Math.max(0, structureOffset - 50))}>←</button><span>{structureOffset + 1}–{structureOffset + historicalStructure.items.length} / {historicalStructure.total}</span><button disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total} onClick={() => void loadStructure(detail.job.id, structureOffset + 50)}>→</button></div>
+        </div>}
         <div className="import-page__summary"><div><h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
           <table><thead><tr><th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th><th>N</th><th>{th ? "รอด" : "Alive"}</th><th>{th ? "ปกติ" : "Normal"}</th><th>{th ? "ผิดปกติ" : "Abnormal"}</th></tr></thead><tbody>
             {historicalSummary.stageCounts.slice(0, summaryExpanded ? undefined : 30).map((row, index) => <tr key={index}><td>{row.stageLabel}{row.armType ? ` · ${row.armType}` : ""}</td><td>{row.nTotal ?? "—"}</td><td>{row.nAlive ?? "—"}</td><td>{row.nNormal ?? "—"}</td><td>{row.nAbnormal ?? "—"}</td></tr>)}

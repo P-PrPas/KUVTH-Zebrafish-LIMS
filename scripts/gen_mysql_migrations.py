@@ -40,6 +40,10 @@ INDEX_TABLES = {
     "ix_fish_import_job": "clone_fish",
     "ix_specimen_link_import_job": "specimen_fish_link",
     "ix_hist_obs_historical_embryo": "historical_observation",
+    "ix_hist_embryo_historical_lot": "historical_embryo",
+    "ix_hist_embryo_historical_experiment": "historical_embryo",
+    "ix_hist_count_historical_lot": "historical_stage_count",
+    "ix_hist_count_historical_experiment": "historical_stage_count",
 }
 
 HEADER = (
