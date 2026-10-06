@@ -247,6 +247,7 @@ def _specimen(cells: dict[str, Any]) -> dict[str, Any]:
         "entity": "specimen", "specimenCode": code,
         "specimenKind": kind_match.group(1).upper() if kind_match else None,
         "specimenType": material_type, "sourceMaterial": material or None,
+        "preservationState": "UNKNOWN",
         "warnings": [] if material_type != "UNKNOWN" else ["Specimen material needs admin mapping"],
     }
 

@@ -98,7 +98,7 @@ TABLE_COLUMNS = {
         device_id is_backdated health_status notes created_at updated_at deleted_at
     """,
     "specimen": """
-        id clone_fish_id specimen_code specimen_kind specimen_type collected_on frozen_on storage notes
+        id clone_fish_id specimen_code specimen_kind specimen_type preservation_state collected_on frozen_on storage notes
         created_at updated_at deleted_at
     """,
 }
