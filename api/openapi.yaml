@@ -3801,7 +3801,8 @@ components:
       required: [id, cloneFishId, specimenCode, specimenKind, specimenType]
       properties:
         id: { type: string, format: uuid }
-        cloneFishId: { type: string, format: uuid }
+        cloneFishId: { type: [string, 'null'], format: uuid }
+        linkedFishIds: { type: array, items: { type: string, format: uuid } }
         specimenCode: { type: string, examples: [CL1] }
         specimenKind: { $ref: '#/components/schemas/SpecimenKind' }
         specimenType: { $ref: '#/components/schemas/SpecimenType' }

@@ -1274,6 +1274,8 @@ function FishDetail({
                     {specimenTypeLabel(item.specimenType, thai)} · {String(item.specimenKind ?? "—")}
                   </span>
                   <small>{String(item.preservationState ?? "UNKNOWN")}</small>
+                  {Array.isArray(item.linkedFishIds) && item.linkedFishIds.length > 1 &&
+                    <small>{thai ? `ใช้ร่วมกับปลา ${item.linkedFishIds.length} ตัว` : `Shared by ${item.linkedFishIds.length} fish`}</small>}
                   <small>
                     {thai ? "เก็บเมื่อ" : "Collected"} {String(item.collectedOn ?? "—")} ·{" "}
                     {item.storage ? `${String(item.storage)} °C` : thai ? "ไม่ระบุที่เก็บ" : "No storage"}
