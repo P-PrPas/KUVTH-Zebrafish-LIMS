@@ -44,6 +44,19 @@ def _historical_timestamp(day: str, clock: str | None, time_zone: str,
         return None
 
 
+def _source_changes(previous: Any, current: Any, prefix: str = "") -> list[dict[str, Any]]:
+    if isinstance(previous, dict) and isinstance(current, dict):
+        changes: list[dict[str, Any]] = []
+        for key in sorted(previous.keys() | current.keys()):
+            changes.extend(_source_changes(previous.get(key), current.get(key),
+                                           f"{prefix}.{key}" if prefix else key))
+        return changes
+    if previous == current:
+        return []
+    return [{"field": prefix, "before": str(previous)[:300] if previous is not None else None,
+             "after": str(current)[:300] if current is not None else None}]
+
+
 def _job_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -400,6 +413,75 @@ class ImportRepository:
                     "rowVersion": int(version) if version else None,
                 })
             return {"total": total, "items": result}
+
+    def comparison(self, job_id: str, offset: int, limit: int) -> dict[str, Any]:
+        self._job(job_id)
+        if self.engine is None:
+            return {"matchedFiles": [], "records": []}
+        with self.engine.connect() as connection:
+            files = [dict(row) for row in connection.execute(text(
+                "SELECT DISTINCT current.file_name AS current_file, prior.file_name AS prior_file, "
+                "prior.job_id AS prior_job_id, prior.sha256, prior_job.status AS prior_job_status "
+                "FROM import_source_file current "
+                "JOIN import_source_file prior ON prior.sha256 = current.sha256 "
+                "JOIN import_job prior_job ON prior_job.id = prior.job_id "
+                "WHERE current.job_id = :job AND prior.job_id <> :job "
+                "ORDER BY current.file_name, prior.job_id LIMIT 100"
+            ), {"job": job_id}).mappings()]
+            current = [dict(row) for row in connection.execute(text(
+                "SELECT r.*, f.file_name FROM import_record r "
+                "JOIN import_source_file f ON f.id = r.source_file_id "
+                "WHERE r.job_id = :job ORDER BY r.sheet_name, r.row_no, r.source_locator "
+                "LIMIT :limit OFFSET :offset"
+            ), {"job": job_id, "limit": limit, "offset": offset}).mappings()]
+            comparisons: list[dict[str, Any]] = []
+            for record in current:
+                working = json.loads(record["working_json"])
+                previous = connection.execute(text(
+                    "SELECT prior.id, prior.job_id, prior.working_json, prior.source_json, "
+                    "prior.target_table, prior.target_id "
+                    "FROM import_record prior JOIN import_source_file prior_file "
+                    "ON prior_file.id = prior.source_file_id "
+                    "JOIN import_job prior_job ON prior_job.id = prior.job_id "
+                    "WHERE prior.job_id <> :job AND prior_job.status = 'committed' "
+                    "AND prior.sheet_name = :sheet AND prior.source_locator = :locator "
+                    "AND prior.record_kind = :kind AND prior_file.file_name = :file "
+                    "ORDER BY prior_job.confirmed_at DESC, prior.id DESC LIMIT 1"
+                ), {"job": job_id, "sheet": record["sheet_name"],
+                    "locator": record["source_locator"], "kind": record["record_kind"],
+                    "file": record["file_name"]}).mappings().first()
+                existing = None
+                if record["record_kind"] in {"fish", "specimen"}:
+                    meaning = interpret(record["record_kind"], working) or {}
+                    code = meaning.get("fishCode" if record["record_kind"] == "fish" else "specimenCode")
+                    if code:
+                        table = "clone_fish" if record["record_kind"] == "fish" else "specimen"
+                        code_column = "fish_code_norm" if table == "clone_fish" else "specimen_code_norm"
+                        existing = connection.execute(text(
+                            f"SELECT id FROM {table} WHERE {code_column} = :code AND deleted_at IS NULL"
+                        ), {"code": str(code).strip().casefold()}).scalar_one_or_none()
+                if previous is None and existing is None:
+                    continue
+                previous_working = json.loads(previous["working_json"]) if previous else None
+                changes = _source_changes(previous_working, working) if previous else []
+                comparisons.append({
+                    "recordId": str(record["id"]), "sheetName": record["sheet_name"],
+                    "sourceLocator": record["source_locator"], "recordKind": record["record_kind"],
+                    "activeTargetId": str(existing) if existing else None,
+                    "previousJobId": str(previous["job_id"]) if previous else None,
+                    "previousRecordId": str(previous["id"]) if previous else None,
+                    "sameSourcePosition": previous is not None,
+                    "sourceChanged": json.loads(previous["source_json"]) != json.loads(record["source_json"])
+                        if previous else None,
+                    "workingChanged": bool(changes) if previous else None,
+                    "changedFieldCount": len(changes), "changedFields": changes[:40],
+                })
+        return {"matchedFiles": [{"currentFile": row["current_file"],
+                                   "priorFile": row["prior_file"],
+                                   "priorJobId": str(row["prior_job_id"]),
+                                   "priorJobStatus": row["prior_job_status"],
+                                   "sha256": row["sha256"]} for row in files],
+                "records": comparisons}
 
     def apply_deferred_field(self, field_id: str, actor: dict[str, Any],
                              body: dict[str, Any]) -> dict[str, Any]:

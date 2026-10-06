@@ -193,6 +193,14 @@ def build_import_router(store: Any) -> APIRouter:
         _actor(request)
         return repository.mapping_requirements(job_id)
 
+    @router.get("/{job_id}/comparison")
+    def comparison(request: Request, job_id: str, offset: int = 0,
+                   limit: int = 50) -> dict[str, Any]:
+        _actor(request)
+        if offset < 0 or not 1 <= limit <= 100:
+            raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
+        return repository.comparison(job_id, offset, limit)
+
     @router.post("/{job_id}/confirm-fish-specimens")
     def confirm_fish_specimens(request: Request, job_id: str,
                                body: dict[str, Any] = Body(...)) -> dict[str, Any]:

@@ -317,6 +317,19 @@ paths:
       responses:
         '200': { description: Master mappings and warnings before confirmation }
         '403': { description: Admin access required }
+  /imports/{jobId}/comparison:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Compare this draft with exact prior files, source positions, and active codes
+      operationId: compareImportSources
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Advisory reimport matches without changing canonical data }
+        '403': { description: Admin access required }
   /imports/{jobId}/confirm-fish-specimens:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
