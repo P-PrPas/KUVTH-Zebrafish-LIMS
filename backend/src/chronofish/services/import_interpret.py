@@ -23,7 +23,22 @@ def _day(value: Any) -> date | None:
     try:
         return date.fromisoformat(str(value)[:10])
     except ValueError:
+        match = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", _text(value))
+        if match:
+            try:
+                return date(*(int(part) for part in match.groups()))
+            except ValueError:
+                return None
         return None
+
+
+def _clock(value: Any) -> str | None:
+    raw = _text(value)
+    match = re.match(r"^(\d{1,2})[.:](\d{2})(?:\D|$)", raw)
+    if not match:
+        return None
+    hour, minute = (int(part) for part in match.groups())
+    return f"{hour:02d}:{minute:02d}" if hour < 24 and minute < 60 else None
 
 
 def _condition(normal: Any, abnormal: Any) -> str:
@@ -122,6 +137,73 @@ SPECIMEN_TYPES = {
     "whole adult": "WHOLE_ADULT",
 }
 
+V2_EMBRYO_STAGES = (
+    "1-cell", "2-cell", "4-cell", "8-cell", "16-cell", "32-cell", "64-cell",
+    "128-cell", "256-cell", "512-cell", "1k-cell", "High", "Oblong",
+    "Sphere", "Dome", "30% epiboly", "50% epiboly", "Germ ring", "Shield",
+    "75% epiboly", "90% epiboly",
+)
+
+
+def _embryo(block: dict[str, Any]) -> dict[str, Any]:
+    result = block.get("result") or {}
+    observed = block.get("observationTime") or {}
+    degenerated = block.get("degenerated") or {}
+    dead = block.get("observedDead") or {}
+    condition = block.get("condition") or {}
+    context = block.get("sourceContext") or {}
+
+    def contextual(column: str) -> Any:
+        return context.get(column, {}).get("value")
+
+    experiment_date = _day(contextual("B"))
+    activation_clock = _clock(contextual("AF"))
+    recipient = _text(contextual("C"))
+    stage_observations: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for index, label in enumerate(V2_EMBRYO_STAGES, 38):
+        column = get_column_letter(index)
+        raw = result.get(column)
+        if raw is None:
+            continue
+        if _text(raw) in {"1", "1.0"}:
+            outcome = "ALIVE"
+        elif _text(raw) in {"0", "0.0"}:
+            outcome = "DEGENERATED" if _text(degenerated.get(column)) else "DEAD" if _text(dead.get(column)) else "NOT_SURVIVING"
+        else:
+            outcome = "UNRESOLVED"
+            warnings.append(f"{column}: stage value is not 1 or 0")
+        observation_clock = _clock(observed.get(column))
+        stage_observations.append({
+            "stageLabel": label, "sourceColumn": column, "sourceValue": raw,
+            "outcome": outcome, "condition": "ABNORMAL" if _text(condition.get(column)).casefold() in {"ab", "abnormal"} else "UNDETERMINED",
+            "observedOn": experiment_date.isoformat() if experiment_date else None,
+            "observedLocalTime": observation_clock,
+            "timePrecision": "exact" if experiment_date and observation_clock else "date" if experiment_date else "unknown",
+        })
+    daily_survival, flag_warnings = _flags(result, 60, 209, experiment_date, "UNKNOWN", None)
+    warnings.extend(flag_warnings)
+    if experiment_date is None:
+        warnings.append("Experiment date is missing or invalid")
+    if activation_clock is None:
+        warnings.append("Activation time is missing or invalid; timing metrics are unavailable")
+    activation_flag = _text(result.get("AK")).casefold()
+    if activation_flag not in {"1", "1.0", "0", "0.0", "y", "n", "yes", "no", ""}:
+        warnings.append("Activation flag needs admin review")
+    return {
+        "entity": "embryo", "sourceVersion": "V2", "sourceRunningNumber": result.get("AJ"),
+        "experimentDate": experiment_date.isoformat() if experiment_date else None,
+        "activationLocalTime": activation_clock,
+        "activationSource": result.get("AK"),
+        "siteSuggestion": "MSU" if "msu" in recipient.casefold() else "KU" if recipient else None,
+        "recipientSource": contextual("C"), "csofSource": contextual("V"),
+        "eggCodeSource": contextual("W"), "groupSource": contextual("X"),
+        "injectionSource": contextual("Y"), "lotNoSource": contextual("AC"),
+        "stageObservations": stage_observations,
+        "dailySurvival": daily_survival,
+        "warnings": warnings,
+    }
+
 
 def _specimen(cells: dict[str, Any]) -> dict[str, Any]:
     code = _text(cells.get("B"))
@@ -141,4 +223,6 @@ def interpret(record_kind: str, working: dict[str, Any]) -> dict[str, Any] | Non
         return _fish(working)
     if record_kind == "specimen":
         return _specimen(working)
+    if record_kind == "embryo_candidate":
+        return _embryo(working)
     return None

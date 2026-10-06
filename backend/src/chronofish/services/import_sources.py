@@ -146,26 +146,35 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
             for column, value in row.items():
                 if _text(value).casefold() == "observation time":
                     marker_columns.add(column)
+        metadata_columns = {get_column_letter(index) for index in range(2, 36)}
+        context: dict[str, dict[str, Any]] = {}
         for index in range(2, len(rows) - 1):
             row = rows[index]
             following = rows[index + 1]
             has_observation_row = any(
                 _text(following.get(column)).casefold() == "observation time" for column in marker_columns
             )
-            degen_index = index + 2 if has_observation_row else index + 1
+            if not has_observation_row:
+                continue
+            degen_index = index + 2
             if degen_index >= len(rows) or not any(
                 _text(value).casefold() == "degenerated" for value in rows[degen_index].values()
             ):
                 continue
+            for column in metadata_columns & row.keys():
+                context[column] = {"value": row[column], "sourceRow": index + 1}
+            for column in metadata_columns & following.keys():
+                context[column] = {"value": following[column], "sourceRow": index + 2}
             block = {
+                "sourceContext": dict(context),
                 "result": row,
-                "observationTime": following if has_observation_row else {},
+                "observationTime": following,
                 "degenerated": rows[degen_index],
                 "observedDead": rows[degen_index + 1] if degen_index + 1 < len(rows) else {},
                 "condition": rows[degen_index + 2] if degen_index + 2 < len(rows) else {},
             }
             row_no = index + 1
-            record = _record(sheet.name, row_no, "embryo_candidate", block)
+            record = _record(sheet.name, row_no, "embryo_candidate", block, row.get("AJ"))
             sheet.records.append(record)
             for stage_index in range(38, 59):
                 column = get_column_letter(stage_index)
