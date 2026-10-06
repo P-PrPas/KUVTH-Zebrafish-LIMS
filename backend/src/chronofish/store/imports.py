@@ -659,7 +659,9 @@ class ImportRepository:
                 time_zone = sites.get(site_id or "")
                 if not time_zone:
                     raise APIError(409, "master_mapping_missing", f"{record['sheet_name']}: choose an active site with time zone")
-                source_key = f"{record['sheet_name'].casefold()}|{day}|{running.casefold()}"
+                egg_key = str(meaning.get("eggCodeSource") or "").strip().casefold()
+                lot_key = str(meaning.get("lotNoSource") or "").strip().casefold()
+                source_key = f"{site_id}|{day}|{egg_key}|{lot_key}|{running.casefold()}"
                 if len(source_key) > 300 or source_key in source_keys:
                     raise APIError(409, "duplicate_embryo", f"{record['sheet_name']} {record['source_locator']}: duplicate embryo identity")
                 source_keys.add(source_key)
