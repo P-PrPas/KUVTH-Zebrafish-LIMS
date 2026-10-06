@@ -17,6 +17,7 @@ it, you have probably reached for a non-portable feature; see SRS CON-04):
   3. ALTER TABLE .. DROP CONSTRAINT IF EXISTS -> DROP FOREIGN KEY
   4. Table option suffix: ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
      COLLATE=utf8mb4_0900_ai_ci  (utf8mb4 is required for Thai text in notes)
+  5. BYTEA file content         -> LONGBLOB
 """
 
 import re
@@ -84,6 +85,7 @@ def convert(sql: str, upgrade: bool) -> str:
         "ALTER TABLE request_idempotency ALTER COLUMN operator_id SET NOT NULL;",
         "ALTER TABLE request_idempotency MODIFY operator_id CHAR(36) NOT NULL;",
     )
+    sql = re.sub(r"\bBYTEA\b", "LONGBLOB", sql)
     sql = sql.replace(
         "DROP INDEX IF EXISTS ix_request_idempotency_lease;",
         "DROP INDEX ix_request_idempotency_lease ON request_idempotency;",
