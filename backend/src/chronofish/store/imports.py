@@ -642,6 +642,8 @@ class ImportRepository:
             )).mappings()}
             embryo_rows: list[dict[str, Any]] = []
             observation_rows: list[dict[str, Any]] = []
+            control_rows: list[dict[str, Any]] = []
+            control_sources: dict[tuple[str, int, str], Any] = {}
             record_targets: dict[str, str] = {}
             source_keys: set[str] = set()
             warnings: list[str] = []
@@ -695,6 +697,23 @@ class ImportRepository:
                 })
                 warnings.extend(f"{record['sheet_name']} {record['source_locator']}: {warning}"
                                 for warning in meaning["warnings"])
+                for entry in meaning["controlCounts"]:
+                    source_row = int(entry.get("sourceRow") or record["row_no"])
+                    key = (record["sheet_name"], source_row, entry["sourceColumn"])
+                    if key in control_sources:
+                        if control_sources[key] != entry["sourceValue"]:
+                            raise APIError(409, "control_changed", f"{record['sheet_name']} {entry['sourceColumn']}{source_row}: control value differs across embryo rows")
+                        continue
+                    control_sources[key] = entry["sourceValue"]
+                    control_rows.append({
+                        "id": uuid7(), "import_job_id": job_id, "import_record_id": record["id"],
+                        "arm_type": entry["armType"], "stage_label": entry["stageLabel"],
+                        "observed_on": None, "n_normal": entry.get("nNormal"),
+                        "n_abnormal": entry.get("nAbnormal"),
+                        "raw_value": json.dumps({"column": entry["sourceColumn"],
+                                                 "row": source_row, "value": entry["sourceValue"]},
+                                                ensure_ascii=False), "created_at": now,
+                    })
                 for entry in meaning["stageObservations"]:
                     exact = _historical_timestamp(day, entry["observedLocalTime"], time_zone,
                                                   meaning["activationLocalTime"])
@@ -730,6 +749,7 @@ class ImportRepository:
                 raise APIError(409, "embryo_warning", "Some embryo values or times are uncertain; provide a bypass reason")
             self._insert_many(connection, "historical_embryo", embryo_rows)
             self._insert_many(connection, "historical_observation", observation_rows)
+            self._insert_many(connection, "historical_stage_count", control_rows)
             for record in records:
                 if record["record_kind"] == "sheet_metadata":
                     connection.execute(text(
@@ -745,12 +765,14 @@ class ImportRepository:
             self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
                         {"status": "committed", "historicalEmbryoCount": len(embryo_rows),
                          "historicalObservationCount": len(observation_rows),
+                         "historicalControlCount": len(control_rows),
                          "sourceMetadataRetainedCount": len(records) - len(embryo_rows),
                          "warningCount": len(warnings),
                          "warningBypassReason": warning_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
                     "historicalEmbryoCount": len(embryo_rows),
                     "historicalObservationCount": len(observation_rows),
+                    "historicalControlCount": len(control_rows),
                     "warningCount": len(warnings)}
 
     def confirm_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
@@ -952,6 +974,42 @@ class ImportRepository:
                      "exitDate": row["exit_date"].isoformat() if row["exit_date"] else None,
                      "rowVersion": int(row["row_version"])} for row in rows]
 
+    def historical_summary(self, job_id: str) -> dict[str, Any]:
+        self._job(job_id)
+        if self.engine is None:
+            return {"stageCounts": [], "observations": []}
+        with self.engine.connect() as connection:
+            stages = [dict(row) for row in connection.execute(text(
+                "SELECT stage_label, arm_type, COUNT(*) AS source_count, "
+                "SUM(n_total) AS n_total, SUM(n_alive) AS n_alive, "
+                "SUM(n_normal) AS n_normal, SUM(n_abnormal) AS n_abnormal, "
+                "SUM(numerator) AS numerator, SUM(denominator) AS denominator "
+                "FROM historical_stage_count WHERE import_job_id = :job AND deleted_at IS NULL "
+                "GROUP BY stage_label, arm_type ORDER BY stage_label, arm_type"
+            ), {"job": job_id}).mappings()]
+            observations = [dict(row) for row in connection.execute(text(
+                "SELECT CASE WHEN historical_embryo_id IS NOT NULL OR embryo_id IS NOT NULL "
+                "THEN 'embryo' WHEN clone_fish_id IS NOT NULL THEN 'fish' ELSE 'unassigned' END AS subject_type, "
+                "stage_label, outcome, time_precision, COUNT(*) AS observation_count "
+                "FROM historical_observation WHERE import_job_id = :job AND deleted_at IS NULL "
+                "GROUP BY CASE WHEN historical_embryo_id IS NOT NULL OR embryo_id IS NOT NULL "
+                "THEN 'embryo' WHEN clone_fish_id IS NOT NULL THEN 'fish' ELSE 'unassigned' END, "
+                "stage_label, outcome, time_precision "
+                "ORDER BY subject_type, stage_label, outcome, time_precision"
+            ), {"job": job_id}).mappings()]
+        return {"stageCounts": [{"stageLabel": row["stage_label"], "armType": row["arm_type"],
+                                  "sourceCount": int(row["source_count"]),
+                                  **{key: int(row[column]) if row[column] is not None else None
+                                     for key, column in (("nTotal", "n_total"), ("nAlive", "n_alive"),
+                                                         ("nNormal", "n_normal"), ("nAbnormal", "n_abnormal"),
+                                                         ("numerator", "numerator"),
+                                                         ("denominator", "denominator"))}}
+                                 for row in stages],
+                "observations": [{"subjectType": row["subject_type"],
+                                  "stageLabel": row["stage_label"], "outcome": row["outcome"],
+                                  "timePrecision": row["time_precision"],
+                                  "count": int(row["observation_count"])} for row in observations]}
+
     def review_fish_status(self, job_id: str, fish_id: str, actor: dict[str, Any],
                            body: dict[str, Any]) -> dict[str, Any]:
         if self.engine is None:
@@ -1055,6 +1113,10 @@ class ImportRepository:
                         raise APIError(409, "revert_dependency", f"Embryo {embryo_id} is used by another import")
                 connection.execute(text(
                     "UPDATE historical_observation SET deleted_at = :now "
+                    "WHERE import_job_id = :job AND deleted_at IS NULL"
+                ), {"job": job_id, "now": now})
+                connection.execute(text(
+                    "UPDATE historical_stage_count SET deleted_at = :now "
                     "WHERE import_job_id = :job AND deleted_at IS NULL"
                 ), {"job": job_id, "now": now})
                 connection.execute(text(

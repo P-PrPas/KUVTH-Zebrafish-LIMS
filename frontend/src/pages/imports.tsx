@@ -14,6 +14,7 @@ type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeSt
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
 type DeferredField = { id: string; jobId: string; sheetName: string; sourceLocator: string; sourceColumn: string; sourceValue: unknown; status: string; targetTable: string | null; targetId: string | null; targetField?: string | null; targetFields: string[]; rowVersion: number | null };
 type DeferredEdit = { targetField: string; value: string; reason: string };
+type HistoricalSummary = { stageCounts: { stageLabel: string; armType: string | null; sourceCount: number; nTotal: number | null; nAlive: number | null; nNormal: number | null; nAbnormal: number | null; numerator: number | null; denominator: number | null }[]; observations: { subjectType: string; stageLabel: string | null; outcome: string | null; timePrecision: string; count: number }[] };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -52,6 +53,8 @@ export function Imports({ language }: { language: Language }) {
   const [deferredTotal, setDeferredTotal] = useState(0);
   const [deferredOffset, setDeferredOffset] = useState(0);
   const [deferredEdits, setDeferredEdits] = useState<Record<string, DeferredEdit>>({});
+  const [historicalSummary, setHistoricalSummary] = useState<HistoricalSummary | null>(null);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -73,7 +76,7 @@ export function Imports({ language }: { language: Language }) {
     if (detail?.job.id !== id) {
       setSiteMappings({}); setDonorMappings({}); setZeroBypassReason("");
     }
-    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish] = await Promise.all([
+    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog, importedFish, summary] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
       json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
@@ -81,6 +84,7 @@ export function Imports({ language }: { language: Language }) {
       json<{ items: MasterOption[] }>("/sites?limit=500"),
       json<{ items: MasterOption[] }>("/donor-cell-lines?limit=500"),
       json<{ items: ImportedFishStatus[] }>(`/imports/${id}/fish-status`),
+      json<HistoricalSummary>(`/imports/${id}/historical-summary`),
     ]);
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
@@ -91,6 +95,8 @@ export function Imports({ language }: { language: Language }) {
     setSiteOptions(siteCatalog.items);
     setDonorOptions(donorCatalog.items);
     setFishStatuses(importedFish.items);
+    setHistoricalSummary(summary);
+    setSummaryExpanded(false);
     setFishStatusEdits(Object.fromEntries(importedFish.items.map((fish) => [fish.id, {
       status: fish.status, lifeState: fish.lifeState, disposition: fish.disposition,
       exitDate: fish.exitDate ?? "", reason: "",
@@ -233,13 +239,13 @@ export function Imports({ language }: { language: Language }) {
     if (!window.confirm(th ? "ยืนยันนำเข้าตัวอ่อนย้อนหลังทั้งหมดในงานนี้?" : "Commit every historical embryo in this job?")) return;
     setBusy(true); setError("");
     try {
-      const result = await json<{ historicalEmbryoCount: number; historicalObservationCount: number }>(`/imports/${detail.job.id}/confirm-v2-embryos`, {
+      const result = await json<{ historicalEmbryoCount: number; historicalObservationCount: number; historicalControlCount: number }>(`/imports/${detail.job.id}/confirm-v2-embryos`, {
         method: "POST", body: JSON.stringify({ revision: detail.job.revision,
           siteMappings, warningBypassReason: embryoWarningReason }),
       });
       await reloadJobs(); await openJob(detail.job.id, recordOffset, issueOffset);
-      setNotice(th ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว และการสังเกต ${result.historicalObservationCount} รายการแล้ว` :
-        `Imported ${result.historicalEmbryoCount} embryos and ${result.historicalObservationCount} observations.`);
+      setNotice(th ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว` :
+        `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`);
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -348,6 +354,18 @@ export function Imports({ language }: { language: Language }) {
         </div>}
         <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || (mappingRequirements.aggregateWarningCount > 0 && !aggregateWarningReason.trim())} onClick={() => void confirmAggregate()}>{th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งงาน" : "Confirm entire count job"}</button>
       </div>}
+      {detail.job.status === "committed" && historicalSummary && <div className="import-page__mapping">
+        <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
+        <p className="muted">{th ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing" : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}</p>
+        <div className="import-page__summary"><div><h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
+          <table><thead><tr><th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th><th>N</th><th>{th ? "รอด" : "Alive"}</th><th>{th ? "ปกติ" : "Normal"}</th><th>{th ? "ผิดปกติ" : "Abnormal"}</th></tr></thead><tbody>
+            {historicalSummary.stageCounts.slice(0, summaryExpanded ? undefined : 30).map((row, index) => <tr key={index}><td>{row.stageLabel}{row.armType ? ` · ${row.armType}` : ""}</td><td>{row.nTotal ?? "—"}</td><td>{row.nAlive ?? "—"}</td><td>{row.nNormal ?? "—"}</td><td>{row.nAbnormal ?? "—"}</td></tr>)}
+          </tbody></table></div><div><h4>{th ? "ผลการสังเกต" : "Observed outcomes"}</h4>
+          <table><thead><tr><th>{th ? "ชนิด / ระยะ" : "Subject / stage"}</th><th>{th ? "ผล" : "Outcome"}</th><th>{th ? "ความแม่นของเวลา" : "Time precision"}</th><th>{th ? "จำนวน" : "Count"}</th></tr></thead><tbody>
+            {historicalSummary.observations.slice(0, summaryExpanded ? undefined : 30).map((row, index) => <tr key={index}><td>{row.subjectType} · {row.stageLabel ?? "—"}</td><td>{row.outcome ?? "—"}</td><td>{row.timePrecision}</td><td>{row.count}</td></tr>)}
+          </tbody></table></div></div>
+        {(historicalSummary.stageCounts.length > 30 || historicalSummary.observations.length > 30) && <button type="button" onClick={() => setSummaryExpanded(!summaryExpanded)}>{summaryExpanded ? (th ? "แสดงน้อยลง" : "Show less") : (th ? "แสดงทั้งหมด" : "Show all")}</button>}
+      </div>}
       {detail.job.status === "committed" && <div className="import-page__mapping">{fishStatuses.length > 0 && <><h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
         <p className="muted">{th ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้" : "Confirm status from evidence. A later edit may prevent whole-job revert."}</p></>}
         {fishStatuses.map((fish) => { const edit = fishStatusEdits[fish.id]; return edit && <div key={fish.id} className="import-page__status-row"><strong>{fish.fishCode}</strong>
@@ -384,11 +402,12 @@ export function Imports({ language }: { language: Language }) {
         {row.targetId && <p className="muted">{th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}</p>}
         {(["fish", "specimen", "embryo_candidate", "legacy_lot", "scnt_aggregate", "control_aggregate"].includes(row.recordKind)) && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
         {interpretation?.recordId === row.id && <div className="import-page__interpretation"><strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
-          <pre>{JSON.stringify({ ...interpretation.value, observations: undefined, stageObservations: undefined, dailySurvival: undefined, counts: undefined }, null, 2)}</pre>
+          <pre>{JSON.stringify({ ...interpretation.value, observations: undefined, stageObservations: undefined, dailySurvival: undefined, counts: undefined, controlCounts: undefined }, null, 2)}</pre>
           {Array.isArray(interpretation.value.observations) && <p>{th ? "รายการสังเกต" : "Observations"}: {interpretation.value.observations.length}</p>}
           {Array.isArray(interpretation.value.stageObservations) && <p>{th ? "ระยะตัวอ่อนที่บันทึก" : "Recorded embryo stages"}: {interpretation.value.stageObservations.length}</p>}
           {Array.isArray(interpretation.value.dailySurvival) && <p>{th ? "วันที่ติดตาม" : "Daily tracking entries"}: {interpretation.value.dailySurvival.length}</p>}
           {Array.isArray(interpretation.value.counts) && <p>{th ? "รายการนับจำนวน" : "Count values"}: {interpretation.value.counts.length}</p>}
+          {Array.isArray(interpretation.value.controlCounts) && <p>{th ? "ข้อมูลควบคุม" : "Control counts"}: {interpretation.value.controlCounts.length}</p>}
         </div>}
         <div className="import-page__comparison"><div><h4>{th ? "ต้นฉบับ" : "Original"}</h4><pre>{JSON.stringify(row.source, null, 2)}</pre></div><div><h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>{editing === row.id ? <><textarea rows={9} value={workingText} onChange={(event) => setWorkingText(event.target.value)} aria-label="Working JSON" /><label>{th ? "เหตุผลการแก้" : "Edit reason"}<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>{th ? "บันทึก" : "Save"}</button><button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button></> : <><pre>{JSON.stringify(row.working, null, 2)}</pre><button disabled={detail.job.status !== "draft"} onClick={() => { setEditing(row.id); setWorkingText(JSON.stringify(row.working, null, 2)); setReason(""); }}>{th ? "แก้ไขข้อมูล" : "Edit values"}</button></>}</div></div>
       </article>)}

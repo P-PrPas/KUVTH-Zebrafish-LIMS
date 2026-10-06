@@ -146,6 +146,17 @@ V2_EMBRYO_STAGES = (
     "Sphere", "Dome", "30% epiboly", "50% epiboly", "Germ ring", "Shield",
     "75% epiboly", "90% epiboly",
 )
+V2_CONTROL_STAGES = (
+    ("NATURAL_BREEDING", "4-cell", "D", "E"),
+    ("NATURAL_BREEDING", "Shield to 75% epiboly", "F", "G"),
+    ("NATURAL_BREEDING", "Day1", "H", "I"),
+    ("NATURAL_BREEDING", "Day2", "J", "K"),
+    ("NATURAL_BREEDING", "Day3", "L", "M"),
+    ("IVF", "Shield to 75% epiboly", "N", "O"),
+    ("IVF", "Day1", "P", "Q"),
+    ("IVF", "Day2", "R", "S"),
+    ("IVF", "Day3", "T", "U"),
+)
 
 
 def _embryo(block: dict[str, Any]) -> dict[str, Any]:
@@ -164,6 +175,24 @@ def _embryo(block: dict[str, Any]) -> dict[str, Any]:
     recipient = _text(contextual("C"))
     stage_observations: list[dict[str, Any]] = []
     warnings: list[str] = []
+    control_counts: list[dict[str, Any]] = []
+    for arm, stage, normal_column, abnormal_column in V2_CONTROL_STAGES:
+        for column, measure in ((normal_column, "nNormal"), (abnormal_column, "nAbnormal")):
+            source = context.get(column)
+            if not source or source.get("value") is None:
+                continue
+            raw = source["value"]
+            value = _text(raw)
+            if len(value) > 20 or not re.fullmatch(r"\d+(?:\.0+)?", value):
+                warnings.append(f"{column}: control count is not a nonnegative integer")
+                continue
+            count = int(value.split(".", 1)[0])
+            if count > 2_147_483_647:
+                warnings.append(f"{column}: control count exceeds the database integer limit")
+                continue
+            control_counts.append({"armType": arm, "stageLabel": stage,
+                                   "sourceColumn": column, "sourceRow": source.get("sourceRow"),
+                                   "sourceValue": raw, measure: count})
     for index, label in enumerate(V2_EMBRYO_STAGES, 38):
         column = get_column_letter(index)
         raw = result.get(column)
@@ -204,6 +233,7 @@ def _embryo(block: dict[str, Any]) -> dict[str, Any]:
         "injectionSource": contextual("Y"), "lotNoSource": contextual("AC"),
         "stageObservations": stage_observations,
         "dailySurvival": daily_survival,
+        "controlCounts": control_counts,
         "warnings": warnings,
     }
 

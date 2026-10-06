@@ -394,6 +394,16 @@ paths:
       responses:
         '200': { description: Fish status, life state, disposition, and row versions }
         '403': { description: Admin access required }
+  /imports/{jobId}/historical-summary:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Historical-only stage counts and outcomes by source precision
+      operationId: getImportHistoricalSummary
+      responses:
+        '200': { description: Aggregate historical counts and observations without operational timing metrics }
+        '403': { description: Admin access required }
   /imports/{jobId}/fish-status/{fishId}:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
