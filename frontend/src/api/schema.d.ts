@@ -45,6 +45,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/deferred-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page through source values awaiting future field mapping */
+        get: operations["listImportDeferredFields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/deferred-fields/{fieldId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply a deferred source value to a supported empty target field */
+        post: operations["applyImportDeferredField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}": {
         parameters: {
             query?: never;
@@ -3094,6 +3130,77 @@ export interface operations {
             };
             /** @description Source file cannot be parsed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportDeferredFields: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deferred fields with source locations and supported targets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    applyImportDeferredField: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    targetField: string;
+                    value: string;
+                    reason: string;
+                    rowVersion: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Audited target update and applied field */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Target changed or already contains a value */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

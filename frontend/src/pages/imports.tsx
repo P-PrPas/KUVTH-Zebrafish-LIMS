@@ -5,13 +5,15 @@ import type { Language } from "../types";
 type InspectFile = { name: string; sheets?: string[]; encoding?: string; delimiter?: string; preview?: string[][] };
 type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
 type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
-type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number };
+type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number; deferredFieldCount: number };
 type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
 type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[] };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
+type DeferredField = { id: string; jobId: string; sheetName: string; sourceLocator: string; sourceColumn: string; sourceValue: unknown; status: string; targetTable: string | null; targetId: string | null; targetField?: string | null; targetFields: string[]; rowVersion: number | null };
+type DeferredEdit = { targetField: string; value: string; reason: string };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -44,6 +46,11 @@ export function Imports({ language }: { language: Language }) {
   const [fishStatuses, setFishStatuses] = useState<ImportedFishStatus[]>([]);
   const [fishStatusEdits, setFishStatusEdits] = useState<Record<string, FishStatusEdit>>({});
   const [revertReason, setRevertReason] = useState("");
+  const [activeTab, setActiveTab] = useState<"jobs" | "deferred">("jobs");
+  const [deferredFields, setDeferredFields] = useState<DeferredField[]>([]);
+  const [deferredTotal, setDeferredTotal] = useState(0);
+  const [deferredOffset, setDeferredOffset] = useState(0);
+  const [deferredEdits, setDeferredEdits] = useState<Record<string, DeferredEdit>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -51,6 +58,15 @@ export function Imports({ language }: { language: Language }) {
   async function reloadJobs() {
     const result = await json<{ items: Job[] }>("/imports");
     setJobs(result.items);
+  }
+  async function loadDeferred(offset = 0) {
+    const result = await json<{ total: number; items: DeferredField[] }>(`/imports/deferred-fields?offset=${offset}&limit=50`);
+    setDeferredFields(result.items); setDeferredTotal(result.total); setDeferredOffset(offset);
+    setDeferredEdits(Object.fromEntries(result.items.map((field) => [field.id, {
+      targetField: field.targetFields[0] ?? "",
+      value: typeof field.sourceValue === "string" ? field.sourceValue : JSON.stringify(field.sourceValue),
+      reason: "",
+    }])));
   }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
     if (detail?.job.id !== id) {
@@ -83,6 +99,19 @@ export function Imports({ language }: { language: Language }) {
   }
   useEffect(() => { void reloadJobs().catch((cause: Error) => setError(cause.message)); }, []);
 
+  async function applyDeferred(field: DeferredField) {
+    const edit = deferredEdits[field.id];
+    if (!edit || field.rowVersion === null) return;
+    setBusy(true); setError("");
+    try {
+      await json(`/imports/deferred-fields/${field.id}/apply`, { method: "POST",
+        body: JSON.stringify({ ...edit, rowVersion: field.rowVersion }) });
+      await loadDeferred(deferredOffset);
+      setNotice(th ? "เพิ่มค่าจากไฟล์ต้นฉบับแล้ว" : "Deferred source value applied.");
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function inspect() {
     if (!files.length) return;
     setBusy(true); setError(""); setNotice("");
@@ -108,11 +137,12 @@ export function Imports({ language }: { language: Language }) {
       const form = new FormData();
       files.forEach((file) => form.append("files", file));
       form.append("selection", JSON.stringify(selection));
-      const created = await json<{ job: Job }>("/imports", { method: "POST", body: form });
+      const created = await json<{ job: Job; deferredFieldCount: number }>("/imports", { method: "POST", body: form });
       await reloadJobs();
       await openJob(created.job.id);
       setInspection(null); setFiles([]);
-      setNotice(th ? "บันทึกฉบับร่างสำหรับตรวจข้อมูลแล้ว" : "Draft saved for review.");
+      setNotice(th ? `บันทึกฉบับร่างแล้ว มี ${created.deferredFieldCount} ค่ารอเพิ่มฟิลด์ในภายหลัง` :
+        `Draft saved. ${created.deferredFieldCount} source values await future field mapping.`);
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -232,6 +262,11 @@ export function Imports({ language }: { language: Language }) {
       <p className="muted">{th ? "เลือกต้นทาง ตรวจข้อมูลและแก้ฉบับร่างก่อนนำเข้าระบบ" : "Select sources and review draft values before importing."}</p></div></header>
     {error && <p className="import-page__error" role="alert">{error}</p>}
     {notice && <p className="import-page__notice" role="status">{notice}</p>}
+    <nav className="import-page__tabs" aria-label={th ? "ส่วนงานนำเข้า" : "Import sections"}>
+      <button type="button" aria-current={activeTab === "jobs" ? "page" : undefined} onClick={() => setActiveTab("jobs")}>{th ? "งานนำเข้า" : "Import jobs"}</button>
+      <button type="button" aria-current={activeTab === "deferred" ? "page" : undefined} onClick={() => { setActiveTab("deferred"); void loadDeferred().catch((cause: Error) => setError(cause.message)); }}>{th ? "ฟิลด์ที่รอเพิ่ม" : "Deferred fields"}</button>
+    </nav>
+    {activeTab === "jobs" && <>
     <div className="import-page__columns"><section className="import-page__panel"><h2>{th ? "1. เลือกไฟล์" : "1. Select files"}</h2>
       <p className="muted">{th ? "หนึ่งไฟล์ XLSX หรือ CSV หลายไฟล์ โดย CSV หนึ่งไฟล์แทนหนึ่งชีท" : "One XLSX file, or multiple CSV files with one sheet per file."}</p>
       <input aria-label={th ? "ไฟล์นำเข้า" : "Import files"} type="file" multiple accept=".xlsx,.csv" onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setInspection(null); }} />
@@ -326,6 +361,22 @@ export function Imports({ language }: { language: Language }) {
         <div className="import-page__comparison"><div><h4>{th ? "ต้นฉบับ" : "Original"}</h4><pre>{JSON.stringify(row.source, null, 2)}</pre></div><div><h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>{editing === row.id ? <><textarea rows={9} value={workingText} onChange={(event) => setWorkingText(event.target.value)} aria-label="Working JSON" /><label>{th ? "เหตุผลการแก้" : "Edit reason"}<input value={reason} onChange={(event) => setReason(event.target.value)} /></label><button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>{th ? "บันทึก" : "Save"}</button><button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button></> : <><pre>{JSON.stringify(row.working, null, 2)}</pre><button disabled={detail.job.status !== "draft"} onClick={() => { setEditing(row.id); setWorkingText(JSON.stringify(row.working, null, 2)); setReason(""); }}>{th ? "แก้ไขข้อมูล" : "Edit values"}</button></>}</div></div>
       </article>)}
       <div className="import-page__pager"><button disabled={recordOffset === 0} onClick={() => void openJob(detail.job.id, Math.max(0, recordOffset - 50), issueOffset)}>←</button><span>{recordOffset + 1}–{recordOffset + records.length}</span><button disabled={recordOffset + records.length >= detail.recordCount} onClick={() => void openJob(detail.job.id, recordOffset + 50, issueOffset)}>→</button></div>
+    </section>}</>}
+    {activeTab === "deferred" && <section className="import-page__panel">
+      <h2>{th ? "ค่าจากต้นฉบับที่ยังไม่มีฟิลด์รองรับ" : "Source values awaiting field mapping"}</h2>
+      <p className="muted">{th ? "ค่าต้นฉบับยังอยู่ครบ เมื่อทีมพัฒนาเพิ่มฟิลด์ที่รองรับแล้ว ให้เลือกปลายทางและกดเพิ่มพร้อมเหตุผล" : "Original values remain available. Once a supported target field exists, select it and apply with a reason."}</p>
+      {deferredFields.map((field) => { const edit = deferredEdits[field.id]; return <article key={field.id} className="import-page__item">
+        <div><strong>{field.sheetName} · {field.sourceLocator} · {field.sourceColumn}</strong> <span>{field.status}</span></div>
+        <pre>{JSON.stringify(field.sourceValue, null, 2)}</pre>
+        <p className="muted">{field.targetTable ?? "—"} {field.targetId ?? ""}</p>
+        {field.status === "pending" && field.targetFields.length > 0 && edit && <div className="import-page__deferred-edit">
+          <label>{th ? "ฟิลด์ปลายทาง" : "Target field"}<select value={edit.targetField} onChange={(event) => setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, targetField: event.target.value } })}>{field.targetFields.map((name) => <option key={name}>{name}</option>)}</select></label>
+          <label>{th ? "ค่าที่จะเพิ่ม" : "Value to apply"}<input value={edit.value} onChange={(event) => setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, value: event.target.value } })} /></label>
+          <label>{th ? "เหตุผล" : "Reason"}<input value={edit.reason} onChange={(event) => setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, reason: event.target.value } })} /></label>
+          <button type="button" disabled={busy || !edit.value.trim() || !edit.reason.trim()} onClick={() => void applyDeferred(field)}>{th ? "เพิ่มลงข้อมูลจริง" : "Apply value"}</button>
+        </div>}
+      </article>; })}
+      <div className="import-page__pager"><button disabled={deferredOffset === 0} onClick={() => void loadDeferred(Math.max(0, deferredOffset - 50))}>←</button><span>{deferredOffset + 1}–{deferredOffset + deferredFields.length} / {deferredTotal}</span><button disabled={deferredOffset + deferredFields.length >= deferredTotal} onClick={() => void loadDeferred(deferredOffset + 50)}>→</button></div>
     </section>}
   </section>;
 }

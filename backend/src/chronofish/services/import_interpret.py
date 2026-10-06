@@ -254,8 +254,11 @@ def _aggregate(kind: str, working: dict[str, Any]) -> dict[str, Any]:
         value = _text(raw)
         if kind == "control_aggregate" and value.casefold().startswith("obs time"):
             return
-        if re.fullmatch(r"\d+(?:\.0+)?", value):
-            count = int(float(value))
+        if len(value) <= 20 and re.fullmatch(r"\d+(?:\.0+)?", value):
+            count = int(value.split(".", 1)[0])
+            if count > 2_147_483_647:
+                warnings.append(f"{column}: count exceeds the database integer limit")
+                return
             counts.append({"sourceColumn": column, "stageLabel": stage, measure: count,
                            "sourceValue": raw, "observedOn": observed.isoformat() if observed else None})
         else:
@@ -288,9 +291,12 @@ def _aggregate(kind: str, working: dict[str, Any]) -> dict[str, Any]:
             add(get_column_letter(start + 2), f"Day{day}", cells.get(get_column_letter(start + 2)), "nAbnormal")
         for continuation in working.get("continuation", []):
             for column, raw in continuation.get("cells", {}).items():
-                if not re.fullmatch(r"\d+\s*/\s*\d+", _text(raw)):
+                if len(_text(raw)) > 40 or not re.fullmatch(r"\d+\s*/\s*\d+", _text(raw)):
                     continue
                 numerator, denominator = (int(part.strip()) for part in _text(raw).split("/"))
+                if max(numerator, denominator) > 2_147_483_647:
+                    warnings.append(f"{column}: fraction exceeds the database integer limit")
+                    continue
                 stage = next((label for index, label in enumerate(QC_COUNT_STAGES, 5)
                               if get_column_letter(index) == column), f"QC {column}")
                 counts.append({"sourceColumn": column, "sourceRow": continuation.get("rowNo"),

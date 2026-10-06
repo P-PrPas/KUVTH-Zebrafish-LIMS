@@ -146,6 +146,40 @@ paths:
         '403': { description: Admin access required }
         '413': { description: Upload exceeds the import limit }
         '422': { description: Source file cannot be parsed }
+  /imports/deferred-fields:
+    get:
+      tags: [Imports]
+      summary: Page through source values awaiting future field mapping
+      operationId: listImportDeferredFields
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Deferred fields with source locations and supported targets }
+        '403': { description: Admin access required }
+  /imports/deferred-fields/{fieldId}/apply:
+    parameters:
+      - { name: fieldId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Apply a deferred source value to a supported empty target field
+      operationId: applyImportDeferredField
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetField, value, reason, rowVersion]
+              properties:
+                targetField: { type: string }
+                value: { type: string }
+                reason: { type: string }
+                rowVersion: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Audited target update and applied field }
+        '403': { description: Admin access required }
+        '409': { description: Target changed or already contains a value }
   /imports/{jobId}:
     parameters:
       - name: jobId
