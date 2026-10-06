@@ -8,7 +8,7 @@ type Job = { id: string; status: string; inputKind: string; revision: number; cr
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number; deferredFieldCount: number };
 type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
-type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[] };
+type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[]; canConfirmEmbryos: boolean; embryoWarningCount: number; embryoWarningPreview: string[] };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 type ImportedFishStatus = { id: string; fishCode: string; status: string; lifeState: string; disposition: string; exitDate: string | null; rowVersion: number };
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
@@ -43,6 +43,7 @@ export function Imports({ language }: { language: Language }) {
   const [donorMappings, setDonorMappings] = useState<Record<string, string>>({});
   const [zeroBypassReason, setZeroBypassReason] = useState("");
   const [aggregateWarningReason, setAggregateWarningReason] = useState("");
+  const [embryoWarningReason, setEmbryoWarningReason] = useState("");
   const [fishStatuses, setFishStatuses] = useState<ImportedFishStatus[]>([]);
   const [fishStatusEdits, setFishStatusEdits] = useState<Record<string, FishStatusEdit>>({});
   const [revertReason, setRevertReason] = useState("");
@@ -227,6 +228,22 @@ export function Imports({ language }: { language: Language }) {
     finally { setBusy(false); }
   }
 
+  async function confirmEmbryos() {
+    if (!detail || !mappingRequirements) return;
+    if (!window.confirm(th ? "ยืนยันนำเข้าตัวอ่อนย้อนหลังทั้งหมดในงานนี้?" : "Commit every historical embryo in this job?")) return;
+    setBusy(true); setError("");
+    try {
+      const result = await json<{ historicalEmbryoCount: number; historicalObservationCount: number }>(`/imports/${detail.job.id}/confirm-v2-embryos`, {
+        method: "POST", body: JSON.stringify({ revision: detail.job.revision,
+          siteMappings, warningBypassReason: embryoWarningReason }),
+      });
+      await reloadJobs(); await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว และการสังเกต ${result.historicalObservationCount} รายการแล้ว` :
+        `Imported ${result.historicalEmbryoCount} embryos and ${result.historicalObservationCount} observations.`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function saveFishStatus(fish: ImportedFishStatus) {
     if (!detail) return;
     const edit = fishStatusEdits[fish.id];
@@ -304,6 +321,21 @@ export function Imports({ language }: { language: Language }) {
           <p>{mappingRequirements.ambiguousZeroRecords.join(", ")}</p>
           <label>{th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}<textarea value={zeroBypassReason} onChange={(event) => setZeroBypassReason(event.target.value)} rows={3} /></label></div>}
         <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || mappingRequirements.donorSources.some((source) => !donorMappings[source]) || (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim())} onClick={() => void confirmFishSpecimens()}>{th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}</button>
+      </div>}
+      {detail.job.status === "draft" && mappingRequirements?.canConfirmEmbryos && <div className="import-page__mapping">
+        <h3>{th ? "ตรวจตัวอ่อน V2 ก่อนนำเข้า" : "Review V2 embryos"}</h3>
+        <p className="muted">{th ? "เลือกสถานที่พร้อมเขตเวลา เวลาที่ไม่ชัดเจนจะเก็บเป็นวันที่เท่านั้น และไม่ใช้คำนวณตัวชี้วัดเวลา" : "Choose a site with a time zone. Uncertain clocks become date-only observations and stay out of timing metrics."}</p>
+        {mappingRequirements.sheetNames.map((sheet) => <label key={sheet}>{th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+          <select value={siteMappings[sheet] ?? ""} onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}><option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
+            {siteOptions.filter((site) => site.timeZone).map((site) => <option key={site.id} value={site.id}>{site.code} · {site.timeZone}</option>)}</select></label>)}
+        {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}</p>}
+        {mappingRequirements.embryoWarningCount > 0 && <div className="import-page__warning" role="alert">
+          <strong>{mappingRequirements.embryoWarningCount} {th ? "ข้อควรตรวจเกี่ยวกับตัวอ่อนหรือเวลา" : "embryo or timing warnings"}</strong>
+          <ul>{mappingRequirements.embryoWarningPreview.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+          <label>{th ? "เหตุผลที่ยอมรับข้อมูลที่ยังไม่ชัดเจน" : "Reason to accept uncertain values"}<textarea rows={3} value={embryoWarningReason} onChange={(event) => setEmbryoWarningReason(event.target.value)} /></label>
+        </div>}
+        {mappingRequirements.embryoWarningCount === 0 && <label>{th ? "เหตุผลหากพบเวลาไม่ชัดเจนหลังเลือกเขตเวลา" : "Reason if site time zone reveals an ambiguous clock"}<input value={embryoWarningReason} onChange={(event) => setEmbryoWarningReason(event.target.value)} /></label>}
+        <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || (mappingRequirements.embryoWarningCount > 0 && !embryoWarningReason.trim())} onClick={() => void confirmEmbryos()}>{th ? "ยืนยันนำเข้าตัวอ่อนทั้งงาน" : "Confirm entire embryo job"}</button>
       </div>}
       {detail.job.status === "draft" && mappingRequirements?.canConfirmAggregate && <div className="import-page__mapping">
         <h3>{th ? "ตรวจข้อมูลนับจำนวนก่อนนำเข้า" : "Review historical counts"}</h3>

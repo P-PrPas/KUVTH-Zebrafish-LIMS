@@ -362,6 +362,28 @@ paths:
         '200': { description: Historical count rows created with source provenance }
         '403': { description: Admin access required }
         '409': { description: Stale draft, unresolved issues, or warnings without bypass reason }
+  /imports/{jobId}/confirm-v2-embryos:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Imports]
+      summary: Confirm V2 embryos and historical observations without inventing operational lot data
+      operationId: confirmV2EmbryoImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Historical embryo identities and observations with provenance }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, duplicate, unresolved issue, mapping or warnings }
   /imports/{jobId}/fish-status:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }

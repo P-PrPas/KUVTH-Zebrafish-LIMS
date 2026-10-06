@@ -278,6 +278,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/confirm-v2-embryos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm V2 embryos and historical observations without inventing operational lot data */
+        post: operations["confirmV2EmbryoImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/fish-status": {
         parameters: {
             query?: never;
@@ -3557,6 +3576,50 @@ export interface operations {
         };
         responses: {
             /** @description Historical count rows created with source provenance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmV2EmbryoImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Historical embryo identities and observations with provenance */
             200: {
                 headers: {
                     [name: string]: unknown;
