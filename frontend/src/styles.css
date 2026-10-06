@@ -4366,4 +4366,7 @@ button:disabled:hover {
 .import-page__notice { background: #e4f2ec; color: #205d40; }
 .import-page__interpretation { margin-top: .7rem; padding: .85rem; border-left: 3px solid #26747a; background: #f1f8f7; }
 .import-page__interpretation pre { overflow: auto; max-height: 260px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.import-page__mapping { margin: 1rem 0; padding: 1rem; border: 1px solid #a4c9cb; border-radius: 10px; background: #f1f8f7; }
+.import-page__mapping label { max-width: 560px; }
+.import-page__warning { margin: .8rem 0; padding: .8rem; border-left: 3px solid #b57908; background: #fff2d8; }
 @media (max-width: 760px) { .import-page__columns, .import-page__comparison { grid-template-columns: 1fr; } }

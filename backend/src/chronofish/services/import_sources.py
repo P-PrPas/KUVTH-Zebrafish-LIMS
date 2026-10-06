@@ -219,6 +219,11 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                 continue
             key = row.get("K") if kind == "v1_fish" else row.get("A")
             sheet.records.append(_record(sheet.name, index, "fish", row, key))
+            if kind == "v1_fish" and _text(row.get("L")).casefold() not in {"alive", "dead", "frozen", "discarded"}:
+                sheet.issues.append(SourceIssue(
+                    "overridable", "unknown_fish_status", "Review this source fish status before import",
+                    sheet.name, index, "L", _text(row.get("L"))[:1000], f"L{index}",
+                ))
             dob_column = "F" if kind == "v1_fish" else "B"
             if not _text(row.get(dob_column)):
                 sheet.issues.append(SourceIssue(

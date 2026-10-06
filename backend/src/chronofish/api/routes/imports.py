@@ -175,6 +175,30 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return {"items": repository.list_records(job_id, offset, limit)}
 
+    @router.get("/{job_id}/mapping-requirements")
+    def mapping_requirements(request: Request, job_id: str) -> dict[str, Any]:
+        _actor(request)
+        return repository.mapping_requirements(job_id)
+
+    @router.post("/{job_id}/confirm-fish-specimens")
+    def confirm_fish_specimens(request: Request, job_id: str,
+                               body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        sites = body.get("siteMappings")
+        donors = body.get("donorMappings")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(sites, dict) or not isinstance(donors, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for mapping in (sites, donors)
+            for key, value in mapping.items()
+        ):
+            raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
+        zero_reason = body.get("zeroBypassReason", "")
+        if not isinstance(zero_reason, str):
+            raise APIError(400, "invalid_reason", "Bypass reason must be text")
+        return repository.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero_reason)
+
     @router.get("/{job_id}/issues")
     def list_issues(request: Request, job_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         _actor(request)

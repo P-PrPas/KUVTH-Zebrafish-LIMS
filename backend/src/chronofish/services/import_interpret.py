@@ -97,7 +97,10 @@ def _fish(cells: dict[str, Any]) -> dict[str, Any]:
     else:
         disposition = "FROZEN" if exit_date else "UNKNOWN"
         life_state = "UNKNOWN"
-    status = disposition if disposition in {"FROZEN", "DISCARDED"} and exit_date else "UNKNOWN"
+    status = (
+        "DEAD" if life_state == "DEAD" and exit_date else
+        disposition if disposition in {"FROZEN", "DISCARDED"} and exit_date else "UNKNOWN"
+    )
     observations, warnings = _flags(cells, 19 if v1 else 14, 388 if v1 else 205,
                                     dob, disposition, exit_date)
     if dob is None:

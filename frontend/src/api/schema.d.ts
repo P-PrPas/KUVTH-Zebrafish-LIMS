@@ -172,10 +172,51 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Interpret a fish or specimen source row without writing canonical data */
+        /** Interpret a V2 embryo, fish, or specimen row without writing canonical data */
         get: operations["interpretImportRecord"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/mapping-requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** List source donor labels, site sheets, and ambiguous fish zeros */
+        get: operations["getImportMappingRequirements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-fish-specimens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Atomically confirm a fish/specimen-only import draft
+         * @description Requires an active site with time zone per fish sheet and active donor cell per source label.
+         */
+        post: operations["confirmFishSpecimenImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3232,6 +3273,80 @@ export interface operations {
             };
             /** @description Source layout does not yet have an interpretation */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportMappingRequirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Master mappings required before fish/specimen confirmation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmFishSpecimenImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Canonical fish/specimen and historical observation counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

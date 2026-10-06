@@ -6,8 +6,10 @@ type InspectFile = { name: string; sheets?: string[]; encoding?: string; delimit
 type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
 type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number };
-type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown> };
+type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
+type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean };
+type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -30,6 +32,12 @@ export function Imports({ language }: { language: Language }) {
   const [workingText, setWorkingText] = useState("");
   const [reason, setReason] = useState("");
   const [decisionReason, setDecisionReason] = useState<Record<string, string>>({});
+  const [mappingRequirements, setMappingRequirements] = useState<MappingRequirements | null>(null);
+  const [siteOptions, setSiteOptions] = useState<MasterOption[]>([]);
+  const [donorOptions, setDonorOptions] = useState<MasterOption[]>([]);
+  const [siteMappings, setSiteMappings] = useState<Record<string, string>>({});
+  const [donorMappings, setDonorMappings] = useState<Record<string, string>>({});
+  const [zeroBypassReason, setZeroBypassReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -39,16 +47,25 @@ export function Imports({ language }: { language: Language }) {
     setJobs(result.items);
   }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
-    const [nextDetail, nextRecordPage, nextIssuePage] = await Promise.all([
+    if (detail?.job.id !== id) {
+      setSiteMappings({}); setDonorMappings({}); setZeroBypassReason("");
+    }
+    const [nextDetail, nextRecordPage, nextIssuePage, requirements, siteCatalog, donorCatalog] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
       json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
+      json<MappingRequirements>(`/imports/${id}/mapping-requirements`),
+      json<{ items: MasterOption[] }>("/sites?limit=500"),
+      json<{ items: MasterOption[] }>("/donor-cell-lines?limit=500"),
     ]);
     setDetail(nextDetail);
     setRecords(nextRecordPage.items);
     setIssues(nextIssuePage.items);
     setRecordOffset(nextRecords);
     setIssueOffset(nextIssues);
+    setMappingRequirements(requirements);
+    setSiteOptions(siteCatalog.items);
+    setDonorOptions(donorCatalog.items);
     setEditing(null);
     setInterpretation(null);
   }
@@ -135,6 +152,23 @@ export function Imports({ language }: { language: Language }) {
     } catch (cause) { setError((cause as Error).message); }
   }
 
+  async function confirmFishSpecimens() {
+    if (!detail || !mappingRequirements) return;
+    if (!window.confirm(th ? "ยืนยันนำเข้าปลาและ specimen ทั้งงาน?" : "Commit every fish and specimen in this job?")) return;
+    setBusy(true); setError("");
+    try {
+      const result = await json<{ fishCount: number; specimenCount: number }>(`/imports/${detail.job.id}/confirm-fish-specimens`, {
+        method: "POST",
+        body: JSON.stringify({ revision: detail.job.revision, siteMappings, donorMappings, zeroBypassReason }),
+      });
+      await reloadJobs();
+      await openJob(detail.job.id, recordOffset, issueOffset);
+      setNotice(th ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ` :
+        `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return <section className="import-page">
     <header className="import-page__header"><div><p className="eyebrow">ADMIN · DATA MIGRATION</p><h1>{th ? "นำเข้าข้อมูลย้อนหลัง" : "Historical import"}</h1>
       <p className="muted">{th ? "เลือกต้นทาง ตรวจข้อมูลและแก้ฉบับร่างก่อนนำเข้าระบบ" : "Select sources and review draft values before importing."}</p></div></header>
@@ -164,6 +198,20 @@ export function Imports({ language }: { language: Language }) {
       <p>{detail.recordCount} {th ? "รายการ" : "records"} · {detail.issueCount} {th ? "ประเด็น" : "issues"} · Revision {detail.job.revision}</p>
       <p className="muted">{th ? "ไฟล์ต้นฉบับเก็บแยกจากข้อมูลที่แก้ไข ทุกการตัดสินใจมีประวัติ" : "Original files are separate from edits. Every decision is audited."}</p>
       <div className="import-page__files">{detail.files.map((file) => <button type="button" key={file.id} onClick={() => void download(file.id, file.fileName)}>{file.fileName} ↓ <small>SHA-256 {file.sha256.slice(0, 12)}…</small></button>)}</div>
+      {detail.job.status === "draft" && mappingRequirements?.canConfirmFishSpecimens && <div className="import-page__mapping"><h3>{th ? "3. จับคู่ข้อมูลก่อนยืนยัน" : "3. Map before confirmation"}</h3>
+        <p className="muted">{th ? "เลือกสถานที่และ donor cell ที่มีอยู่จริง ระบบจะนำเข้าทั้งงานพร้อมกัน" : "Choose existing sites and donor cells. The job commits as one transaction."}</p>
+        {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{th ? `ยังมีประเด็นที่ต้องแก้หรือข้ามพร้อมเหตุผล ${mappingRequirements.unresolvedIssueCount} รายการ` : `${mappingRequirements.unresolvedIssueCount} blocking or overridable issues still need decisions.`}</p>}
+        {mappingRequirements.sheetNames.map((sheet) => <label key={sheet}>{th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+          <select value={siteMappings[sheet] ?? ""} onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}><option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
+            {siteOptions.filter((site) => site.timeZone).map((site) => <option key={site.id} value={site.id}>{site.code} · {site.timeZone}</option>)}</select></label>)}
+        {mappingRequirements.donorSources.map((source) => <label key={source}>{th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
+          <select value={donorMappings[source] ?? ""} onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}><option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>
+            {donorOptions.map((donor) => <option key={donor.id} value={donor.id}>{donor.strain} · {donor.preparation}{donor.batchCode ? ` · ${donor.batchCode}` : ""}</option>)}</select></label>)}
+        {mappingRequirements.ambiguousZeroRecords.length > 0 && <div className="import-page__warning"><strong>{th ? "ค่า 0 หลังการหยุดติดตามที่ไม่ทราบวันที่" : "Zeros after an undated disposition"}</strong>
+          <p>{mappingRequirements.ambiguousZeroRecords.join(", ")}</p>
+          <label>{th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}<textarea value={zeroBypassReason} onChange={(event) => setZeroBypassReason(event.target.value)} rows={3} /></label></div>}
+        <button type="button" disabled={busy || mappingRequirements.unresolvedIssueCount > 0 || mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) || mappingRequirements.donorSources.some((source) => !donorMappings[source]) || (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim())} onClick={() => void confirmFishSpecimens()}>{th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}</button>
+      </div>}
       <h3>{th ? "ประเด็นที่ต้องตรวจ" : "Issues"}</h3>
       {issues.length ? issues.map((issue) => <article key={issue.id} className="import-page__item"><div><strong>{issue.sheetName}{issue.rowNo ? ` · ${issue.sourceColumn ?? ""}${issue.rowNo}` : ""}</strong> <span className={`import-page__badge import-page__badge--${issue.severity}`}>{issue.severity}</span> <span>{issue.status}</span></div>
         <p>{issue.message}</p>{issue.sourceValue && <code>{issue.sourceValue}</code>}
@@ -175,6 +223,7 @@ export function Imports({ language }: { language: Language }) {
       <div className="import-page__pager"><button disabled={issueOffset === 0} onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}>←</button><span>{issueOffset + 1}–{issueOffset + issues.length}</span><button disabled={issueOffset + issues.length >= detail.issueCount} onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}>→</button></div>
       <h3>{th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"}</h3>
       {records.map((row) => <article key={row.id} className="import-page__item"><div><strong>{row.sheetName} · {row.sourceLocator}</strong> <span>{row.recordKind}</span></div>
+        {row.targetId && <p className="muted">{th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}</p>}
         {(["fish", "specimen", "embryo_candidate"].includes(row.recordKind)) && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
         {interpretation?.recordId === row.id && <div className="import-page__interpretation"><strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
           <pre>{JSON.stringify({ ...interpretation.value, observations: undefined, stageObservations: undefined, dailySurvival: undefined }, null, 2)}</pre>
