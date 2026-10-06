@@ -305,6 +305,21 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return {"items": repository.list_issues(job_id, offset, limit)}
 
+    @router.post("/{job_id}/issues/bulk-bypass")
+    def bulk_bypass_issues(request: Request, job_id: str,
+                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        issue_ids = body.get("issueIds")
+        reason = body.get("reason")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(issue_ids, list) or not all(isinstance(item, str) for item in issue_ids):
+            raise APIError(400, "invalid_issues", "Provide selected issue IDs")
+        if not isinstance(reason, str):
+            raise APIError(400, "invalid_reason", "Explain the bulk bypass decision")
+        return repository.bypass_issues(job_id, issue_ids, reason, revision, actor)
+
     @router.patch("/{job_id}/records/{record_id}")
     def revise_record(request: Request, job_id: str, record_id: str,
                       body: dict[str, Any] = Body(...)) -> dict[str, Any]:

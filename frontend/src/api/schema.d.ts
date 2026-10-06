@@ -138,6 +138,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/issues/bulk-bypass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bypass a selected set of overridable issues with one reason and revision */
+        post: operations["bulkBypassImportIssues"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/files/{fileId}": {
         parameters: {
             query?: never;
@@ -3380,6 +3399,48 @@ export interface operations {
             };
             /** @description Admin access required */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bulkBypassImportIssues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    issueIds: string[];
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description All selected issues bypassed atomically with audit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale revision or a selected issue cannot be bypassed */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
