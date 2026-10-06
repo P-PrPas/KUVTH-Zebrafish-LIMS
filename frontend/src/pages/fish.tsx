@@ -43,7 +43,9 @@ const sexLabel = (value: unknown, thai: boolean) =>
     String(value)
   ] ?? "—";
 const specimenTypeLabel = (value: unknown, thai: boolean) =>
-  ({ CAUDAL_FIN_CLIP: thai ? "ชิ้นครีบหาง" : "Caudal fin clip", WHOLE_EMBRYO: thai ? "ตัวอ่อนทั้งตัว" : "Whole embryo" })[
+  ({ CAUDAL_FIN_CLIP: thai ? "ชิ้นครีบหาง" : "Caudal fin clip", WHOLE_EMBRYO: thai ? "ตัวอ่อนทั้งตัว" : "Whole embryo",
+     ANAL_FIN_CLIP: thai ? "ชิ้นครีบก้น" : "Anal fin clip", LEFTOVER_CELLS: thai ? "เซลล์ที่เหลือ" : "Leftover cells",
+     WHOLE_ADULT: thai ? "ปลาตัวเต็มวัยทั้งตัว" : "Whole adult", UNKNOWN: thai ? "ยังไม่ทราบชนิด" : "Unknown" })[
     String(value)
   ] ?? String(value ?? "—");
 const dateRange = (start: string, end: string) => {
@@ -885,6 +887,7 @@ function FishDetail({
     specimenCode: "",
     specimenKind: "CL",
     specimenType: "CAUDAL_FIN_CLIP",
+    preservationState: "UNKNOWN",
     collectedOn: bangkokDate(),
     frozenOn: "",
     storage: "",
@@ -1270,6 +1273,7 @@ function FishDetail({
                   <span>
                     {specimenTypeLabel(item.specimenType, thai)} · {String(item.specimenKind ?? "—")}
                   </span>
+                  <small>{String(item.preservationState ?? "UNKNOWN")}</small>
                   <small>
                     {thai ? "เก็บเมื่อ" : "Collected"} {String(item.collectedOn ?? "—")} ·{" "}
                     {item.storage ? `${String(item.storage)} °C` : thai ? "ไม่ระบุที่เก็บ" : "No storage"}
@@ -1302,6 +1306,7 @@ function FishDetail({
                   onChange={(event) => setSpecimen({ ...specimen, specimenKind: event.target.value })}
                 >
                   <option>CL</option>
+                  <option>CLA</option>
                   <option>RT</option>
                   <option>DC</option>
                 </select>
@@ -1314,6 +1319,18 @@ function FishDetail({
                 >
                   <option value="CAUDAL_FIN_CLIP">{specimenTypeLabel("CAUDAL_FIN_CLIP", thai)}</option>
                   <option value="WHOLE_EMBRYO">{specimenTypeLabel("WHOLE_EMBRYO", thai)}</option>
+                  <option value="ANAL_FIN_CLIP">{specimenTypeLabel("ANAL_FIN_CLIP", thai)}</option>
+                  <option value="LEFTOVER_CELLS">{specimenTypeLabel("LEFTOVER_CELLS", thai)}</option>
+                  <option value="WHOLE_ADULT">{specimenTypeLabel("WHOLE_ADULT", thai)}</option>
+                  <option value="UNKNOWN">{specimenTypeLabel("UNKNOWN", thai)}</option>
+                </select>
+              </label>
+              <label>
+                {thai ? "สภาพก่อนจัดเก็บ" : "Material preservation"}
+                <select value={specimen.preservationState} onChange={(event) => setSpecimen({ ...specimen, preservationState: event.target.value })}>
+                  <option value="UNKNOWN">{thai ? "ยังไม่ทราบ" : "Unknown"}</option>
+                  <option value="FRESH">{thai ? "สด" : "Fresh"}</option>
+                  <option value="CRYOPRESERVED">{thai ? "เก็บรักษาด้วยความเย็น" : "Cryopreserved"}</option>
                 </select>
               </label>
               <label>

@@ -2936,11 +2936,11 @@ components:
       enum: [DISSOCIATED, CHUNKS, UNKNOWN]
     SpecimenKind:
       type: string
-      enum: [CL, RT, DC]
-      description: Clone, Recipient Tail, Donor Cell.
+      enum: [CL, CLA, RT, DC]
+      description: Clone, Clone Adult, Recipient Tail, Donor Cell.
     SpecimenType:
       type: string
-      enum: [WHOLE_EMBRYO, CAUDAL_FIN_CLIP]
+      enum: [WHOLE_EMBRYO, CAUDAL_FIN_CLIP, ANAL_FIN_CLIP, LEFTOVER_CELLS, WHOLE_ADULT, UNKNOWN]
     WriteStatus:
       type: string
       enum: [created, duplicate, rejected]
@@ -3747,6 +3747,7 @@ components:
         specimenCode: { type: string, examples: [CL1] }
         specimenKind: { $ref: '#/components/schemas/SpecimenKind' }
         specimenType: { $ref: '#/components/schemas/SpecimenType' }
+        preservationState: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN] }
         collectedOn: { type: [string, 'null'], format: date }
         frozenOn: { type: [string, 'null'], format: date }
         storage: { type: [string, 'null'], enum: ['-20', '-80', null] }
@@ -3758,6 +3759,7 @@ components:
         specimenCode: { type: string, maxLength: 50 }
         specimenKind: { $ref: '#/components/schemas/SpecimenKind' }
         specimenType: { $ref: '#/components/schemas/SpecimenType' }
+        preservationState: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN], default: UNKNOWN }
         collectedOn: { type: [string, 'null'], format: date }
         frozenOn: { type: [string, 'null'], format: date }
         storage: { type: [string, 'null'], enum: ['-20', '-80', null] }

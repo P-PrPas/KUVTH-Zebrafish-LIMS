@@ -242,6 +242,20 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
             code = _text(row.get("B"))
             if re.fullmatch(r"(?:CLA|CL|RT|DC)\d+", code, re.IGNORECASE):
                 sheet.records.append(_record(sheet.name, index, "specimen", row, code))
+                if _text(row.get("C")).casefold() not in {
+                    "whole embryo", "caudal fin clip", "anal fin clip", "left over cells", "whole adult"
+                }:
+                    sheet.issues.append(SourceIssue(
+                        "overridable", "unknown_specimen_material",
+                        "Material type is not recognized; review or bypass with a reason",
+                        sheet.name, index, "C", _text(row.get("C"))[:1000], f"C{index}",
+                    ))
+            elif code or _text(row.get("C")):
+                sheet.issues.append(SourceIssue(
+                    "blocking", "invalid_specimen_code",
+                    "Specimen code must start CL, CLA, RT, or DC followed by digits",
+                    sheet.name, index, "B", code[:1000], f"B{index}",
+                ))
     elif kind == "qc":
         context: dict[str, Any] = {}
         for index, row in enumerate(rows[2:], 3):

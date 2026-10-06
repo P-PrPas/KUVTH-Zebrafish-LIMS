@@ -2010,12 +2010,12 @@ export interface components {
         /** @enum {string} */
         Preparation: "DISSOCIATED" | "CHUNKS" | "UNKNOWN";
         /**
-         * @description Clone, Recipient Tail, Donor Cell.
+         * @description Clone, Clone Adult, Recipient Tail, Donor Cell.
          * @enum {string}
          */
-        SpecimenKind: "CL" | "RT" | "DC";
+        SpecimenKind: "CL" | "CLA" | "RT" | "DC";
         /** @enum {string} */
-        SpecimenType: "WHOLE_EMBRYO" | "CAUDAL_FIN_CLIP";
+        SpecimenType: "WHOLE_EMBRYO" | "CAUDAL_FIN_CLIP" | "ANAL_FIN_CLIP" | "LEFTOVER_CELLS" | "WHOLE_ADULT" | "UNKNOWN";
         /**
          * @description `duplicate` is a normal outcome of retrying, not a failure.
          * @enum {string}
@@ -2791,6 +2791,8 @@ export interface components {
             specimenCode: string;
             specimenKind: components["schemas"]["SpecimenKind"];
             specimenType: components["schemas"]["SpecimenType"];
+            /** @enum {string} */
+            preservationState?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** Format: date */
             collectedOn?: string | null;
             /** Format: date */
@@ -2803,6 +2805,11 @@ export interface components {
             specimenCode: string;
             specimenKind: components["schemas"]["SpecimenKind"];
             specimenType: components["schemas"]["SpecimenType"];
+            /**
+             * @default UNKNOWN
+             * @enum {string}
+             */
+            preservationState: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** Format: date */
             collectedOn?: string | null;
             /** Format: date */

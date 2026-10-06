@@ -1015,9 +1015,11 @@ class ImportRepository:
                 code = meaning["specimenCode"]
                 connection.execute(text(
                     "INSERT INTO specimen (id, clone_fish_id, specimen_code, specimen_kind, specimen_type, "
-                    "created_at, updated_at) VALUES (:id, NULL, :code, :kind, :type, :now, :now)"
+                    "preservation_state, created_at, updated_at) "
+                    "VALUES (:id, NULL, :code, :kind, :type, :preservation, :now, :now)"
                 ), {"id": specimen_id, "code": code, "kind": meaning["specimenKind"],
-                    "type": meaning["specimenType"], "now": now})
+                    "type": meaning["specimenType"],
+                    "preservation": meaning["preservationState"], "now": now})
                 inserted_specimens[code.casefold()] = specimen_id
                 self._mark_imported(connection, record["id"], "specimen", specimen_id, now)
                 self._audit_insert(connection, actor, "specimen", specimen_id, meaning, now)
