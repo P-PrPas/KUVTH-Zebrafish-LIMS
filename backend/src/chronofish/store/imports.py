@@ -623,6 +623,9 @@ class ImportRepository:
         groups = sum((bool(kinds & {"fish", "specimen"}),
                       bool(kinds & {"legacy_lot", "scnt_aggregate", "control_aggregate"}),
                       "embryo_candidate" in kinds))
+        supported_kinds = {"fish", "specimen", "legacy_lot", "scnt_aggregate",
+                           "control_aggregate", "embryo_candidate", "sheet_metadata",
+                           "reconciliation"}
         return {"donorSources": sorted(donor_sources), "sheetNames": sorted(sites),
                 "recordKinds": sorted(kinds), "ambiguousZeroRecords": ambiguous_zero,
                 "unresolvedIssueCount": unresolved_count,
@@ -635,9 +638,8 @@ class ImportRepository:
                     "legacy_lot", "scnt_aggregate", "control_aggregate"},
                 "canConfirmEmbryos": "embryo_candidate" in kinds and kinds <= {
                     "embryo_candidate", "sheet_metadata"},
-                "canConfirmMixed": groups >= 2 and kinds <= {
-                    "fish", "specimen", "legacy_lot", "scnt_aggregate", "control_aggregate",
-                    "embryo_candidate", "sheet_metadata"}}
+                "canConfirmMixed": ((groups >= 2 or "reconciliation" in kinds)
+                                    and kinds <= supported_kinds)}
 
     def confirm_all(self, job_id: str, revision: int, actor: dict[str, Any],
                     site_mappings: dict[str, str], donor_mappings: dict[str, str],
@@ -656,7 +658,8 @@ class ImportRepository:
                 "SELECT DISTINCT record_kind FROM import_record WHERE job_id = :job"
             ), {"job": job_id})}
             supported = {"fish", "specimen", "legacy_lot", "scnt_aggregate",
-                         "control_aggregate", "embryo_candidate", "sheet_metadata"}
+                         "control_aggregate", "embryo_candidate", "sheet_metadata",
+                         "reconciliation"}
             if not kinds or not kinds <= supported or ("sheet_metadata" in kinds and "embryo_candidate" not in kinds):
                 raise APIError(409, "not_ready", "This job has unsupported or incomplete sheet types")
             results: dict[str, Any] = {}
@@ -669,17 +672,26 @@ class ImportRepository:
             if kinds & {"fish", "specimen"}:
                 results["fishSpecimens"] = self.confirm_fish_specimens(
                     job_id, revision, actor, site_mappings, donor_mappings, zero_reason, connection, False)
+            reference_count = int(connection.execute(text(
+                "SELECT COUNT(*) FROM import_record WHERE job_id = :job "
+                "AND record_kind = 'reconciliation' AND status = 'pending'"
+            ), {"job": job_id}).scalar_one())
+            connection.execute(text(
+                "UPDATE import_record SET status = 'skipped', updated_at = :now "
+                "WHERE job_id = :job AND record_kind = 'reconciliation' AND status = 'pending'"
+            ), {"job": job_id, "now": now})
             connection.execute(text(
                 "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
                 "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
             ), {"actor": actor["id"], "now": now, "id": job_id})
             self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
                         {"status": "committed", "components": results,
+                         "reconciliationReferenceCount": reference_count,
                          "zeroBypassReason": zero_reason.strip() or None,
                          "aggregateWarningBypassReason": aggregate_reason.strip() or None,
                          "embryoWarningBypassReason": embryo_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
-                    "components": results}
+                    "components": results, "reconciliationReferenceCount": reference_count}
 
     def confirm_aggregate(self, job_id: str, revision: int, actor: dict[str, Any],
                           warning_reason: str, _connection: Any = None,

@@ -6,7 +6,7 @@ type InspectFile = { name: string; sheets?: string[]; encoding?: string; delimit
 type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
 type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
 type Detail = { job: Job; files: { id: string; fileName: string; sha256: string; sizeBytes: number }[]; recordCount: number; issueCount: number; deferredFieldCount: number };
-type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
+type RecordRow = { id: string; sheetName: string; sourceLocator: string; recordKind: string; status: string; source: Record<string, unknown>; working: Record<string, unknown>; targetTable?: string | null; targetId?: string | null };
 type Issue = { id: string; recordId: string | null; sheetName: string; rowNo: number | null; sourceColumn: string | null; sourceValue: string | null; severity: string; code: string; message: string; status: string };
 type MappingRequirements = { donorSources: string[]; sheetNames: string[]; recordKinds: string[]; ambiguousZeroRecords: string[]; unresolvedIssueCount: number; canConfirmFishSpecimens: boolean; canConfirmAggregate: boolean; aggregateWarningCount: number; aggregateWarningPreview: string[]; canConfirmEmbryos: boolean; embryoWarningCount: number; embryoWarningPreview: string[]; canConfirmMixed: boolean };
 type MasterOption = { id: string; code?: string; name?: string; strain?: string; preparation?: string; batchCode?: string; timeZone?: string | null };
@@ -305,7 +305,9 @@ export function Imports({ language }: { language: Language }) {
           zeroBypassReason, aggregateWarningBypassReason: aggregateWarningReason,
           embryoWarningBypassReason: embryoWarningReason }) });
       await reloadJobs(); await openJob(detail.job.id, recordOffset, issueOffset);
-      setNotice(th ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว" : "All selected sheets were imported atomically.");
+      const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
+      setNotice(referenceOnly ? (th ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว" : "Summary sheets archived as references.") :
+        (th ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง" : "Selected data sheets committed atomically; summary sheets were kept as references."));
     } catch (cause) { setError((cause as Error).message); }
     finally { setBusy(false); }
   }
@@ -386,8 +388,8 @@ export function Imports({ language }: { language: Language }) {
       </div>}
       <div className="import-page__files">{detail.files.map((file) => <button type="button" key={file.id} onClick={() => void download(file.id, file.fileName)}>{file.fileName} ↓ <small>SHA-256 {file.sha256.slice(0, 12)}…</small></button>)}</div>
       {detail.job.status === "draft" && mappingRequirements?.canConfirmMixed && <div className="import-page__mapping">
-        <h3>{th ? "ยืนยันงานที่มีหลายชนิดชีต" : "Confirm mixed-sheet job"}</h3>
-        <p className="muted">{th ? "ทุกชีตที่เลือกรวมเป็นงานเดียว หากส่วนใดผิดพลาดจะไม่นำเข้าส่วนอื่น" : "Every selected sheet commits together. Any validation failure rolls back the entire job."}</p>
+        <h3>{th ? "ยืนยันชีตที่เลือกในงานเดียว" : "Confirm selected sheets"}</h3>
+        <p className="muted">{th ? "ชีตข้อมูลหลักจะนำเข้าพร้อมกัน หากส่วนใดผิดพลาดจะไม่เขียนข้อมูล ส่วนชีตสรุปจะเก็บไว้ตรวจเทียบด้วยตนเองโดยไม่เขียนลงข้อมูลหลัก" : "Data sheets commit together. Summary sheets remain review references and do not write canonical data."}</p>
         {mappingRequirements.unresolvedIssueCount > 0 && <p className="import-page__warning" role="alert">{mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}</p>}
         {mappingRequirements.sheetNames.map((sheet) => <label key={sheet}>{th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
           <select value={siteMappings[sheet] ?? ""} onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}><option value="">{th ? "เลือกสถานที่" : "Select site"}</option>{siteOptions.filter((site) => site.timeZone).map((site) => <option key={site.id} value={site.id}>{site.code} · {site.timeZone}</option>)}</select></label>)}
@@ -501,6 +503,7 @@ export function Imports({ language }: { language: Language }) {
       <div className="import-page__pager"><button disabled={issueOffset === 0} onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}>←</button><span>{issueOffset + 1}–{issueOffset + issues.length}</span><button disabled={issueOffset + issues.length >= detail.issueCount} onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}>→</button></div>
       <h3>{th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"}</h3>
       {records.map((row) => <article key={row.id} className="import-page__item"><div><strong>{row.sheetName} · {row.sourceLocator}</strong> <span>{row.recordKind}</span></div>
+        {row.recordKind === "reconciliation" && <p className="muted">{th ? "ข้อมูลสรุปสำหรับตรวจเทียบด้วยตนเอง ไม่ใช้สร้างระเบียนหรือคำนวณตัวชี้วัด" : "Summary reference for manual reconciliation. It does not create records or enter metrics."}</p>}
         {row.targetId && <p className="muted">{th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}</p>}
         {(["fish", "specimen", "embryo_candidate", "legacy_lot", "scnt_aggregate", "control_aggregate"].includes(row.recordKind)) && <button type="button" onClick={() => void showInterpretation(row.id)}>{th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}</button>}
         {interpretation?.recordId === row.id && <div className="import-page__interpretation"><strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
