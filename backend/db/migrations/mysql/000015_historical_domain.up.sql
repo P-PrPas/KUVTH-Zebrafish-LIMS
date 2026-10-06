@@ -22,7 +22,7 @@ ALTER TABLE clone_fish ADD CONSTRAINT ck_fish_exit_consistent CHECK (
     (status = 'FROZEN' AND exit_date IS NOT NULL AND exit_reason = 'FROZEN') OR
     (status = 'DISCARDED' AND exit_date IS NOT NULL AND exit_reason IN ('DISCARDED', 'LOST')) OR
     (status = 'UNKNOWN' AND exit_reason IS NULL)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+);
 UPDATE clone_fish SET
     life_state = CASE WHEN status = 'ALIVE' THEN 'ALIVE' WHEN status = 'DEAD' THEN 'DEAD' ELSE 'UNKNOWN' END,
     disposition = CASE WHEN status = 'FROZEN' THEN 'FROZEN' WHEN status = 'DISCARDED' THEN 'DISCARDED' ELSE 'NONE' END;

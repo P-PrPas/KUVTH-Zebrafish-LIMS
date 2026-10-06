@@ -128,7 +128,11 @@ def convert(sql: str, upgrade: bool) -> str:
         sql,
     )
     # 4. table options
-    sql = re.sub(r"\n\);", "\n)" + TABLE_OPTS + ";", sql)
+    sql = re.sub(
+        r"(?m)(^CREATE TABLE \w+\s*\([\s\S]*?\n)\);",
+        lambda match: match.group(1) + ")" + TABLE_OPTS + ";",
+        sql,
+    )
     return sql
 
 
