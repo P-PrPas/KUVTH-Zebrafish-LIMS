@@ -223,6 +223,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/fish-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** List imported fish awaiting or having admin status review */
+        get: operations["listImportedFishStatuses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/fish-status/{fishId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                fishId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review a historical fish status with evidence and optimistic version */
+        post: operations["reviewImportedFishStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revert an entire committed fish/specimen import when no later work depends on it */
+        post: operations["revertFishSpecimenImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/request-code": {
         parameters: {
             query?: never;
@@ -3346,6 +3404,124 @@ export interface operations {
                 content?: never;
             };
             /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportedFishStatuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fish status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviewImportedFishStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                fishId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    rowVersion: number;
+                    /** @enum {string} */
+                    status: "UNKNOWN" | "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
+                    /** @enum {string} */
+                    lifeState: "UNKNOWN" | "ALIVE" | "DEAD";
+                    /** @enum {string} */
+                    disposition: "NONE" | "FROZEN" | "DISCARDED" | "LOST" | "UNKNOWN";
+                    /** Format: date */
+                    exitDate?: string | null;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Audited fish status change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Fish changed since review was opened */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revertFishSpecimenImport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Whole job reverted and audit preserved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Later work */
             409: {
                 headers: {
                     [name: string]: unknown;

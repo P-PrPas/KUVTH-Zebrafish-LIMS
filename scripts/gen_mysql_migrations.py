@@ -38,6 +38,7 @@ INDEX_TABLES = {
     "ix_audit_actor": "audit_log",
     "uq_embryo_live_well": "embryo",
     "ix_fish_import_job": "clone_fish",
+    "ix_specimen_link_import_job": "specimen_fish_link",
 }
 
 HEADER = (
@@ -110,6 +111,11 @@ def convert(sql: str, upgrade: bool) -> str:
     sql = re.sub(
         r"ALTER TABLE (\w+) DROP CONSTRAINT (ck_\w+);",
         r"ALTER TABLE \1 DROP CHECK \2;",
+        sql,
+    )
+    sql = re.sub(
+        r"ALTER TABLE (\w+) DROP CONSTRAINT (uq_\w+);",
+        r"ALTER TABLE \1 DROP INDEX \2;",
         sql,
     )
     for index_name, table_name in INDEX_TABLES.items():

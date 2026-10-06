@@ -199,6 +199,29 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_reason", "Bypass reason must be text")
         return repository.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero_reason)
 
+    @router.get("/{job_id}/fish-status")
+    def fish_statuses(request: Request, job_id: str) -> dict[str, Any]:
+        _actor(request)
+        return {"items": repository.fish_statuses(job_id)}
+
+    @router.post("/{job_id}/fish-status/{fish_id}")
+    def review_fish_status(request: Request, job_id: str, fish_id: str,
+                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        return repository.review_fish_status(job_id, fish_id, actor, body)
+
+    @router.post("/{job_id}/revert")
+    def revert(request: Request, job_id: str,
+               body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        reason = body.get("reason")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(reason, str):
+            raise APIError(400, "invalid_reason", "Explain why the import is being reverted")
+        return repository.revert_fish_specimens(job_id, revision, actor, reason)
+
     @router.get("/{job_id}/issues")
     def list_issues(request: Request, job_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         _actor(request)
