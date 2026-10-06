@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
@@ -22,6 +23,25 @@ def _now() -> datetime:
 
 def _iso(value: datetime | None) -> str | None:
     return value.replace(tzinfo=UTC).isoformat().replace("+00:00", "Z") if value else None
+
+
+def _historical_timestamp(day: str, clock: str | None, time_zone: str,
+                          activation_clock: str | None) -> datetime | None:
+    if not clock or not activation_clock or clock < activation_clock:
+        return None
+    try:
+        zone = ZoneInfo(time_zone)
+        local = datetime.combine(date.fromisoformat(day), time.fromisoformat(clock))
+        earlier = local.replace(tzinfo=zone, fold=0)
+        later = local.replace(tzinfo=zone, fold=1)
+        if earlier.utcoffset() != later.utcoffset():
+            return None
+        utc = earlier.astimezone(UTC)
+        if utc.astimezone(zone).replace(tzinfo=None) != local:
+            return None
+        return utc.replace(tzinfo=None)
+    except (ValueError, ZoneInfoNotFoundError):
+        return None
 
 
 def _job_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -493,8 +513,16 @@ class ImportRepository:
         kinds: set[str] = set()
         ambiguous_zero: list[str] = []
         aggregate_warnings: list[str] = []
+        embryo_warnings: list[str] = []
         for row in rows:
             kinds.add(row["record_kind"])
+            if row["record_kind"] == "embryo_candidate":
+                sites.add(row["sheet_name"])
+                meaning = interpret("embryo_candidate", json.loads(row["working_json"])) or {}
+                embryo_warnings.extend(
+                    f"{row['sheet_name']} {row.get('source_locator', '')}: {warning}"
+                    for warning in meaning.get("warnings", [])
+                )
             if row["record_kind"] in {"legacy_lot", "scnt_aggregate", "control_aggregate"}:
                 meaning = interpret(row["record_kind"], json.loads(row["working_json"])) or {}
                 aggregate_warnings.extend(
@@ -513,9 +541,13 @@ class ImportRepository:
                 "unresolvedIssueCount": unresolved_count,
                 "aggregateWarningCount": len(aggregate_warnings),
                 "aggregateWarningPreview": aggregate_warnings[:30],
+                "embryoWarningCount": len(embryo_warnings),
+                "embryoWarningPreview": embryo_warnings[:30],
                 "canConfirmFishSpecimens": bool(rows) and kinds <= {"fish", "specimen"},
                 "canConfirmAggregate": bool(rows) and kinds <= {
-                    "legacy_lot", "scnt_aggregate", "control_aggregate"}}
+                    "legacy_lot", "scnt_aggregate", "control_aggregate"},
+                "canConfirmEmbryos": "embryo_candidate" in kinds and kinds <= {
+                    "embryo_candidate", "sheet_metadata"}}
 
     def confirm_aggregate(self, job_id: str, revision: int, actor: dict[str, Any],
                           warning_reason: str) -> dict[str, Any]:
@@ -579,6 +611,145 @@ class ImportRepository:
                          "warningCount": len(warnings), "warningBypassReason": warning_reason.strip() or None}, now)
             return {"jobId": job_id, "status": "committed", "revision": revision + 1,
                     "historicalCountRows": len(rows), "warningCount": len(warnings)}
+
+    def confirm_v2_embryos(self, job_id: str, revision: int, actor: dict[str, Any],
+                           site_mappings: dict[str, str], warning_reason: str) -> dict[str, Any]:
+        """Commit V2 identities and observations without inventing operational lots."""
+        if self.engine is None:
+            raise APIError(503, "database_required", "Canonical import requires the configured database")
+        now = _now()
+        with self.engine.begin() as connection:
+            job = connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"),
+                                     {"id": job_id}).mappings().first()
+            if job is None:
+                raise APIError(404, "not_found", "Import job was not found")
+            self._check_draft(job, revision)
+            records = [dict(row) for row in connection.execute(text(
+                "SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"
+            ), {"id": job_id}).mappings()]
+            if not any(row["record_kind"] == "embryo_candidate" for row in records) or any(
+                row["record_kind"] not in {"embryo_candidate", "sheet_metadata"} for row in records
+            ):
+                raise APIError(409, "not_ready", "Confirm a job containing only V2 embryo sheets")
+            unresolved = connection.execute(text(
+                "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
+                "AND severity IN ('blocking', 'overridable')"
+            ), {"id": job_id}).scalar_one()
+            if unresolved:
+                raise APIError(409, "issues_open", "Resolve blocking and overridable issues first")
+            sites = {str(row["id"]): row["time_zone"] for row in connection.execute(text(
+                "SELECT id, time_zone FROM site WHERE active = TRUE AND deleted_at IS NULL"
+            )).mappings()}
+            embryo_rows: list[dict[str, Any]] = []
+            observation_rows: list[dict[str, Any]] = []
+            record_targets: dict[str, str] = {}
+            source_keys: set[str] = set()
+            warnings: list[str] = []
+            for record in records:
+                if record["record_kind"] == "sheet_metadata":
+                    continue
+                meaning = interpret("embryo_candidate", json.loads(record["working_json"]))
+                if meaning is None:
+                    raise APIError(409, "not_ready", "An embryo row cannot be interpreted")
+                day = meaning["experimentDate"]
+                running = str(meaning.get("sourceRunningNumber") or "").strip()
+                if not day or not running or len(running) > 60:
+                    raise APIError(409, "embryo_incomplete", f"{record['sheet_name']} {record['source_locator']}: date or source embryo number is missing")
+                site_id = site_mappings.get(record["sheet_name"])
+                time_zone = sites.get(site_id or "")
+                if not time_zone:
+                    raise APIError(409, "master_mapping_missing", f"{record['sheet_name']}: choose an active site with time zone")
+                source_key = f"{record['sheet_name'].casefold()}|{day}|{running.casefold()}"
+                if len(source_key) > 300 or source_key in source_keys:
+                    raise APIError(409, "duplicate_embryo", f"{record['sheet_name']} {record['source_locator']}: duplicate embryo identity")
+                source_keys.add(source_key)
+                if connection.execute(text(
+                    "SELECT id FROM historical_embryo WHERE source_key = :key AND deleted_at IS NULL"
+                ), {"key": source_key}).first():
+                    raise APIError(409, "duplicate_embryo", f"{record['sheet_name']} {record['source_locator']}: embryo already imported")
+                source_fields = {
+                    "activation_source": meaning.get("activationSource"),
+                    "recipient_source": meaning.get("recipientSource"),
+                    "egg_code_source": meaning.get("eggCodeSource"),
+                    "group_source": meaning.get("groupSource"),
+                    "injection_source": meaning.get("injectionSource"),
+                    "lot_no_source": meaning.get("lotNoSource"),
+                }
+                limits = {"activation_source": 100, "recipient_source": 300,
+                          "egg_code_source": 150, "group_source": 150,
+                          "injection_source": 150, "lot_no_source": 100}
+                if any(len(str(value)) > limits[name] for name, value in source_fields.items() if value is not None):
+                    raise APIError(409, "embryo_incomplete", f"{record['sheet_name']} {record['source_locator']}: source label exceeds field limit")
+                embryo_id = uuid7()
+                record_targets[record["id"]] = embryo_id
+                embryo_rows.append({
+                    "id": embryo_id, "import_job_id": job_id, "import_record_id": record["id"],
+                    "source_key": source_key, "source_running_no": running,
+                    "experiment_date": day, "site_id": site_id,
+                    "activation_local_time": meaning["activationLocalTime"],
+                    **{name: str(value) if value is not None else None
+                       for name, value in source_fields.items()},
+                    "created_at": now,
+                })
+                warnings.extend(f"{record['sheet_name']} {record['source_locator']}: {warning}"
+                                for warning in meaning["warnings"])
+                for entry in meaning["stageObservations"]:
+                    exact = _historical_timestamp(day, entry["observedLocalTime"], time_zone,
+                                                  meaning["activationLocalTime"])
+                    if entry["timePrecision"] == "exact" and exact is None:
+                        warnings.append(f"{record['sheet_name']} {record['source_locator']} {entry['sourceColumn']}: clock cannot identify an unambiguous same-day instant")
+                    observation_rows.append({
+                        "id": uuid7(), "import_job_id": job_id, "import_record_id": record["id"],
+                        "historical_embryo_id": embryo_id, "observed_on": day,
+                        "observed_at": exact, "time_precision": "exact" if exact else "date",
+                        "stage_label": entry["stageLabel"], "outcome": entry["outcome"],
+                        "biological_condition": entry["condition"],
+                        "raw_value": json.dumps({"column": entry["sourceColumn"],
+                                                 "row": record["row_no"],
+                                                 "value": entry["sourceValue"],
+                                                 "localTime": entry["observedLocalTime"]}, ensure_ascii=False),
+                        "created_at": now,
+                    })
+                for entry in meaning["dailySurvival"]:
+                    if not entry["observedOn"]:
+                        continue
+                    observation_rows.append({
+                        "id": uuid7(), "import_job_id": job_id, "import_record_id": record["id"],
+                        "historical_embryo_id": embryo_id, "observed_on": entry["observedOn"],
+                        "observed_at": None, "time_precision": "date",
+                        "stage_label": f"d{entry['day']}", "outcome": entry["outcome"],
+                        "biological_condition": "UNDETERMINED",
+                        "raw_value": json.dumps({"column": entry["sourceColumn"],
+                                                 "row": record["row_no"],
+                                                 "value": entry["sourceValue"]}, ensure_ascii=False),
+                        "created_at": now,
+                    })
+            if warnings and (not warning_reason.strip() or len(warning_reason) > 2000):
+                raise APIError(409, "embryo_warning", "Some embryo values or times are uncertain; provide a bypass reason")
+            self._insert_many(connection, "historical_embryo", embryo_rows)
+            self._insert_many(connection, "historical_observation", observation_rows)
+            for record in records:
+                if record["record_kind"] == "sheet_metadata":
+                    connection.execute(text(
+                        "UPDATE import_record SET status = 'skipped', updated_at = :now WHERE id = :id"
+                    ), {"now": now, "id": record["id"]})
+                else:
+                    self._mark_imported(connection, record["id"], "historical_embryo",
+                                        record_targets[record["id"]], now)
+            connection.execute(text(
+                "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+            ), {"actor": actor["id"], "now": now, "id": job_id})
+            self._audit(connection, actor, "import_job", job_id, {"status": "draft"},
+                        {"status": "committed", "historicalEmbryoCount": len(embryo_rows),
+                         "historicalObservationCount": len(observation_rows),
+                         "sourceMetadataRetainedCount": len(records) - len(embryo_rows),
+                         "warningCount": len(warnings),
+                         "warningBypassReason": warning_reason.strip() or None}, now)
+            return {"jobId": job_id, "status": "committed", "revision": revision + 1,
+                    "historicalEmbryoCount": len(embryo_rows),
+                    "historicalObservationCount": len(observation_rows),
+                    "warningCount": len(warnings)}
 
     def confirm_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any],
                                site_mappings: dict[str, str], donor_mappings: dict[str, str],
@@ -872,6 +1043,31 @@ class ImportRepository:
                              "historicalCountRows": count}, now)
                 return {"jobId": job_id, "status": "reverted", "revision": revision + 1,
                         "historicalCountRows": count}
+            if targets and all(row["target_table"] == "historical_embryo" for row in targets):
+                embryo_ids = [str(row["target_id"]) for row in targets]
+                for embryo_id in embryo_ids:
+                    if connection.execute(text(
+                        "SELECT id FROM historical_observation WHERE historical_embryo_id = :id "
+                        "AND import_job_id <> :job AND deleted_at IS NULL LIMIT 1"
+                    ), {"id": embryo_id, "job": job_id}).first():
+                        raise APIError(409, "revert_dependency", f"Embryo {embryo_id} is used by another import")
+                connection.execute(text(
+                    "UPDATE historical_observation SET deleted_at = :now "
+                    "WHERE import_job_id = :job AND deleted_at IS NULL"
+                ), {"job": job_id, "now": now})
+                connection.execute(text(
+                    "UPDATE historical_embryo SET deleted_at = :now "
+                    "WHERE import_job_id = :job AND deleted_at IS NULL"
+                ), {"job": job_id, "now": now})
+                connection.execute(text(
+                    "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
+                    "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
+                ), {"actor": actor["id"], "now": now, "job": job_id})
+                self._audit(connection, actor, "import_job", job_id, {"status": "committed"},
+                            {"status": "reverted", "reason": reason.strip(),
+                             "historicalEmbryoCount": len(embryo_ids)}, now)
+                return {"jobId": job_id, "status": "reverted", "revision": revision + 1,
+                        "historicalEmbryoCount": len(embryo_ids)}
             fish_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "clone_fish"]
             specimen_ids = [str(row["target_id"]) for row in targets if row["target_table"] == "specimen"]
             if len(fish_ids) + len(specimen_ids) != len(targets):

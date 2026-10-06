@@ -39,6 +39,7 @@ INDEX_TABLES = {
     "uq_embryo_live_well": "embryo",
     "ix_fish_import_job": "clone_fish",
     "ix_specimen_link_import_job": "specimen_fish_link",
+    "ix_hist_obs_historical_embryo": "historical_observation",
 }
 
 HEADER = (

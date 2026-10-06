@@ -224,6 +224,23 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_reason", "Warning bypass reason must be text")
         return repository.confirm_aggregate(job_id, revision, actor, warning_reason)
 
+    @router.post("/{job_id}/confirm-v2-embryos")
+    def confirm_v2_embryos(request: Request, job_id: str,
+                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        sites = body.get("siteMappings")
+        warning_reason = body.get("warningBypassReason", "")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        if not isinstance(sites, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in sites.items()
+        ):
+            raise APIError(400, "invalid_mapping", "Provide site ID mappings")
+        if not isinstance(warning_reason, str):
+            raise APIError(400, "invalid_reason", "Warning bypass reason must be text")
+        return repository.confirm_v2_embryos(job_id, revision, actor, sites, warning_reason)
+
     @router.get("/{job_id}/fish-status")
     def fish_statuses(request: Request, job_id: str) -> dict[str, Any]:
         _actor(request)
