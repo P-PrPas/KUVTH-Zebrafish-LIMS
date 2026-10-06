@@ -73,8 +73,147 @@ tags:
     description: Excel and R-ready output (FR-900)
   - name: Audit
     description: Change history (FR-1100)
+  - name: Imports
+    description: Administrator-only historical import drafts and source review
 
 paths:
+
+  /imports/inspect:
+    post:
+      tags: [Imports]
+      summary: Inspect one XLSX or a set of CSV files before selecting sources
+      operationId: inspectImportSources
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+      responses:
+        '200': { description: Workbook sheet names or CSV text previews }
+        '403': { description: Admin access required }
+        '413': { description: Upload exceeds the import limit }
+  /imports:
+    get:
+      tags: [Imports]
+      summary: List historical import jobs
+      operationId: listImportJobs
+      responses:
+        '200':
+          description: Recent jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ImportJob' }
+        '403': { description: Admin access required }
+    post:
+      tags: [Imports]
+      summary: Store selected source files as a durable review draft
+      operationId: createImportJob
+      description: |
+        `selection` is a JSON string. XLSX uses `{"sheets":["V1Raw"]}`;
+        CSV uses `{"files":[{"sheetName":"V1Raw","encoding":"utf-8-sig"}]}`.
+        CSV choices align with uploaded file order. Files excluded from parsing
+        require `include:false` and `ignoreReason`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, selection]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+                selection: { type: string }
+      responses:
+        '201':
+          description: Draft created; no experimental records have been written
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJobDetail' }
+        '403': { description: Admin access required }
+        '413': { description: Upload exceeds the import limit }
+        '422': { description: Source file cannot be parsed }
+  /imports/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Get an import job and source-file inventory
+      operationId: getImportJob
+      responses:
+        '200':
+          description: Job summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJobDetail' }
+        '403': { description: Admin access required }
+        '404': { description: Job not found }
+  /imports/{jobId}/records:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Page through source-addressed import records
+      operationId: listImportRecords
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Import records with immutable source and editable working values }
+        '403': { description: Admin access required }
+  /imports/{jobId}/issues:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Page through import validation issues
+      operationId: listImportIssues
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Issues with source sheet and cell location }
+        '403': { description: Admin access required }
+  /imports/{jobId}/files/{fileId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: fileId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Download an unchanged uploaded source file
+      operationId: downloadImportSource
+      responses:
+        '200': { description: Original source bytes }
+        '403': { description: Admin access required }
+        '404': { description: File not found }
 
   /auth/request-code:
     post:
@@ -2399,6 +2538,55 @@ components:
                     activatedAt: '2026-08-20T10:59:00+07:00'
 
   schemas:
+
+    ImportJob:
+      type: object
+      required: [id, inputKind, status, createdByUserId, createdAt, updatedAt, revision, parserVersion, selection]
+      properties:
+        id: { type: string, format: uuid }
+        inputKind: { type: string, enum: [xlsx, csv_set] }
+        status: { type: string, enum: [draft, ready, committed, reverted] }
+        createdByUserId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+        revertedAt: { type: [string, 'null'], format: date-time }
+        revision: { type: integer }
+        parserVersion: { type: string }
+        selection: { type: object, additionalProperties: true }
+
+    ImportSourceFile:
+      type: object
+      required: [id, fileName, mediaType, sha256, sizeBytes]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        sheetName: { type: [string, 'null'] }
+        encoding: { type: [string, 'null'] }
+        mediaType: { type: string }
+        sha256: { type: string }
+        sizeBytes: { type: integer }
+
+    ImportJobDetail:
+      type: object
+      required: [job, files, recordCount, issueCount]
+      properties:
+        job: { $ref: '#/components/schemas/ImportJob' }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/ImportSourceFile' }
+        recordCount: { type: integer }
+        issueCount: { type: integer }
+        sheets:
+          type: array
+          items:
+            type: object
+            required: [name, kind, recordCount, issueCount]
+            properties:
+              name: { type: string }
+              kind: { type: string }
+              recordCount: { type: integer }
+              issueCount: { type: integer }
 
     CorrectionRequest:
       type: object
