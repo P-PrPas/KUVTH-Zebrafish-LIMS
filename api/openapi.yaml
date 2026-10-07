@@ -73,8 +73,545 @@ tags:
     description: Excel and R-ready output (FR-900)
   - name: Audit
     description: Change history (FR-1100)
+  - name: Imports
+    description: Administrator-only historical import drafts and source review
 
 paths:
+
+  /imports/inspect:
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Inspect one XLSX or a set of CSV files before selecting sources
+      operationId: inspectImportSources
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+      responses:
+        '200': { description: Workbook sheet names or CSV text previews }
+        '403': { description: Admin access required }
+        '413': { description: Upload exceeds the import limit }
+  /imports:
+    get:
+      tags: [Imports]
+      summary: List historical import jobs
+      operationId: listImportJobs
+      responses:
+        '200':
+          description: Recent jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ImportJob' }
+        '403': { description: Admin access required }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Store selected source files as a durable review draft
+      operationId: createImportJob
+      description: |
+        `selection` is a JSON string. XLSX uses `{"sheets":["V1Raw"]}`;
+        CSV uses `{"files":[{"sheetName":"V1Raw","encoding":"utf-8-sig"}]}`.
+        CSV choices align with uploaded file order. Files excluded from parsing
+        require `include:false` and `ignoreReason`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files, selection]
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+                selection: { type: string }
+      responses:
+        '201':
+          description: Draft created; no experimental records have been written
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJobDetail' }
+        '403': { description: Admin access required }
+        '413': { description: Upload exceeds the import limit }
+        '422': { description: Source file cannot be parsed }
+  /imports/deferred-fields:
+    get:
+      tags: [Imports]
+      summary: Page through source values awaiting future field mapping
+      operationId: listImportDeferredFields
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Deferred fields with source locations and supported targets }
+        '403': { description: Admin access required }
+  /imports/deferred-fields/{fieldId}/apply:
+    parameters:
+      - { name: fieldId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Apply a deferred source value to a supported empty target field
+      operationId: applyImportDeferredField
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetField, value, reason, rowVersion]
+              properties:
+                targetField: { type: string }
+                value: { type: string }
+                reason: { type: string }
+                rowVersion: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Audited target update and applied field }
+        '403': { description: Admin access required }
+        '409': { description: Target changed or already contains a value }
+  /imports/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Get an import job and source-file inventory
+      operationId: getImportJob
+      responses:
+        '200':
+          description: Job summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportJobDetail' }
+        '403': { description: Admin access required }
+        '404': { description: Job not found }
+  /imports/{jobId}/records:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Page through source-addressed import records
+      operationId: listImportRecords
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Import records with immutable source and editable working values }
+        '403': { description: Admin access required }
+  /imports/{jobId}/issues:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Page through import validation issues
+      operationId: listImportIssues
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Issues with source sheet and cell location }
+        '403': { description: Admin access required }
+  /imports/{jobId}/issues/bulk-bypass:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Bypass a selected set of overridable issues with one reason and revision
+      operationId: bulkBypassImportIssues
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, issueIds, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                issueIds: { type: array, minItems: 1, maxItems: 100, uniqueItems: true, items: { type: string, format: uuid } }
+                reason: { type: string }
+      responses:
+        '200': { description: All selected issues bypassed atomically with audit }
+        '403': { description: Admin access required }
+        '409': { description: Stale revision or a selected issue cannot be bypassed }
+  /imports/{jobId}/issues/{issueId}/correct-cell:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Correct a flagged source cell in the working copy and resolve its issue atomically
+      operationId: correctImportIssueCell
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, value, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                value: { type: string }
+                reason: { type: string }
+      responses:
+        '200': { description: Working cell corrected while original source remains unchanged }
+        '403': { description: Admin access required }
+        '409': { description: New value is still invalid, issue has no editable row, or revision changed }
+  /imports/{jobId}/files/{fileId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: fileId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Imports]
+      summary: Download an unchanged uploaded source file
+      operationId: downloadImportSource
+      responses:
+        '200': { description: Original source bytes }
+        '403': { description: Admin access required }
+        '404': { description: File not found }
+  /imports/{jobId}/records/{recordId}:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Edit a draft working copy while keeping source values unchanged
+      operationId: reviseImportRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, working, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                working: { type: object, additionalProperties: true }
+                reason: { type: string }
+      responses:
+        '200': { description: Updated working values and job revision }
+        '403': { description: Admin access required }
+        '409': { description: Draft changed or was finalized }
+  /imports/{jobId}/issues/{issueId}/decision:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Record an audited issue correction, bypass, or dismissal
+      operationId: decideImportIssue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, decision, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                decision: { type: string, enum: [corrected, bypassed, dismissed] }
+                reason: { type: string }
+                resolutionValue: { type: [string, 'null'] }
+      responses:
+        '200': { description: Issue decision and job revision }
+        '400': { description: Decision is invalid for the issue severity }
+        '409': { description: Draft changed or issue was already decided }
+  /imports/{jobId}/records/{recordId}/interpretation:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Interpret a historical embryo, fish, specimen, or aggregate row
+      operationId: interpretImportRecord
+      responses:
+        '200': { description: Interpreted values, observations, and unresolved meanings }
+        '403': { description: Admin access required }
+        '422': { description: Source layout does not yet have an interpretation }
+  /imports/{jobId}/mapping-requirements:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: List source mappings and unresolved import warnings
+      operationId: getImportMappingRequirements
+      responses:
+        '200': { description: Master mappings and warnings before confirmation }
+        '403': { description: Admin access required }
+  /imports/{jobId}/comparison:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Compare this draft with exact prior files, source positions, and active codes
+      operationId: compareImportSources
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Advisory reimport matches without changing canonical data }
+        '403': { description: Admin access required }
+  /imports/{jobId}/confirm-fish-specimens:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Atomically confirm a fish/specimen-only import draft
+      operationId: confirmFishSpecimenImport
+      description: Requires an active site with time zone per fish sheet and active donor cell per source label.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+      responses:
+        '200': { description: Canonical fish/specimen and historical observation counts }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, unresolved issue, duplicate, or missing master mapping }
+  /imports/{jobId}/confirm-aggregate:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Atomically confirm V1, MSU, or QC historical count sheets
+      operationId: confirmAggregateImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Historical count rows created with source provenance }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, unresolved issues, or warnings without bypass reason }
+  /imports/{jobId}/confirm-v2-embryos:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Confirm V2 embryos and historical observations without inventing operational lot data
+      operationId: confirmV2EmbryoImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Historical embryo identities and observations with provenance }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, duplicate, unresolved issue, mapping or warnings }
+  /imports/{jobId}/confirm-all:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Confirm selected data sheets atomically and retain summary sheets as references
+      operationId: confirmMixedImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+                aggregateWarningBypassReason: { type: string }
+                embryoWarningBypassReason: { type: string }
+      responses:
+        '200': { description: Data committed atomically; reconciliation sheets retained without canonical writes }
+        '403': { description: Admin access required }
+        '409': { description: Any unresolved issue or validation failure rolls back the whole job }
+  /imports/{jobId}/fish-status:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: List imported fish awaiting or having admin status review
+      operationId: listImportedFishStatuses
+      responses:
+        '200': { description: Fish status, life state, disposition, and row versions }
+        '403': { description: Admin access required }
+  /imports/{jobId}/historical-summary:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Historical-only stage counts and outcomes by source precision
+      operationId: getImportHistoricalSummary
+      responses:
+        '200': { description: Aggregate historical counts and observations without operational timing metrics }
+        '403': { description: Admin access required }
+  /imports/{jobId}/historical-structure:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: Page through historical experiments and their source lots
+      operationId: listHistoricalImportStructure
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Historical source experiments and lots with provenance }
+        '403': { description: Admin access required }
+  /imports/{jobId}/fish-status/{fishId}:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: fishId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Review a historical fish status with evidence and optimistic version
+      operationId: reviewImportedFishStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rowVersion, status, lifeState, disposition, reason]
+              properties:
+                rowVersion: { type: integer, minimum: 1 }
+                status: { type: string, enum: [UNKNOWN, ALIVE, DEAD, FROZEN, DISCARDED] }
+                lifeState: { type: string, enum: [UNKNOWN, ALIVE, DEAD] }
+                disposition: { type: string, enum: [NONE, FROZEN, DISCARDED, LOST, UNKNOWN] }
+                exitDate: { type: [string, 'null'], format: date }
+                reason: { type: string }
+      responses:
+        '200': { description: Audited fish status change }
+        '403': { description: Admin access required }
+        '409': { description: Fish changed since review was opened }
+  /imports/{jobId}/revert:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Revert an entire committed fish/specimen or count import when safe
+      operationId: revertFishSpecimenImport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, reason]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                reason: { type: string }
+      responses:
+        '200': { description: Whole job reverted and audit preserved }
+        '403': { description: Admin access required }
+        '409': { description: Later work, changes, or dependencies prevent revert }
 
   /auth/request-code:
     post:
@@ -2400,6 +2937,55 @@ components:
 
   schemas:
 
+    ImportJob:
+      type: object
+      required: [id, inputKind, status, createdByUserId, createdAt, updatedAt, revision, parserVersion, selection]
+      properties:
+        id: { type: string, format: uuid }
+        inputKind: { type: string, enum: [xlsx, csv_set] }
+        status: { type: string, enum: [draft, ready, committed, reverted] }
+        createdByUserId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        confirmedAt: { type: [string, 'null'], format: date-time }
+        revertedAt: { type: [string, 'null'], format: date-time }
+        revision: { type: integer }
+        parserVersion: { type: string }
+        selection: { type: object, additionalProperties: true }
+
+    ImportSourceFile:
+      type: object
+      required: [id, fileName, mediaType, sha256, sizeBytes]
+      properties:
+        id: { type: string, format: uuid }
+        fileName: { type: string }
+        sheetName: { type: [string, 'null'] }
+        encoding: { type: [string, 'null'] }
+        mediaType: { type: string }
+        sha256: { type: string }
+        sizeBytes: { type: integer }
+
+    ImportJobDetail:
+      type: object
+      required: [job, files, recordCount, issueCount]
+      properties:
+        job: { $ref: '#/components/schemas/ImportJob' }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/ImportSourceFile' }
+        recordCount: { type: integer }
+        issueCount: { type: integer }
+        sheets:
+          type: array
+          items:
+            type: object
+            required: [name, kind, recordCount, issueCount]
+            properties:
+              name: { type: string }
+              kind: { type: string }
+              recordCount: { type: integer }
+              issueCount: { type: integer }
+
     CorrectionRequest:
       type: object
       required: [id, requesterId, requesterEmail, targetTable, targetId, fieldName, oldValue, proposedValue, sourceUpdatedAt, reason, status, createdAt, updatedAt]
@@ -2470,14 +3056,14 @@ components:
       enum: [STAGE_1, STAGE_2]
     Preparation:
       type: string
-      enum: [DISSOCIATED, CHUNKS]
+      enum: [DISSOCIATED, CHUNKS, UNKNOWN]
     SpecimenKind:
       type: string
-      enum: [CL, RT, DC]
-      description: Clone, Recipient Tail, Donor Cell.
+      enum: [CL, CLA, RT, DC]
+      description: Clone, Clone Adult, Recipient Tail, Donor Cell.
     SpecimenType:
       type: string
-      enum: [WHOLE_EMBRYO, CAUDAL_FIN_CLIP]
+      enum: [WHOLE_EMBRYO, CAUDAL_FIN_CLIP, ANAL_FIN_CLIP, LEFTOVER_CELLS, WHOLE_ADULT, UNKNOWN]
     WriteStatus:
       type: string
       enum: [created, duplicate, rejected]
@@ -2509,6 +3095,7 @@ components:
         id: { type: string, format: uuid }
         code: { type: string, examples: [KU] }
         name: { type: string, examples: [Kasetsart University] }
+        timeZone: { type: [string, 'null'], examples: [Asia/Bangkok] }
         active: { type: boolean }
     SiteInput:
       type: object
@@ -2516,6 +3103,7 @@ components:
       properties:
         code: { type: string, minLength: 1, maxLength: 20 }
         name: { type: string, minLength: 1, maxLength: 200 }
+        timeZone: { type: [string, 'null'], maxLength: 64 }
         active: { type: boolean, default: true }
     SitePatchInput:
       type: object
@@ -2523,6 +3111,7 @@ components:
       properties:
         code: { type: string, minLength: 1, maxLength: 20 }
         name: { type: string, minLength: 1, maxLength: 200 }
+        timeZone: { type: [string, 'null'], maxLength: 64 }
         active: { type: boolean }
 
     Operator:
@@ -2555,7 +3144,7 @@ components:
         id: { type: string, format: uuid }
         strain: { type: string, examples: [AB] }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, UNKNOWN, null] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], examples: [AB240426_e48h] }
         active: { type: boolean }
@@ -2565,7 +3154,7 @@ components:
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: string, enum: [FRESH, CRYOPRESERVED] }
+        preservation: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean, default: true }
@@ -2575,7 +3164,7 @@ components:
       properties:
         strain: { type: string, minLength: 1, maxLength: 50 }
         preparation: { $ref: '#/components/schemas/Preparation' }
-        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, null] }
+        preservation: { type: [string, 'null'], enum: [FRESH, CRYOPRESERVED, UNKNOWN, null] }
         sampleInfo: { type: [string, 'null'], maxLength: 1000, description: Cryovial or sample-level detail. }
         batchCode: { type: [string, 'null'], maxLength: 100 }
         active: { type: boolean }
@@ -3277,10 +3866,12 @@ components:
       required: [id, cloneFishId, specimenCode, specimenKind, specimenType]
       properties:
         id: { type: string, format: uuid }
-        cloneFishId: { type: string, format: uuid }
+        cloneFishId: { type: [string, 'null'], format: uuid }
+        linkedFishIds: { type: array, items: { type: string, format: uuid } }
         specimenCode: { type: string, examples: [CL1] }
         specimenKind: { $ref: '#/components/schemas/SpecimenKind' }
         specimenType: { $ref: '#/components/schemas/SpecimenType' }
+        preservationState: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN] }
         collectedOn: { type: [string, 'null'], format: date }
         frozenOn: { type: [string, 'null'], format: date }
         storage: { type: [string, 'null'], enum: ['-20', '-80', null] }
@@ -3292,6 +3883,7 @@ components:
         specimenCode: { type: string, maxLength: 50 }
         specimenKind: { $ref: '#/components/schemas/SpecimenKind' }
         specimenType: { $ref: '#/components/schemas/SpecimenType' }
+        preservationState: { type: string, enum: [FRESH, CRYOPRESERVED, UNKNOWN], default: UNKNOWN }
         collectedOn: { type: [string, 'null'], format: date }
         frozenOn: { type: [string, 'null'], format: date }
         storage: { type: [string, 'null'], enum: ['-20', '-80', null] }

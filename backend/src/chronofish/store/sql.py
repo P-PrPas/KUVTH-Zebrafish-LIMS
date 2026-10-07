@@ -49,7 +49,7 @@ def _columns(value: str) -> frozenset[str]:
 
 
 TABLE_COLUMNS = {
-    "site": "id code name active created_at updated_at deleted_at",
+    "site": "id code name time_zone active created_at updated_at deleted_at",
     "operator": "id site_id name active created_at updated_at deleted_at",
     "donor_cell_line": (
         "id strain preparation batch_code preservation sample_info active created_at updated_at deleted_at"
@@ -88,6 +88,7 @@ TABLE_COLUMNS = {
     """,
     "clone_fish": """
         id embryo_id fish_code running_no dob donor_cell_line_id site_id fish_box_id status
+        import_job_id life_state disposition
         biological_condition first_abnormal_on first_abnormal_age_days first_abnormal_stage_id sex
         recipient_egg_lot_id health_status
         fin_clipped exit_date exit_reason remarks created_at updated_at deleted_at
@@ -97,8 +98,8 @@ TABLE_COLUMNS = {
         device_id is_backdated health_status notes created_at updated_at deleted_at
     """,
     "specimen": """
-        id clone_fish_id specimen_code specimen_kind specimen_type collected_on frozen_on storage notes
-        created_at updated_at deleted_at
+        id clone_fish_id specimen_code specimen_kind specimen_type preservation_state
+        collected_on frozen_on storage notes created_at updated_at deleted_at
     """,
 }
 TABLE_COLUMNS = {table: _columns(columns) for table, columns in TABLE_COLUMNS.items()}
@@ -203,6 +204,13 @@ class SQLStore:
                     item["firstAbnormalStageCode"] = stage_by_id.get(str(item["firstAbnormalStageId"]))
                 records[str(item["id"])] = item
             state.entities[resource] = records
+        for row in connection.execute(text("SELECT specimen_id, clone_fish_id FROM specimen_fish_link")).mappings():
+            specimen = state.entities["specimens"].get(str(row["specimen_id"]))
+            if specimen is not None:
+                linked = specimen.setdefault("linkedFishIds", [])
+                fish_id = str(row["clone_fish_id"])
+                if fish_id not in linked:
+                    linked.append(fish_id)
         profiles = state.entities["timing-profiles"]
         for profile in profiles.values():
             profile["entries"] = []

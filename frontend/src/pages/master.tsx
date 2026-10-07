@@ -39,8 +39,8 @@ const masterConfig: Record<
     label: "Donor cells",
     fields: [
       { key: "strain", label: "Strain", required: true },
-      { key: "preparation", label: "Types of Specimen", options: ["DISSOCIATED", "CHUNKS"], required: true },
-      { key: "preservation", label: "Preservation", options: ["FRESH", "CRYOPRESERVED"], required: true },
+      { key: "preparation", label: "Types of Specimen", options: ["DISSOCIATED", "CHUNKS", "UNKNOWN"], required: true },
+      { key: "preservation", label: "Preservation", options: ["FRESH", "CRYOPRESERVED", "UNKNOWN"], required: true },
       { key: "batchCode", label: "Batch code" },
       { key: "sampleInfo", label: "Cryovial / sample detail" },
     ],
@@ -107,6 +107,7 @@ export function Master({ t }: { t: AppText }) {
   const [sites, setSites] = useState<ApiItem[]>([]);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [timeZone, setTimeZone] = useState("");
   const [editing, setEditing] = useState<ApiItem | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -144,13 +145,14 @@ export function Master({ t }: { t: AppText }) {
   }, [load]);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const draft = { code, name };
+    const draft = { code, name, timeZone };
     setMessage("");
     setError("");
     try {
       const result = await putQueue("/sites", draft);
       setCode("");
       setName("");
+      setTimeZone("");
       if (result.queued) {
         setSites((current) => [{ ...draft, id: `queued-${Date.now()}`, queued: true }, ...current]);
         setMessage(thai ? "บันทึกไว้แล้ว ระบบจะซิงก์อัตโนมัติ" : "Saved locally; will sync automatically");
@@ -170,13 +172,15 @@ export function Master({ t }: { t: AppText }) {
     setError("");
     setSites((current) =>
       current.map((item) =>
-        item.id === editing.id ? { ...item, code: editing.code, name: editing.name, queued: true } : item,
+        item.id === editing.id
+          ? { ...item, code: editing.code, name: editing.name, timeZone: editing.timeZone, queued: true }
+          : item,
       ),
     );
     try {
       await putQueue(
         `/sites/${editing.id}`,
-        { code: editing.code, name: editing.name, active: editing.active !== false },
+        { code: editing.code, name: editing.name, timeZone: editing.timeZone, active: editing.active !== false },
         "application/json",
         "PATCH",
       );
@@ -237,6 +241,20 @@ export function Master({ t }: { t: AppText }) {
               {thai ? "ชื่อสถานที่" : "Site name"}
               <input required value={name} onChange={(e) => setName(e.target.value)} />
             </label>
+            <label>
+              {thai ? "เขตเวลา (IANA)" : "Time zone (IANA)"}
+              <input
+                required
+                list="site-time-zones"
+                value={timeZone}
+                onChange={(e) => setTimeZone(e.target.value)}
+                placeholder="Asia/Bangkok"
+              />
+            </label>
+            <datalist id="site-time-zones">
+              <option value="Asia/Bangkok" />
+              <option value="America/Detroit" />
+            </datalist>
             <button className="button button--primary" type="submit">
               {t.save}
             </button>
@@ -257,6 +275,15 @@ export function Master({ t }: { t: AppText }) {
                   required
                   value={String(editing.name ?? "")}
                   onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                />
+              </label>
+              <label>
+                {thai ? "เขตเวลา (IANA)" : "Time zone (IANA)"}
+                <input
+                  required
+                  list="site-time-zones"
+                  value={String(editing.timeZone ?? "")}
+                  onChange={(e) => setEditing({ ...editing, timeZone: e.target.value })}
                 />
               </label>
               <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save changes"}</button>
@@ -288,6 +315,7 @@ export function Master({ t }: { t: AppText }) {
                   <span>
                     <strong>{String(site.code)}</strong>
                     <small>{String(site.name)}</small>
+                    <small>{String(site.timeZone ?? (thai ? "ยังไม่กำหนดเขตเวลา" : "Time zone missing"))}</small>
                   </span>
                   <span>
                     <span className="pill">

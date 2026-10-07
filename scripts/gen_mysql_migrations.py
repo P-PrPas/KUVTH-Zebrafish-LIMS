@@ -17,6 +17,7 @@ it, you have probably reached for a non-portable feature; see SRS CON-04):
   3. ALTER TABLE .. DROP CONSTRAINT IF EXISTS -> DROP FOREIGN KEY
   4. Table option suffix: ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
      COLLATE=utf8mb4_0900_ai_ci  (utf8mb4 is required for Thai text in notes)
+  5. BYTEA file content         -> LONGBLOB
 """
 
 import re
@@ -36,6 +37,13 @@ INDEX_TABLES = {
     "ix_fish_recipient_egg_lot": "clone_fish",
     "ix_audit_actor": "audit_log",
     "uq_embryo_live_well": "embryo",
+    "ix_fish_import_job": "clone_fish",
+    "ix_specimen_link_import_job": "specimen_fish_link",
+    "ix_hist_obs_historical_embryo": "historical_observation",
+    "ix_hist_embryo_historical_lot": "historical_embryo",
+    "ix_hist_embryo_historical_experiment": "historical_embryo",
+    "ix_hist_count_historical_lot": "historical_stage_count",
+    "ix_hist_count_historical_experiment": "historical_stage_count",
 }
 
 HEADER = (
@@ -85,6 +93,15 @@ def convert(sql: str, upgrade: bool) -> str:
         "ALTER TABLE request_idempotency MODIFY operator_id CHAR(36) NOT NULL;",
     )
     sql = sql.replace(
+        "ALTER TABLE specimen ALTER COLUMN clone_fish_id DROP NOT NULL;",
+        "ALTER TABLE specimen MODIFY clone_fish_id CHAR(36) NULL;",
+    )
+    sql = sql.replace(
+        "ALTER TABLE specimen ALTER COLUMN clone_fish_id SET NOT NULL;",
+        "ALTER TABLE specimen MODIFY clone_fish_id CHAR(36) NOT NULL;",
+    )
+    sql = re.sub(r"\bBYTEA\b", "LONGBLOB", sql)
+    sql = sql.replace(
         "DROP INDEX IF EXISTS ix_request_idempotency_lease;",
         "DROP INDEX ix_request_idempotency_lease ON request_idempotency;",
     )
@@ -99,6 +116,11 @@ def convert(sql: str, upgrade: bool) -> str:
     sql = re.sub(
         r"ALTER TABLE (\w+) DROP CONSTRAINT (ck_\w+);",
         r"ALTER TABLE \1 DROP CHECK \2;",
+        sql,
+    )
+    sql = re.sub(
+        r"ALTER TABLE (\w+) DROP CONSTRAINT (uq_\w+);",
+        r"ALTER TABLE \1 DROP INDEX \2;",
         sql,
     )
     for index_name, table_name in INDEX_TABLES.items():
@@ -118,7 +140,11 @@ def convert(sql: str, upgrade: bool) -> str:
         sql,
     )
     # 4. table options
-    sql = re.sub(r"\n\);", "\n)" + TABLE_OPTS + ";", sql)
+    sql = re.sub(
+        r"(?m)(^CREATE TABLE \w+\s*\([\s\S]*?\n)\);",
+        lambda match: match.group(1) + ")" + TABLE_OPTS + ";",
+        sql,
+    )
     return sql
 
 

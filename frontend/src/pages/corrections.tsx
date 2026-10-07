@@ -600,7 +600,7 @@ export function AdminHome({
   onNavigate,
 }: {
   language: Language;
-  onNavigate: (page: "corrections" | "members" | "master" | "timing" | "audit") => void;
+  onNavigate: (page: "corrections" | "members" | "master" | "timing" | "audit" | "imports") => void;
 }) {
   const { items, error } = useCorrections();
   const thai = language === "th";
@@ -611,6 +611,10 @@ export function AdminHome({
       <p className="muted">{thai ? "งานที่ต้องพิจารณาและการตั้งค่าห้องแล็บ" : "Pending decisions and lab settings."}</p>
       {error && <ErrorMessage message={error} />}
       <div className="admin-home__grid">
+        <button type="button" onClick={() => onNavigate("imports")}>
+          <strong>{thai ? "นำเข้าข้อมูลย้อนหลัง" : "Historical import"}</strong>
+          <span>{thai ? "อัปโหลดและตรวจข้อมูลเก่าของห้องแล็บ" : "Upload and review historical lab data"}</span>
+        </button>
         <button type="button" onClick={() => onNavigate("corrections")}>
           <strong>{thai ? "คำร้องแก้ไขข้อมูล" : "Correction requests"}</strong>
           <span>

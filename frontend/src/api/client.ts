@@ -147,9 +147,9 @@ export async function request(path: string, init: RequestInit = {}): Promise<Res
   const authRequest = path.startsWith("/auth/");
   const headers: Record<string, string> = {
     Accept: "application/json",
-    ...(init.body ? { "Content-Type": "application/json" } : {}),
+    ...(init.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
     ...(method !== "GET" && method !== "HEAD" && !authRequest
-      ? path.startsWith("/corrections")
+      ? path.startsWith("/corrections") || path.startsWith("/imports")
         ? accountMutationHeaders()
         : mutationHeaders()
       : {}),
