@@ -98,8 +98,8 @@ TABLE_COLUMNS = {
         device_id is_backdated health_status notes created_at updated_at deleted_at
     """,
     "specimen": """
-        id clone_fish_id specimen_code specimen_kind specimen_type preservation_state collected_on frozen_on storage notes
-        created_at updated_at deleted_at
+        id clone_fish_id specimen_code specimen_kind specimen_type preservation_state
+        collected_on frozen_on storage notes created_at updated_at deleted_at
     """,
 }
 TABLE_COLUMNS = {table: _columns(columns) for table, columns in TABLE_COLUMNS.items()}
@@ -204,9 +204,7 @@ class SQLStore:
                     item["firstAbnormalStageCode"] = stage_by_id.get(str(item["firstAbnormalStageId"]))
                 records[str(item["id"])] = item
             state.entities[resource] = records
-        for row in connection.execute(text(
-            "SELECT specimen_id, clone_fish_id FROM specimen_fish_link"
-        )).mappings():
+        for row in connection.execute(text("SELECT specimen_id, clone_fish_id FROM specimen_fish_link")).mappings():
             specimen = state.entities["specimens"].get(str(row["specimen_id"]))
             if specimen is not None:
                 linked = specimen.setdefault("linkedFishIds", [])

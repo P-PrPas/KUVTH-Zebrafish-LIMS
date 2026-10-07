@@ -3167,7 +3167,14 @@ export interface operations {
     inspectImportSources: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3234,7 +3241,14 @@ export interface operations {
     createImportJob: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3310,7 +3324,14 @@ export interface operations {
     applyImportDeferredField: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 fieldId: string;
             };
@@ -3449,7 +3470,14 @@ export interface operations {
     bulkBypassImportIssues: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };
@@ -3491,7 +3519,14 @@ export interface operations {
     correctImportIssueCell: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
                 issueId: string;
@@ -3569,7 +3604,14 @@ export interface operations {
     reviseImportRecord: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
                 recordId: string;
@@ -3614,7 +3656,14 @@ export interface operations {
     decideImportIssue: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
                 issueId: string;
@@ -3751,7 +3800,14 @@ export interface operations {
     confirmFishSpecimenImport: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };
@@ -3798,7 +3854,14 @@ export interface operations {
     confirmAggregateImport: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };
@@ -3839,7 +3902,14 @@ export interface operations {
     confirmV2EmbryoImport: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };
@@ -3883,7 +3953,14 @@ export interface operations {
     confirmMixedImport: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };
@@ -4016,7 +4093,14 @@ export interface operations {
     reviewImportedFishStatus: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
                 fishId: string;
@@ -4066,7 +4150,14 @@ export interface operations {
     revertFishSpecimenImport: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
             path: {
                 jobId: string;
             };

@@ -6,7 +6,7 @@ import itertools
 import json
 import re
 import zipfile
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Body, File, Form, Request, Response, UploadFile
@@ -49,7 +49,14 @@ async def _read_uploads(files: list[UploadFile]) -> list[dict[str, Any]]:
         if not content or len(content) > MAX_FILE_BYTES or total > MAX_UPLOAD_BYTES:
             raise APIError(413, "import_too_large", "Import files exceed the size limit")
         uploads.append({"name": name, "content": content})
-    extensions = {"xlsx" if item["name"].lower().endswith(".xlsx") else "csv" if item["name"].lower().endswith(".csv") else "other" for item in uploads}
+    extensions = {
+        "xlsx"
+        if item["name"].lower().endswith(".xlsx")
+        else "csv"
+        if item["name"].lower().endswith(".csv")
+        else "other"
+        for item in uploads
+    }
     if extensions == {"xlsx"} and len(uploads) == 1:
         uploads[0]["media_type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     elif extensions == {"csv"}:
@@ -70,9 +77,7 @@ def _selection(raw: str) -> dict[str, Any]:
     return value
 
 
-def _parsed_uploads(
-    uploads: list[dict[str, Any]], selection: dict[str, Any]
-) -> tuple[str, list[tuple[int, Any]]]:
+def _parsed_uploads(uploads: list[dict[str, Any]], selection: dict[str, Any]) -> tuple[str, list[tuple[int, Any]]]:
     parsed: list[tuple[int, Any]] = []
     try:
         if uploads[0]["media_type"] != "text/csv":
@@ -128,7 +133,7 @@ def build_import_router(store: Any) -> APIRouter:
     repository = ImportRepository(store)
 
     @router.post("/inspect")
-    async def inspect(request: Request, files: list[UploadFile] = File(...)) -> dict[str, Any]:
+    async def inspect(request: Request, files: Annotated[list[UploadFile], File(...)]) -> dict[str, Any]:
         _actor(request)
         uploads = await _read_uploads(files)
         if uploads[0]["media_type"] != "text/csv":
@@ -150,7 +155,7 @@ def build_import_router(store: Any) -> APIRouter:
 
     @router.post("", status_code=201)
     async def create(
-        request: Request, files: list[UploadFile] = File(...), selection: str = Form(...)
+        request: Request, files: Annotated[list[UploadFile], File(...)], selection: str = Form(...)
     ) -> dict[str, Any]:
         actor = _actor(request)
         uploads = await _read_uploads(files)
@@ -171,8 +176,9 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.list_deferred_fields(offset, limit)
 
     @router.post("/deferred-fields/{field_id}/apply")
-    def apply_deferred_field(request: Request, field_id: str,
-                             body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def apply_deferred_field(
+        request: Request, field_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         return repository.apply_deferred_field(field_id, actor, body)
 
@@ -194,25 +200,30 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.mapping_requirements(job_id)
 
     @router.get("/{job_id}/comparison")
-    def comparison(request: Request, job_id: str, offset: int = 0,
-                   limit: int = 50) -> dict[str, Any]:
+    def comparison(request: Request, job_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         _actor(request)
         if offset < 0 or not 1 <= limit <= 100:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return repository.comparison(job_id, offset, limit)
 
     @router.post("/{job_id}/confirm-fish-specimens")
-    def confirm_fish_specimens(request: Request, job_id: str,
-                               body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def confirm_fish_specimens(
+        request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         sites = body.get("siteMappings")
         donors = body.get("donorMappings")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        if not isinstance(sites, dict) or not isinstance(donors, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for mapping in (sites, donors)
-            for key, value in mapping.items()
+        if (
+            not isinstance(sites, dict)
+            or not isinstance(donors, dict)
+            or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for mapping in (sites, donors)
+                for key, value in mapping.items()
+            )
         ):
             raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
         zero_reason = body.get("zeroBypassReason", "")
@@ -221,8 +232,7 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero_reason)
 
     @router.post("/{job_id}/confirm-aggregate")
-    def confirm_aggregate(request: Request, job_id: str,
-                          body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def confirm_aggregate(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         warning_reason = body.get("warningBypassReason", "")
@@ -233,8 +243,7 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.confirm_aggregate(job_id, revision, actor, warning_reason)
 
     @router.post("/{job_id}/confirm-v2-embryos")
-    def confirm_v2_embryos(request: Request, job_id: str,
-                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def confirm_v2_embryos(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         sites = body.get("siteMappings")
@@ -250,20 +259,26 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.confirm_v2_embryos(job_id, revision, actor, sites, warning_reason)
 
     @router.post("/{job_id}/confirm-all")
-    def confirm_all(request: Request, job_id: str,
-                    body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def confirm_all(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         sites = body.get("siteMappings")
         donors = body.get("donorMappings")
-        reasons = (body.get("zeroBypassReason", ""),
-                   body.get("aggregateWarningBypassReason", ""),
-                   body.get("embryoWarningBypassReason", ""))
+        reasons = (
+            body.get("zeroBypassReason", ""),
+            body.get("aggregateWarningBypassReason", ""),
+            body.get("embryoWarningBypassReason", ""),
+        )
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        if not isinstance(sites, dict) or not isinstance(donors, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for mapping in (sites, donors)
-            for key, value in mapping.items()
+        if (
+            not isinstance(sites, dict)
+            or not isinstance(donors, dict)
+            or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for mapping in (sites, donors)
+                for key, value in mapping.items()
+            )
         ):
             raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
         if any(not isinstance(reason, str) for reason in reasons):
@@ -281,22 +296,21 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.historical_summary(job_id)
 
     @router.get("/{job_id}/historical-structure")
-    def historical_structure(request: Request, job_id: str, offset: int = 0,
-                             limit: int = 50) -> dict[str, Any]:
+    def historical_structure(request: Request, job_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         _actor(request)
         if offset < 0 or not 1 <= limit <= 100:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return repository.historical_structure(job_id, offset, limit)
 
     @router.post("/{job_id}/fish-status/{fish_id}")
-    def review_fish_status(request: Request, job_id: str, fish_id: str,
-                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def review_fish_status(
+        request: Request, job_id: str, fish_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         return repository.review_fish_status(job_id, fish_id, actor, body)
 
     @router.post("/{job_id}/revert")
-    def revert(request: Request, job_id: str,
-               body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def revert(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         reason = body.get("reason")
@@ -314,8 +328,7 @@ def build_import_router(store: Any) -> APIRouter:
         return {"items": repository.list_issues(job_id, offset, limit)}
 
     @router.post("/{job_id}/issues/bulk-bypass")
-    def bulk_bypass_issues(request: Request, job_id: str,
-                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def bulk_bypass_issues(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         issue_ids = body.get("issueIds")
@@ -329,8 +342,9 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.bypass_issues(job_id, issue_ids, reason, revision, actor)
 
     @router.post("/{job_id}/issues/{issue_id}/correct-cell")
-    def correct_issue_cell(request: Request, job_id: str, issue_id: str,
-                           body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def correct_issue_cell(
+        request: Request, job_id: str, issue_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         revision = body.get("revision")
         value = body.get("value")
@@ -342,15 +356,15 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.correct_issue_cell(job_id, issue_id, value, reason, revision, actor)
 
     @router.patch("/{job_id}/records/{record_id}")
-    def revise_record(request: Request, job_id: str, record_id: str,
-                      body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def revise_record(
+        request: Request, job_id: str, record_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         if not isinstance(body.get("revision"), int) or isinstance(body["revision"], bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
         if not isinstance(body.get("working"), dict) or not isinstance(body.get("reason"), str):
             raise APIError(400, "invalid_edit", "Provide working values and an edit reason")
-        return repository.revise_record(job_id, record_id, body["working"], body["reason"],
-                                        body["revision"], actor)
+        return repository.revise_record(job_id, record_id, body["working"], body["reason"], body["revision"], actor)
 
     @router.get("/{job_id}/records/{record_id}/interpretation")
     def interpret_record(request: Request, job_id: str, record_id: str) -> dict[str, Any]:
@@ -358,8 +372,9 @@ def build_import_router(store: Any) -> APIRouter:
         return repository.interpretation(job_id, record_id)
 
     @router.post("/{job_id}/issues/{issue_id}/decision")
-    def decide_issue(request: Request, job_id: str, issue_id: str,
-                     body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    def decide_issue(
+        request: Request, job_id: str, issue_id: str, body: Annotated[dict[str, Any], Body(...)]
+    ) -> dict[str, Any]:
         actor = _actor(request)
         if not isinstance(body.get("revision"), int) or isinstance(body["revision"], bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
@@ -368,8 +383,9 @@ def build_import_router(store: Any) -> APIRouter:
         value = body.get("resolutionValue")
         if value is not None and (not isinstance(value, str) or len(value) > 20000):
             raise APIError(400, "invalid_resolution", "Resolution value must be text")
-        return repository.decide_issue(job_id, issue_id, body["decision"], body["reason"],
-                                       value, body["revision"], actor)
+        return repository.decide_issue(
+            job_id, issue_id, body["decision"], body["reason"], value, body["revision"], actor
+        )
 
     @router.get("/{job_id}/files/{file_id}")
     def download_file(request: Request, job_id: str, file_id: str) -> Response:

@@ -122,7 +122,9 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
         expected_media_type = (
             "multipart/form-data"
             if import_upload
-            else "text/csv" if request.url.path == "/api/v1/timing-profiles/csv" else "application/json"
+            else "text/csv"
+            if request.url.path == "/api/v1/timing-profiles/csv"
+            else "application/json"
         )
         body_required = request.method in {"POST", "PUT", "PATCH"} and request.url.path != "/api/v1/auth/logout"
         if (body_required or content_length) and media_type != expected_media_type:

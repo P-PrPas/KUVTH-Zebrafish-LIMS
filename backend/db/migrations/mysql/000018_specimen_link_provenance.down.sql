@@ -4,6 +4,6 @@
 -- Regenerate: python3 scripts/gen_mysql_migrations.py
 -- ===========================================================================
 
-DROP INDEX ix_specimen_link_import_job ON specimen_fish_link;
 ALTER TABLE specimen_fish_link DROP FOREIGN KEY fk_specimen_link_import_job;
+DROP INDEX ix_specimen_link_import_job ON specimen_fish_link;
 ALTER TABLE specimen_fish_link DROP COLUMN import_job_id;

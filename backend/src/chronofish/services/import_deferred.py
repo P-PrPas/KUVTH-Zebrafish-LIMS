@@ -26,24 +26,49 @@ def deferred_cells(kind: str, source: dict[str, Any]) -> list[tuple[str, Any]]:
         consumed = {entry["sourceColumn"] for entry in meaning.get("counts", [])}
         cells = source.get("cells", source)
         consumed.add("A" if kind in {"scnt_aggregate", "control_aggregate"} else "B")
-        result = [(f"cells.{column}", value) for column, value in cells.items()
-                  if column not in consumed]
+        result = [(f"cells.{column}", value) for column, value in cells.items() if column not in consumed]
         for entry in source.get("continuation", []):
             row = entry.get("rowNo")
             for column, value in entry.get("cells", {}).items():
                 if column not in consumed:
                     result.append((f"continuation.{row}.{column}", value))
         context = source.get("context", {})
-        return result + [(f"context.{key}", value) for key, value in context.items()
-                         if key != "date"]
+        return result + [(f"context.{key}", value) for key, value in context.items() if key != "date"]
     if kind == "sheet_metadata":
         return list(source.items())
     if kind == "embryo_candidate":
-        represented_context = {"B", "C", "V", "W", "X", "Y", "AC", "AF",
-                               "D", "E", "F", "G", "H", "I", "J", "K",
-                               "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"}
+        represented_context = {
+            "B",
+            "C",
+            "V",
+            "W",
+            "X",
+            "Y",
+            "AC",
+            "AF",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+        }
         context = source.get("sourceContext", {})
-        return [(f"sourceContext.{column}", entry.get("value"))
-                for column, entry in context.items() if column not in represented_context
-                and entry.get("value") is not None]
+        return [
+            (f"sourceContext.{column}", entry.get("value"))
+            for column, entry in context.items()
+            if column not in represented_context and entry.get("value") is not None
+        ]
     return []

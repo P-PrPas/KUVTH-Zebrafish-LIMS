@@ -180,14 +180,24 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                 column = get_column_letter(stage_index)
                 value = row.get(column)
                 if value is not None and _text(value) not in {"0", "1", "0.0", "1.0"}:
-                    sheet.issues.append(SourceIssue(
-                        "overridable", "nonbinary_embryo_stage",
-                        "Expected 1 (alive) or 0 (not surviving); review this source cell",
-                        sheet.name, row_no, column, _text(value)[:1000], f"{column}{row_no}",
-                    ))
+                    sheet.issues.append(
+                        SourceIssue(
+                            "overridable",
+                            "nonbinary_embryo_stage",
+                            "Expected 1 (alive) or 0 (not surviving); review this source cell",
+                            sheet.name,
+                            row_no,
+                            column,
+                            _text(value)[:1000],
+                            f"{column}{row_no}",
+                        )
+                    )
         # Header-level date, control counts, and lot metadata must survive too.
         for index, row in enumerate(rows[:8], 1):
-            if any(_text(value).casefold() in {"observation time", "degenerated", "observed dead"} for value in row.values()):
+            if any(
+                _text(value).casefold() in {"observation time", "degenerated", "observed dead"}
+                for value in row.values()
+            ):
                 continue
             if index < len(rows) and any(
                 _text(value).casefold() == "observation time" for value in rows[index].values()
@@ -210,53 +220,100 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                 _record(sheet.name, index, "legacy_lot", {"cells": row, "context": dict(context)}, row.get("G"))
             )
     elif kind in {"v1_fish", "v2_fish"}:
-        stage_columns = {
-            column for column, title in rows[0].items()
-            if re.match(r"^(?:d|day\s*)\d+\b", _text(title), re.IGNORECASE)
-        } if rows else set()
+        stage_columns = (
+            {
+                column
+                for column, title in rows[0].items()
+                if re.match(r"^(?:d|day\s*)\d+\b", _text(title), re.IGNORECASE)
+            }
+            if rows
+            else set()
+        )
         for index, row in enumerate(rows[1:], 2):
             if not _text(row.get("A")).isdigit():
                 continue
             key = row.get("K") if kind == "v1_fish" else row.get("A")
             sheet.records.append(_record(sheet.name, index, "fish", row, key))
             if kind == "v1_fish" and _text(row.get("L")).casefold() not in {"alive", "dead", "frozen", "discarded"}:
-                sheet.issues.append(SourceIssue(
-                    "overridable", "unknown_fish_status", "Review this source fish status before import",
-                    sheet.name, index, "L", _text(row.get("L"))[:1000], f"L{index}",
-                ))
+                sheet.issues.append(
+                    SourceIssue(
+                        "overridable",
+                        "unknown_fish_status",
+                        "Review this source fish status before import",
+                        sheet.name,
+                        index,
+                        "L",
+                        _text(row.get("L"))[:1000],
+                        f"L{index}",
+                    )
+                )
             dob_column = "F" if kind == "v1_fish" else "B"
             if not _text(row.get(dob_column)):
-                sheet.issues.append(SourceIssue(
-                    "blocking", "fish_dob_missing", "A fish date of birth is required",
-                    sheet.name, index, dob_column, None, f"{dob_column}{index}",
-                ))
+                sheet.issues.append(
+                    SourceIssue(
+                        "blocking",
+                        "fish_dob_missing",
+                        "A fish date of birth is required",
+                        sheet.name,
+                        index,
+                        dob_column,
+                        None,
+                        f"{dob_column}{index}",
+                    )
+                )
             for column in stage_columns & row.keys():
                 value = row[column]
                 if isinstance(value, bool) or _text(value) not in {"0", "1", "0.0", "1.0"}:
-                    sheet.issues.append(SourceIssue(
-                        "blocking", "invalid_survival_flag", "Survival must be 1 (alive) or 0 (not surviving)",
-                        sheet.name, index, column, _text(value)[:1000], f"{column}{index}",
-                    ))
+                    sheet.issues.append(
+                        SourceIssue(
+                            "blocking",
+                            "invalid_survival_flag",
+                            "Survival must be 1 (alive) or 0 (not surviving)",
+                            sheet.name,
+                            index,
+                            column,
+                            _text(value)[:1000],
+                            f"{column}{index}",
+                        )
+                    )
     elif kind == "specimen":
         for index, row in enumerate(rows[1:], 2):
             code = _text(row.get("B"))
             if re.fullmatch(r"(?:CLA|CL|RT|DC)\d+", code, re.IGNORECASE):
                 sheet.records.append(_record(sheet.name, index, "specimen", row, code))
                 if _text(row.get("C")).casefold() not in {
-                    "whole embryo", "caudal fin clip", "anal fin clip", "left over cells", "whole adult"
+                    "whole embryo",
+                    "caudal fin clip",
+                    "anal fin clip",
+                    "left over cells",
+                    "whole adult",
                 }:
-                    sheet.issues.append(SourceIssue(
-                        "overridable", "unknown_specimen_material",
-                        "Material type is not recognized; review or bypass with a reason",
-                        sheet.name, index, "C", _text(row.get("C"))[:1000], f"C{index}",
-                    ))
+                    sheet.issues.append(
+                        SourceIssue(
+                            "overridable",
+                            "unknown_specimen_material",
+                            "Material type is not recognized; review or bypass with a reason",
+                            sheet.name,
+                            index,
+                            "C",
+                            _text(row.get("C"))[:1000],
+                            f"C{index}",
+                        )
+                    )
             elif code or _text(row.get("C")):
                 sheet.records.append(_record(sheet.name, index, "specimen", row, code))
-                sheet.issues.append(SourceIssue(
-                    "blocking", "invalid_specimen_code",
-                    "Specimen code must start CL, CLA, RT, or DC followed by digits",
-                    sheet.name, index, "B", code[:1000], f"B{index}",
-                ))
+                sheet.issues.append(
+                    SourceIssue(
+                        "blocking",
+                        "invalid_specimen_code",
+                        "Specimen code must start CL, CLA, RT, or DC followed by digits",
+                        sheet.name,
+                        index,
+                        "B",
+                        code[:1000],
+                        f"B{index}",
+                    )
+                )
     elif kind == "qc":
         context: dict[str, Any] = {}
         for index, row in enumerate(rows[2:], 3):
@@ -272,8 +329,13 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
                     if following:
                         continuation.append({"rowNo": next_index + 1, "cells": following})
                 sheet.records.append(
-                    _record(sheet.name, index, "control_aggregate",
-                            {"cells": row, "context": dict(context), "continuation": continuation}, code)
+                    _record(
+                        sheet.name,
+                        index,
+                        "control_aggregate",
+                        {"cells": row, "context": dict(context), "continuation": continuation},
+                        code,
+                    )
                 )
     elif kind == "msu_aggregate":
         for index, row in enumerate(rows[2:], 3):
@@ -286,7 +348,9 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
     sheet.row_count = len(sheet.records)
 
 
-def _parse_matrix(name: str, matrix: list[list[Any] | tuple[Any, ...]], formula_cells: set[str] | None = None) -> ParsedSheet:
+def _parse_matrix(
+    name: str, matrix: list[list[Any] | tuple[Any, ...]], formula_cells: set[str] | None = None
+) -> ParsedSheet:
     if len(matrix) > MAX_ROWS_PER_SHEET:
         raise SourceFormatError(f"{name}: too many rows")
     if any(len(row) > MAX_COLUMNS_PER_SHEET for row in matrix):
@@ -305,8 +369,13 @@ def _parse_matrix(name: str, matrix: list[list[Any] | tuple[Any, ...]], formula_
             sheet.issues.append(
                 SourceIssue(
                     "warning" if sheet.kind == "reconciliation" else "blocking",
-                    "formula_cache_missing", "Excel did not save a displayed result for this formula",
-                    name, int(row_number), column, None, coordinate,
+                    "formula_cache_missing",
+                    "Excel did not save a displayed result for this formula",
+                    name,
+                    int(row_number),
+                    column,
+                    None,
+                    coordinate,
                 )
             )
     return sheet

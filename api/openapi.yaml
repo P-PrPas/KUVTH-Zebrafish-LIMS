@@ -80,6 +80,11 @@ paths:
 
   /imports/inspect:
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Inspect one XLSX or a set of CSV files before selecting sources
       operationId: inspectImportSources
@@ -117,6 +122,11 @@ paths:
                     items: { $ref: '#/components/schemas/ImportJob' }
         '403': { description: Admin access required }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Store selected source files as a durable review draft
       operationId: createImportJob
@@ -161,6 +171,11 @@ paths:
     parameters:
       - { name: fieldId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Apply a deferred source value to a supported empty target field
       operationId: applyImportDeferredField
@@ -234,6 +249,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Bypass a selected set of overridable issues with one reason and revision
       operationId: bulkBypassImportIssues
@@ -257,6 +277,11 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Correct a flagged source cell in the working copy and resolve its issue atomically
       operationId: correctImportIssueCell
@@ -298,6 +323,11 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: recordId, in: path, required: true, schema: { type: string, format: uuid } }
     patch:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Edit a draft working copy while keeping source values unchanged
       operationId: reviseImportRecord
@@ -321,6 +351,11 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: issueId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Record an audited issue correction, bypass, or dismissal
       operationId: decideImportIssue
@@ -379,6 +414,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Atomically confirm a fish/specimen-only import draft
       operationId: confirmFishSpecimenImport
@@ -403,6 +443,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Atomically confirm V1, MSU, or QC historical count sheets
       operationId: confirmAggregateImport
@@ -424,6 +469,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Confirm V2 embryos and historical observations without inventing operational lot data
       operationId: confirmV2EmbryoImport
@@ -446,6 +496,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Confirm selected data sheets atomically and retain summary sheets as references
       operationId: confirmMixedImport
@@ -505,6 +560,11 @@ paths:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
       - { name: fishId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Review a historical fish status with evidence and optimistic version
       operationId: reviewImportedFishStatus
@@ -530,6 +590,11 @@ paths:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
+      x-account-write: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
       summary: Revert an entire committed fish/specimen or count import when safe
       operationId: revertFishSpecimenImport
