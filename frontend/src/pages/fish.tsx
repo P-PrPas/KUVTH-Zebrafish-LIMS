@@ -43,11 +43,14 @@ const sexLabel = (value: unknown, thai: boolean) =>
     String(value)
   ] ?? "—";
 const specimenTypeLabel = (value: unknown, thai: boolean) =>
-  ({ CAUDAL_FIN_CLIP: thai ? "ชิ้นครีบหาง" : "Caudal fin clip", WHOLE_EMBRYO: thai ? "ตัวอ่อนทั้งตัว" : "Whole embryo",
-     ANAL_FIN_CLIP: thai ? "ชิ้นครีบก้น" : "Anal fin clip", LEFTOVER_CELLS: thai ? "เซลล์ที่เหลือ" : "Leftover cells",
-     WHOLE_ADULT: thai ? "ปลาตัวเต็มวัยทั้งตัว" : "Whole adult", UNKNOWN: thai ? "ยังไม่ทราบชนิด" : "Unknown" })[
-    String(value)
-  ] ?? String(value ?? "—");
+  ({
+    CAUDAL_FIN_CLIP: thai ? "ชิ้นครีบหาง" : "Caudal fin clip",
+    WHOLE_EMBRYO: thai ? "ตัวอ่อนทั้งตัว" : "Whole embryo",
+    ANAL_FIN_CLIP: thai ? "ชิ้นครีบก้น" : "Anal fin clip",
+    LEFTOVER_CELLS: thai ? "เซลล์ที่เหลือ" : "Leftover cells",
+    WHOLE_ADULT: thai ? "ปลาตัวเต็มวัยทั้งตัว" : "Whole adult",
+    UNKNOWN: thai ? "ยังไม่ทราบชนิด" : "Unknown",
+  })[String(value)] ?? String(value ?? "—");
 const dateRange = (start: string, end: string) => {
   if (!start || !end || end < start) return [];
   const values: string[] = [];
@@ -1274,8 +1277,13 @@ function FishDetail({
                     {specimenTypeLabel(item.specimenType, thai)} · {String(item.specimenKind ?? "—")}
                   </span>
                   <small>{String(item.preservationState ?? "UNKNOWN")}</small>
-                  {Array.isArray(item.linkedFishIds) && item.linkedFishIds.length > 1 &&
-                    <small>{thai ? `ใช้ร่วมกับปลา ${item.linkedFishIds.length} ตัว` : `Shared by ${item.linkedFishIds.length} fish`}</small>}
+                  {Array.isArray(item.linkedFishIds) && item.linkedFishIds.length > 1 && (
+                    <small>
+                      {thai
+                        ? `ใช้ร่วมกับปลา ${item.linkedFishIds.length} ตัว`
+                        : `Shared by ${item.linkedFishIds.length} fish`}
+                    </small>
+                  )}
                   <small>
                     {thai ? "เก็บเมื่อ" : "Collected"} {String(item.collectedOn ?? "—")} ·{" "}
                     {item.storage ? `${String(item.storage)} °C` : thai ? "ไม่ระบุที่เก็บ" : "No storage"}
@@ -1329,7 +1337,10 @@ function FishDetail({
               </label>
               <label>
                 {thai ? "สภาพก่อนจัดเก็บ" : "Material preservation"}
-                <select value={specimen.preservationState} onChange={(event) => setSpecimen({ ...specimen, preservationState: event.target.value })}>
+                <select
+                  value={specimen.preservationState}
+                  onChange={(event) => setSpecimen({ ...specimen, preservationState: event.target.value })}
+                >
                   <option value="UNKNOWN">{thai ? "ยังไม่ทราบ" : "Unknown"}</option>
                   <option value="FRESH">{thai ? "สด" : "Fresh"}</option>
                   <option value="CRYOPRESERVED">{thai ? "เก็บรักษาด้วยความเย็น" : "Cryopreserved"}</option>

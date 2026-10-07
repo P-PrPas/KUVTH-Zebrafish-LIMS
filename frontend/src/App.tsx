@@ -114,7 +114,16 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const validationFrame = useRef(0);
   const previousPage = useRef(page);
   const currentOperator = operatorId();
-  const writePage = !["dashboard", "audit", "export", "members", "admin", "corrections", "my-requests", "imports"].includes(page);
+  const writePage = ![
+    "dashboard",
+    "audit",
+    "export",
+    "members",
+    "admin",
+    "corrections",
+    "my-requests",
+    "imports",
+  ].includes(page);
   const t = text[language];
   const navItems: NavItem[] = [
     { page: "dashboard", label: t.dashboard, icon: "dashboard", group: "primary" },
@@ -132,7 +141,12 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     { page: "admin", label: language === "th" ? "ดูแลระบบ" : "Administration", icon: "dashboard", group: "primary" },
     { page: "corrections", label: language === "th" ? "คำร้องแก้ไข" : "Corrections", icon: "audit", group: "primary" },
   ];
-  navItems.push({ page: "imports", label: language === "th" ? "นำเข้าข้อมูล" : "Imports", icon: "export", group: "system" });
+  navItems.push({
+    page: "imports",
+    label: language === "th" ? "นำเข้าข้อมูล" : "Imports",
+    icon: "export",
+    group: "system",
+  });
   const visibleNav = adminMode
     ? navItems.filter((item) => adminPages.includes(item.page))
     : navItems.filter((item) => !adminPages.includes(item.page));
