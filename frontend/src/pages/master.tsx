@@ -172,7 +172,9 @@ export function Master({ t }: { t: AppText }) {
     setError("");
     setSites((current) =>
       current.map((item) =>
-        item.id === editing.id ? { ...item, code: editing.code, name: editing.name, timeZone: editing.timeZone, queued: true } : item,
+        item.id === editing.id
+          ? { ...item, code: editing.code, name: editing.name, timeZone: editing.timeZone, queued: true }
+          : item,
       ),
     );
     try {
@@ -241,9 +243,18 @@ export function Master({ t }: { t: AppText }) {
             </label>
             <label>
               {thai ? "เขตเวลา (IANA)" : "Time zone (IANA)"}
-              <input required list="site-time-zones" value={timeZone} onChange={(e) => setTimeZone(e.target.value)} placeholder="Asia/Bangkok" />
+              <input
+                required
+                list="site-time-zones"
+                value={timeZone}
+                onChange={(e) => setTimeZone(e.target.value)}
+                placeholder="Asia/Bangkok"
+              />
             </label>
-            <datalist id="site-time-zones"><option value="Asia/Bangkok" /><option value="America/Detroit" /></datalist>
+            <datalist id="site-time-zones">
+              <option value="Asia/Bangkok" />
+              <option value="America/Detroit" />
+            </datalist>
             <button className="button button--primary" type="submit">
               {t.save}
             </button>
@@ -268,7 +279,12 @@ export function Master({ t }: { t: AppText }) {
               </label>
               <label>
                 {thai ? "เขตเวลา (IANA)" : "Time zone (IANA)"}
-                <input required list="site-time-zones" value={String(editing.timeZone ?? "")} onChange={(e) => setEditing({ ...editing, timeZone: e.target.value })} />
+                <input
+                  required
+                  list="site-time-zones"
+                  value={String(editing.timeZone ?? "")}
+                  onChange={(e) => setEditing({ ...editing, timeZone: e.target.value })}
+                />
               </label>
               <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save changes"}</button>
               <button className="button button--secondary" type="button" onClick={() => setEditing(null)}>
