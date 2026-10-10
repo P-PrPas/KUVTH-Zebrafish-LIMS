@@ -85,6 +85,24 @@ function card(email: string): HTMLElement {
 }
 
 describe("admin member management", () => {
+  it.each(["en", "th"] as const)("shows and clears a login lock in %s", async (language) => {
+    get.mockImplementation((path: string) => {
+      if (path === "/auth/admin/users") {
+        return Promise.resolve({ items: [{ ...members[0], loginLockedUntil: "2026-11-01T00:00:00Z" }] });
+      }
+      return Promise.resolve({ items: [], senderEmail: "admin@ku.th", smtpConfigured: true });
+    });
+    const rendered = await renderPage(<Members language={language} />);
+    await settle();
+    expect(rendered.element.textContent).toContain(language === "en" ? "Sign-in locked until" : "ล็อกการเข้าสู่ระบบถึง");
+    await click(buttonIn(rendered.element, language === "en" ? "Unlock account" : "ปลดล็อกบัญชี"));
+    expect(request).toHaveBeenCalledWith("/auth/admin/users/member-1/unlock", { method: "POST", body: "{}" });
+    expect(rendered.element.textContent).toContain(language === "en" ? "Account unlocked" : "ปลดล็อกบัญชีแล้ว");
+    request.mockRejectedValueOnce(new Error("Unlock failed"));
+    await click(buttonIn(rendered.element, language === "en" ? "Unlock account" : "ปลดล็อกบัญชี"));
+    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toContain("Unlock failed");
+    await rendered.unmount();
+  });
   beforeEach(() => {
     get.mockReset();
     request.mockReset().mockResolvedValue({ json: async () => ({ emailSent: true }) });

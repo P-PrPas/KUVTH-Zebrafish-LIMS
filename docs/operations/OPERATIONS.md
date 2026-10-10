@@ -25,6 +25,34 @@ Members may view and record observations in another operator's experiment. They 
 
 The API is not a TLS terminator. Production traffic must reach it through an HTTPS reverse proxy or private VPN, with the proxy enforcing the approved IP/CIDR allowlist. Set `IP_ALLOWLIST` as a second control when the API can be reached outside that proxy. Do not trust arbitrary forwarded headers from public clients.
 
+## Sign-in limits and recovery
+
+Incorrect usable-code verification is counted per email over the preceding 24 hours (rolling, persisted across workers). Reaching 15 failures locks code issuance and verification for 24 hours **from the last failure**, not from the first request. Successful sign-in resets the failure history. Requesting again retains the current usable code without resending it; wait for its ten-minute expiry or five incorrect attempts before requesting a replacement. Check spam if email is missing and contact an admin if locked. A failed SMTP delivery expires only the matching code and clears its resend cooldown, allowing an immediate retry; the hourly send cap still applies.
+
+An attacker who knows an account's email can deliberately trigger a lock. Maintain **at least two active, verified administrators**, with separate working email accounts, and confirm both can sign in before production. Alert delivery runs after the verification response, once on reaching the cap, to every active admin. Failed deliveries and locks without any active admin are logged. Background tasks are best effort and can be lost on process termination; check server logs during incidents.
+
+An admin with an existing session can use Members and access during an OTP lock, including unlocking their own account. The list shows the lock expiration and **Unlock account**. Verify the owner's identity before unlocking. `POST /api/v1/auth/admin/users/{user_id}/unlock` with JSON `{}` requires an authenticated admin and records an audit event. It clears failures and the email send quota, invalidates the old code, and allows a new request immediately. It does not reactivate disabled accounts or revoke existing sessions.
+
+If all admins lose access, the database owner can recover an administrator out of band. Stop public authentication traffic, confirm the exact account email and active admin role with the owner, then run this transaction on PostgreSQL or MySQL (replace the literal with that verified email):
+
+```sql
+BEGIN;
+SELECT id, email, role, active FROM auth_user WHERE email = 'verified-admin@ku.th' FOR UPDATE;
+UPDATE auth_login_challenge SET failed_count = 0, locked_until = NULL,
+    attempts = 0, code_hash = '', expires_at = CURRENT_TIMESTAMP,
+    last_sent_at = '2000-01-01 00:00:00', failed_window_started_at = CURRENT_TIMESTAMP,
+    send_count = 0, window_started_at = CURRENT_TIMESTAMP
+WHERE email = 'verified-admin@ku.th';
+DELETE FROM auth_login_failure WHERE email = 'verified-admin@ku.th';
+COMMIT;
+```
+
+Record this emergency operation in the incident log, request a new code, establish a second verified admin, and investigate the attack before reopening traffic. Prefer the audited admin endpoint whenever a session remains available.
+
+Migration 000024 adds rolling failure history and an explicit lock deadline. Existing capped accounts keep their old deadline until expiration or admin unlock. Older partial counts are carried forward using their recorded window start because individual failure times were not stored. Rollback drops the new history; stop authentication traffic during rollback.
+
+The HTTP/IP request limiter is in memory **per API process**: multiple workers or replicas multiply its effective cap, and restarts reset it. Enforce a shared limit at the trusted reverse proxy for multi-worker deployments. Email OTP send limits and verification locks use shared database state. Do not trust unvalidated forwarded IP headers.
+
 ## Admin and correction requests
 
 Admins open `/admin` directly or use the Admin link in the research workspace. Membership, invitations, roles, lab reference data, timing profiles, correction decisions, and audit history are in this area. Master and timing writes still require an active operator selected in the admin header for audit attribution.

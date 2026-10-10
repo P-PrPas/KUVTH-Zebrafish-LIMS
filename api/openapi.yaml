@@ -718,7 +718,17 @@ paths:
       summary: List members and their device sync status
       operationId: listMembers
       responses:
-        '200': { description: Member list }
+        '200':
+          description: Member list including sign-in lock expiration
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuthMember' }
         '403': { description: Admin role required }
     post:
       tags: [Authentication]
@@ -771,6 +781,20 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '202': { description: Invitation email sent }
+  /auth/admin/users/{user_id}/unlock:
+    post:
+      tags: [Authentication]
+      summary: Clear sign-in failures and invalidate the old code
+      operationId: unlockMember
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Account unlocked; a new code may be requested immediately }
+        '403': { description: Admin role required }
+        '404': { description: Member not found }
   /auth/admin/users/{user_id}/sessions:
     get:
       tags: [Authentication]
@@ -4110,6 +4134,26 @@ components:
       properties:
         email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
         code: { type: string, pattern: '^[0-9]{6}$' }
+    AuthMember:
+      allOf:
+        - { $ref: '#/components/schemas/AuthUser' }
+        - type: object
+          required: [active, loginLockedUntil, syncDevices]
+          properties:
+            active: { type: boolean }
+            verifiedAt: { type: [string, 'null'], format: date-time }
+            invitedAt: { type: [string, 'null'], format: date-time }
+            loginLockedUntil: { type: [string, 'null'], format: date-time }
+            syncDevices:
+              type: array
+              items:
+                type: object
+                required: [deviceId, pendingCount, lastReportedAt, stale]
+                properties:
+                  deviceId: { type: string }
+                  pendingCount: { type: integer, minimum: 0 }
+                  lastReportedAt: { type: string, format: date-time }
+                  stale: { type: boolean }
     AuthUser:
       type: object
       required: [id, email, role]
