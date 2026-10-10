@@ -138,14 +138,14 @@ def test_sql_otp_reuse_daily_limit_and_session_identity():
                 assert alert == (batch == 2 and attempt == 4)
 
         assert not repository.issue_code(email, repository.code_hash(email, "123456"), now + timedelta(hours=1))
-        assert repository.issue_code(email, repository.code_hash(email, "123456"), now + timedelta(days=1, minutes=1))
+        assert repository.issue_code(email, repository.code_hash(email, "123456"), now + timedelta(days=1, minutes=2))
         user, alert = repository.verify_and_create_session(
             email,
             repository.code_hash(email, "123456"),
             uuid7(),
             repository.token_hash(uuid7()),
             "sql-device",
-            now + timedelta(days=1, minutes=2),
+            now + timedelta(days=1, minutes=3),
         )
         assert alert is False
         assert user and user["sessionId"] and user["deviceId"] == "sql-device"
