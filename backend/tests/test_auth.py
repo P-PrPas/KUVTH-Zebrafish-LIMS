@@ -7,6 +7,44 @@ from datetime import timedelta
 from fastapi.testclient import TestClient
 
 from chronofish.runtime.values import utc_now
+from chronofish.services.auth import LOGIN_LOCK_ALERT_SUBJECT
+
+
+def test_failed_delivery_can_retry_immediately(client, monkeypatch):
+    auth = client.app.state.auth
+    email = _invite(client, auth.mailer, "retry@ku.th")["email"]
+    original = auth.mailer.send
+    monkeypatch.setattr(auth.mailer, "send", lambda *args: (_ for _ in ()).throw(OSError("SMTP down")))
+    auth.deliver_code(email)
+    monkeypatch.setattr(auth.mailer, "send", original)
+    sent = len(auth.mailer.messages)
+    auth.deliver_code(email)
+    assert len(auth.mailer.messages) == sent + 1
+
+
+def test_success_resets_failed_attempts(client):
+    auth = client.app.state.auth
+    email = _invite(client, auth.mailer, "reset@ku.th")["email"]
+    auth.deliver_code(email)
+    challenge = auth.repository.store.auth_challenges[email]
+    challenge["failed_count"] = 10
+    _sign_in(TestClient(client.app), email, auth.mailer)
+    assert challenge["failed_count"] == 0
+
+
+def test_admin_can_see_and_unlock_an_account(client):
+    auth = client.app.state.auth
+    member = _invite(client, auth.mailer, "blocked@ku.th")
+    auth.deliver_code(member["email"])
+    challenge = auth.repository.store.auth_challenges[member["email"]]
+    challenge["failed_count"] = 15
+    users = client.get("/api/v1/auth/admin/users").json()["items"]
+    assert next(u for u in users if u["id"] == member["id"])["loginLockedUntil"]
+    response = client.post(f"/api/v1/auth/admin/users/{member['id']}/unlock", json={})
+    assert response.status_code == 204
+    assert challenge["failed_count"] == 0
+    auth.deliver_code(member["email"])
+    _sign_in(TestClient(client.app), member["email"], auth.mailer)
 
 
 def _code(mailer) -> str:
@@ -125,19 +163,20 @@ def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client
             assert response.status_code == 401
 
     assert challenge["failed_count"] == 15
-    assert len([message for message in mailer.messages if message[1] == "KUVACB sign-in attempts blocked"]) == 1
+    assert len([message for message in mailer.messages if message[1] == LOGIN_LOCK_ALERT_SUBJECT]) == 1
     blocked = client.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "real-member"},
         json={"email": email, "code": correct_code},
     )
     assert blocked.status_code == 401
-    assert len([message for message in mailer.messages if message[1] == "KUVACB sign-in attempts blocked"]) == 1
+    assert len([message for message in mailer.messages if message[1] == LOGIN_LOCK_ALERT_SUBJECT]) == 1
     sent_before = len(mailer.messages)
     assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
     assert len(mailer.messages) == sent_before
 
     challenge["failed_window_started_at"] -= timedelta(days=1, seconds=1)
+    challenge["locked_until"] -= timedelta(days=1, seconds=1)
     challenge["last_sent_at"] -= timedelta(seconds=61)
     challenge["expires_at"] = utc_now() - timedelta(seconds=1)
     assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202

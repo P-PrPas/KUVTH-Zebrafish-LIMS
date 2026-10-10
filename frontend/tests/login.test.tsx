@@ -158,7 +158,7 @@ describe("email OTP login", () => {
     await changeValue("#login-code", "123456");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
-      "That code is invalid or expired. Request a new one and try again.",
+      "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account.",
     );
   });
 });
