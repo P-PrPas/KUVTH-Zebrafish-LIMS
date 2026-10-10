@@ -135,4 +135,30 @@ describe("email OTP login", () => {
     });
     expect(localStorage.getItem("chronofish.logout_pending")).toBeNull();
   });
+
+  it("explains request and verification failures in English", async () => {
+    localStorage.setItem("chronofish.language", "en");
+    request
+      .mockRejectedValueOnce(Object.assign(new Error("rate limited"), { status: 429 }))
+      .mockRejectedValueOnce(Object.assign(new Error("SMTP unavailable"), { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({}))
+      .mockRejectedValueOnce(Object.assign(new Error("invalid"), { status: 401 }));
+    const rendered = await renderPage(<Login onLogin={onLogin} />);
+    unmount = rendered.unmount;
+    await changeValue("#login-email", "member@KU.TH");
+    await submitForm();
+    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
+      "Please wait before requesting another code.",
+    );
+    await submitForm();
+    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
+      "Email delivery is not configured yet. Contact an administrator.",
+    );
+    await submitForm();
+    await changeValue("#login-code", "123456");
+    await submitForm();
+    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
+      "That code is invalid or expired. Request a new one and try again.",
+    );
+  });
 });
