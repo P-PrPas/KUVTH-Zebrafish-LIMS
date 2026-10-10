@@ -105,6 +105,7 @@ describe("admin member management", () => {
     await settle();
     expect(rendered.element.textContent).toContain("Invitation pending");
     expect(rendered.element.textContent).toContain("A recently reported device still has pending work.");
+    expect(card("active@ku.th").textContent).toContain("recent · 2 items");
     expect(rendered.element.textContent).toContain("No device has reported a sync status.");
     expect(rendered.element.textContent).toContain("Server SMTP is not configured.");
     expect(rendered.element.querySelector<HTMLInputElement>("#sender-email")?.value).toBe("peerapas.c@ku.th");

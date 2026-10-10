@@ -77,7 +77,7 @@ class AuthService:
         if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
             raise APIError(400, "invalid_device", "Device id is invalid")
         token = secrets.token_urlsafe(48)
-        user = self.repository.verify_and_create_session(
+        user, alert_admin = self.repository.verify_and_create_session(
             email=email,
             digest=self.repository.code_hash(email, code),
             session_id=uuid7(),
@@ -85,6 +85,16 @@ class AuthService:
             device_id=device_id,
             now=utc_now(),
         )
+        if alert_admin and self.config.bootstrap_admin_email:
+            try:
+                self._send(
+                    self.config.bootstrap_admin_email,
+                    "KUVACB sign-in attempts blocked",
+                    f"Sign-in verification for {email} reached 15 incorrect attempts in 24 hours. "
+                    "Please contact the member and investigate before the limit resets.",
+                )
+            except APIError:
+                LOGGER.exception("Sign-in attempt alert delivery failed")
         if not user:
             raise APIError(401, "code_invalid", "The code is invalid or expired. Request a new code and try again.")
         return self.public_user(user), token

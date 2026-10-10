@@ -79,6 +79,85 @@ def test_otp_cooldown_is_logged_without_error_traceback(client, caplog):
     assert events[0].exc_info is None
 
 
+def test_requesting_again_keeps_the_existing_usable_code(client):
+    mailer = client.app.state.auth.mailer
+    repository = client.app.state.auth.repository
+    email = _invite(client, mailer, "repeat.member@ku.th")["email"]
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    challenge = repository.store.auth_challenges[email]
+    first_code = _code(mailer)
+    challenge["last_sent_at"] -= timedelta(seconds=61)
+    sent_before = len(mailer.messages)
+
+    response = client.post("/api/v1/auth/request-code", json={"email": email})
+
+    assert response.status_code == 202
+    assert len(mailer.messages) == sent_before
+    assert challenge["send_count"] == 1
+    assert (
+        client.post(
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "second-browser"},
+            json={"email": email, "code": first_code},
+        ).status_code
+        == 200
+    )
+
+
+def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client):
+    mailer = client.app.state.auth.mailer
+    email = _invite(client, mailer, "guarded.member@ku.th")["email"]
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    challenge = client.app.state.auth.repository.store.auth_challenges[email]
+    for batch in range(3):
+        if batch:
+            challenge["last_sent_at"] -= timedelta(seconds=61)
+            challenge["expires_at"] = utc_now() - timedelta(seconds=1)
+            assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+        correct_code = _code(mailer)
+        wrong_code = "000000" if correct_code != "000000" else "999999"
+        for _ in range(5):
+            response = client.post(
+                "/api/v1/auth/verify-code",
+                headers={"X-Device-Id": "attacker"},
+                json={"email": email, "code": wrong_code},
+            )
+            assert response.status_code == 401
+
+    assert challenge["failed_count"] == 15
+    assert len([message for message in mailer.messages if message[1] == "KUVACB sign-in attempts blocked"]) == 1
+    blocked = client.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "real-member"},
+        json={"email": email, "code": correct_code},
+    )
+    assert blocked.status_code == 401
+    assert len([message for message in mailer.messages if message[1] == "KUVACB sign-in attempts blocked"]) == 1
+    sent_before = len(mailer.messages)
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    assert len(mailer.messages) == sent_before
+
+    challenge["failed_window_started_at"] -= timedelta(days=1, seconds=1)
+    challenge["last_sent_at"] -= timedelta(seconds=61)
+    challenge["expires_at"] = utc_now() - timedelta(seconds=1)
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    recovered = client.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "real-member"},
+        json={"email": email, "code": _code(mailer)},
+    )
+    assert recovered.status_code == 200
+
+
+def test_verify_returns_the_new_session_and_device_ids(client):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "session.member@ku.th")
+    signed_in = _sign_in(TestClient(client.app), invited["email"], mailer)
+
+    assert signed_in["sessionId"]
+    assert signed_in["deviceId"] == "member-browser"
+
+
 def test_member_duplicate_uses_linked_operator_and_cannot_edit_foreign_batch(client, write_headers, master_data):
     mailer = client.app.state.auth.mailer
     invited = _invite(client, mailer, "duplicate.member@ku.th")

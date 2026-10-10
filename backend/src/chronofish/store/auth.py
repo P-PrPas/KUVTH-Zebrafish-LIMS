@@ -20,6 +20,8 @@ OTP_COOLDOWN = timedelta(seconds=60)
 OTP_WINDOW = timedelta(hours=1)
 OTP_MAX_SENDS = 5
 OTP_MAX_ATTEMPTS = 5
+OTP_DAILY_MAX_FAILURES = 15
+OTP_DAILY_WINDOW = timedelta(days=1)
 SYNC_STALE_AFTER = timedelta(minutes=10)
 
 
@@ -126,9 +128,20 @@ class AuthRepository:
                     return False
                 challenge = self.store.auth_challenges.get(email)
                 if challenge:
+                    if (
+                        challenge["failed_count"] >= OTP_DAILY_MAX_FAILURES
+                        and _utc(now) - _utc(challenge["failed_window_started_at"]) < OTP_DAILY_WINDOW
+                    ):
+                        return False
                     last = challenge["last_sent_at"]
                     if _utc(now) - _utc(last) < OTP_COOLDOWN:
                         raise APIError(429, "otp_cooldown", "Wait before requesting another code")
+                    if (
+                        challenge["code_hash"]
+                        and _utc(now) < _utc(challenge["expires_at"])
+                        and challenge["attempts"] < OTP_MAX_ATTEMPTS
+                    ):
+                        return False
                     window_start = challenge["window_started_at"]
                     if _utc(now) - _utc(window_start) >= OTP_WINDOW:
                         challenge.update(window_started_at=now, send_count=0)
@@ -149,6 +162,8 @@ class AuthRepository:
                         "last_sent_at": now,
                         "window_started_at": now,
                         "send_count": 1,
+                        "failed_count": 0,
+                        "failed_window_started_at": now,
                     }
                 return True
         with self.engine.begin() as connection:
@@ -166,9 +181,20 @@ class AuthRepository:
                 .first()
             )
             if challenge:
+                if (
+                    int(challenge["failed_count"]) >= OTP_DAILY_MAX_FAILURES
+                    and _utc(now) - _utc(challenge["failed_window_started_at"]) < OTP_DAILY_WINDOW
+                ):
+                    return False
                 last = _utc(challenge["last_sent_at"])
                 if _utc(now) - last < OTP_COOLDOWN:
                     raise APIError(429, "otp_cooldown", "Wait before requesting another code")
+                if (
+                    challenge["code_hash"]
+                    and _utc(now) < _utc(challenge["expires_at"])
+                    and int(challenge["attempts"]) < OTP_MAX_ATTEMPTS
+                ):
+                    return False
                 window_start = _utc(challenge["window_started_at"])
                 sends = int(challenge["send_count"])
                 if _utc(now) - window_start >= OTP_WINDOW:
@@ -202,18 +228,23 @@ class AuthRepository:
 
     def verify_and_create_session(
         self, email: str, digest: str, session_id: str, token_hash: str, device_id: str, now: datetime
-    ) -> dict[str, Any] | None:
+    ) -> tuple[dict[str, Any] | None, bool]:
         if self.engine is None:
             with self.lock:
                 challenge = self.store.auth_challenges.get(email)
                 user = next((u for u in self.store.auth_users.values() if u["email"] == email), None)
                 if not challenge or not user or not user["active"]:
-                    return None
+                    return None, False
+                if _utc(now) - _utc(challenge["failed_window_started_at"]) >= OTP_DAILY_WINDOW:
+                    challenge.update(failed_window_started_at=now, failed_count=0)
+                if challenge["failed_count"] >= OTP_DAILY_MAX_FAILURES:
+                    return None, False
                 if challenge["attempts"] >= OTP_MAX_ATTEMPTS or _utc(now) >= _utc(challenge["expires_at"]):
-                    return None
+                    return None, False
                 if not hmac.compare_digest(challenge["code_hash"], digest):
                     challenge["attempts"] += 1
-                    return None
+                    challenge["failed_count"] += 1
+                    return None, challenge["failed_count"] == OTP_DAILY_MAX_FAILURES
                 challenge["code_hash"] = ""
                 challenge["expires_at"] = _utc(now)
                 challenge["attempts"] = 0
@@ -228,7 +259,10 @@ class AuthRepository:
                     "revoked_at": None,
                     "absolute_expires_at": _utc(now) + ABSOLUTE_TTL,
                 }
-                return dict(user)
+                result = dict(user)
+                result["sessionId"] = session_id
+                result["deviceId"] = device_id
+                return result, False
         with self.engine.begin() as connection:
             challenge = (
                 connection.execute(
@@ -246,15 +280,32 @@ class AuthRepository:
                 .first()
             )
             if not challenge or not user:
-                return None
+                return None, False
+            failed_count = int(challenge["failed_count"])
+            failed_window = _utc(challenge["failed_window_started_at"])
+            if _utc(now) - failed_window >= OTP_DAILY_WINDOW:
+                failed_count = 0
+                failed_window = _utc(now)
+                connection.execute(
+                    text(
+                        "UPDATE auth_login_challenge SET failed_count = 0, "
+                        "failed_window_started_at = :now WHERE email = :email"
+                    ),
+                    {"now": _stored(now), "email": email},
+                )
+            if failed_count >= OTP_DAILY_MAX_FAILURES:
+                return None, False
             if int(challenge["attempts"]) >= OTP_MAX_ATTEMPTS or _utc(now) >= _utc(challenge["expires_at"]):
-                return None
+                return None, False
             if not hmac.compare_digest(str(challenge["code_hash"]), digest):
                 connection.execute(
-                    text("UPDATE auth_login_challenge SET attempts = attempts + 1 WHERE email = :email"),
+                    text(
+                        "UPDATE auth_login_challenge SET attempts = attempts + 1, "
+                        "failed_count = failed_count + 1 WHERE email = :email"
+                    ),
                     {"email": email},
                 )
-                return None
+                return None, failed_count + 1 == OTP_DAILY_MAX_FAILURES
             now_db = _stored(now)
             connection.execute(
                 text(
@@ -284,7 +335,10 @@ class AuthRepository:
             )
             result = dict(user)
             result["verified_at"] = now
-            return _user_payload(result)
+            result = _user_payload(result)
+            result["sessionId"] = session_id
+            result["deviceId"] = device_id
+            return result, False
 
     def authenticate(self, token_hash: str, now: datetime) -> dict[str, Any] | None:
         if self.engine is None:
