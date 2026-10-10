@@ -63,3 +63,5 @@ export async function verifySession(): Promise<AuthUser> {
 export function setOfflineQueueIdentity(): void {
   window.dispatchEvent(new CustomEvent("chronofish:auth-changed"));
 }
+
+export const KU_EMAIL_PATTERN = ".+@[kK][uU]\\.[tT][hH]";

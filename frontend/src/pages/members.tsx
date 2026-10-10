@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { type ApiItem, get, request } from "../api/client";
+import { KU_EMAIL_PATTERN } from "../auth";
 import type { Language } from "../types";
 
 type Member = ApiItem & {
@@ -7,6 +8,7 @@ type Member = ApiItem & {
   email: string;
   role: "admin" | "member";
   active: boolean;
+  loginLockedUntil?: string | null;
   verifiedAt?: string | null;
   operatorId?: string | null;
   syncDevices: { deviceId: string; pendingCount: number; lastReportedAt: string; stale: boolean }[];
@@ -123,6 +125,21 @@ export function Members({ language }: { language: Language }) {
     }
   }
 
+  async function unlockMember(member: Member) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await request(`/auth/admin/users/${member.id}/unlock`, { method: "POST", body: "{}" });
+      setNotice(th ? "ปลดล็อกบัญชีแล้ว ขอรหัสใหม่ได้ทันที" : "Account unlocked. A new code can be requested now.");
+      await reload();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function toggleSessions(member: Member) {
     if (sessions[member.id]) {
       setSessions((current) => {
@@ -231,7 +248,7 @@ export function Members({ language }: { language: Language }) {
             id="invite-email"
             type="email"
             required
-            pattern=".+@ku\.th"
+            pattern={KU_EMAIL_PATTERN}
             placeholder="name@ku.th"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -266,6 +283,22 @@ export function Members({ language }: { language: Language }) {
                   </span>
                 </div>
                 <div className="member-card__actions">
+                  {member.loginLockedUntil && (
+                    <>
+                      <span role="status" className="error">
+                        {th ? "ล็อกการเข้าสู่ระบบถึง " : "Sign-in locked until "}
+                        {new Date(member.loginLockedUntil).toLocaleString(th ? "th-TH" : "en-US")}
+                      </span>
+                      <button
+                        className="button button--secondary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void unlockMember(member)}
+                      >
+                        {th ? "ปลดล็อกบัญชี" : "Unlock account"}
+                      </button>
+                    </>
+                  )}
                   {!member.verifiedAt && member.active && (
                     <button
                       className="button button--secondary"
@@ -360,7 +393,7 @@ export function Members({ language }: { language: Language }) {
                 {member.syncDevices.length ? (
                   member.syncDevices.map((device) => (
                     <span key={device.deviceId}>
-                      {device.deviceId.slice(0, 8)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
+                      {device.deviceId.slice(-6)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
                       {device.stale ? (th ? "สถานะเก่า" : "stale") : th ? "อัปเดตล่าสุด" : "reported recently"}
                     </span>
                   ))

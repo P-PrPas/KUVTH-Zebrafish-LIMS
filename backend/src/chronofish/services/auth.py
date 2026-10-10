@@ -8,12 +8,13 @@ from typing import Any
 from ..config import Config
 from ..runtime.errors import APIError
 from ..runtime.values import utc_now, uuid7
-from ..store.auth import AuthRepository
+from ..store.auth import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW, AuthRepository
 from .mail import Mailer
 
 SESSION_COOKIE = "chronofish_session"
 SESSION_COOKIE_MAX_AGE = 90 * 24 * 60 * 60
 LOGGER = logging.getLogger("chronofish.auth")
+LOGIN_LOCK_ALERT_SUBJECT = "KUVACB sign-in attempts blocked"
 
 
 def _email(value: Any) -> str:
@@ -60,16 +61,40 @@ class AuthService:
 
     def _deliver_code(self, email: str) -> None:
         code = f"{secrets.randbelow(1_000_000):06d}"
-        accepted = self.repository.issue_code(email, self.repository.code_hash(email, code), utc_now())
+        digest = self.repository.code_hash(email, code)
+        accepted = self.repository.issue_code(email, digest, utc_now())
         if not accepted:
             return
-        self._send(
-            email,
-            "Your KUVACB sign-in code",
-            f"Your one-time sign-in code is {code}.\n\nIt expires in 10 minutes and can only be used once.",
-        )
+        try:
+            self._send(
+                email,
+                "Your KUVACB sign-in code",
+                f"Your one-time sign-in code is {code}.\n\nIt expires in 10 minutes and can only be used once.",
+            )
+        except APIError:
+            self.repository.expire_failed_delivery(email, digest, utc_now())
+            raise
 
-    def verify_code(self, body: dict[str, Any], device_id: str) -> tuple[dict[str, Any], str]:
+    def alert_login_lock(self, email: str) -> None:
+        LOGGER.warning("Sign-in verification locked for %s", email)
+        admins = [user for user in self.repository.list_users(utc_now()) if user["active"] and user["role"] == "admin"]
+        if not admins:
+            LOGGER.error("No active administrator available for sign-in lock alert")
+        for admin in admins:
+            try:
+                self._send(
+                    admin["email"],
+                    LOGIN_LOCK_ALERT_SUBJECT,
+                    f"Sign-in verification for {email} reached {OTP_DAILY_MAX_FAILURES} incorrect attempts "
+                    f"in {OTP_DAILY_WINDOW.total_seconds() / 3600:g} hours. "
+                    "Unlock the account in Members and access after verifying the owner's identity.",
+                )
+            except APIError:
+                LOGGER.exception("Sign-in attempt alert delivery failed for %s", admin["email"])
+
+    def verify_code(
+        self, body: dict[str, Any], device_id: str, background_tasks: Any = None
+    ) -> tuple[dict[str, Any], str]:
         email = _email(body.get("email"))
         code = body.get("code")
         if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
@@ -77,7 +102,7 @@ class AuthService:
         if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
             raise APIError(400, "invalid_device", "Device id is invalid")
         token = secrets.token_urlsafe(48)
-        user = self.repository.verify_and_create_session(
+        result = self.repository.verify_and_create_session(
             email=email,
             digest=self.repository.code_hash(email, code),
             session_id=uuid7(),
@@ -85,6 +110,12 @@ class AuthService:
             device_id=device_id,
             now=utc_now(),
         )
+        user = result.user
+        if result.lock_reached:
+            if background_tasks is not None:
+                background_tasks.add_task(self.alert_login_lock, email)
+            else:
+                self.alert_login_lock(email)
         if not user:
             raise APIError(401, "code_invalid", "The code is invalid or expired. Request a new code and try again.")
         return self.public_user(user), token
