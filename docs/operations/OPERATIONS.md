@@ -79,6 +79,22 @@ Compose binds the direct API ports (`8080` for PostgreSQL and `8081` for MySQL)
 to `127.0.0.1`. Network clients use the frontend proxy, which normalizes the
 forwarded client address before the API applies `IP_ALLOWLIST` and rate limits.
 
+If another load balancer or reverse proxy sits in front of the frontend nginx,
+configure nginx's `real_ip` module with **only that proxy's IP/CIDR** in the
+`server` block of `frontend/default.conf` before deploying, for example:
+
+```nginx
+set_real_ip_from 10.20.0.0/24; # replace with the actual trusted proxy CIDR
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+```
+
+The upstream proxy must append the original client IP to `X-Forwarded-For`.
+nginx then forwards its verified `$remote_addr` to the API. Without this setup,
+all users behind that proxy share the API's 120 requests/minute quota and an
+`IP_ALLOWLIST` entry for the proxy would apply to everyone. Never trust forwarded
+headers from arbitrary clients or expose the API container directly to the network.
+
 The MySQL compatibility stack is isolated in its own file and does not start PostgreSQL:
 
 ```powershell

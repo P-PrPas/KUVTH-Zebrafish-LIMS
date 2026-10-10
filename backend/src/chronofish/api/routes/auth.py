@@ -45,7 +45,7 @@ def build_auth_router(auth: AuthService) -> APIRouter:
     def request_code(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
         email = auth.validate_code_request(body)
         background_tasks.add_task(auth.deliver_code, email)
-        return {"status": "If this email is invited, a sign-in code has been sent."}
+        return {"status": "If this email is invited, check its inbox for a sign-in code."}
 
     @router.post("/verify-code")
     def verify_code(request: Request, response: Response, body: dict[str, Any]) -> dict[str, Any]:

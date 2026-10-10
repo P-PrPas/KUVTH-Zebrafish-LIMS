@@ -19,6 +19,7 @@ from chronofish.config import Config
 from chronofish.domain.state import DEMO_OPERATOR_ID, PROTOCOL_ID
 from chronofish.runtime.values import uuid7
 from chronofish.services.mail import RecordingMailer
+from chronofish.store.auth import AuthRepository
 from chronofish.store.database import create_database_engine
 from chronofish.store.migrations import _execute_script, migrate
 from chronofish.store.sql import SQLStore
@@ -109,6 +110,47 @@ def test_authentication_migration_rolls_back_on_mysql():
         with admin_engine.begin() as connection:
             connection.exec_driver_sql(f"DROP DATABASE IF EXISTS {database_name}")
         admin_engine.dispose()
+
+
+def test_sql_otp_reuse_daily_limit_and_session_identity():
+    email = f"sql-otp-{uuid7()}@ku.th"
+    store = SQLStore(_config(email))
+    repository = AuthRepository(store, "test-auth-secret")
+    now = datetime.now(UTC)
+    repository.ensure_bootstrap(email, now)
+    try:
+        for batch in range(3):
+            issued_at = now + timedelta(minutes=11 * batch)
+            assert repository.issue_code(email, repository.code_hash(email, str(batch).zfill(6)), issued_at)
+            assert not repository.issue_code(
+                email, repository.code_hash(email, "999999"), issued_at + timedelta(seconds=61)
+            )
+            for attempt in range(5):
+                user, alert = repository.verify_and_create_session(
+                    email,
+                    repository.code_hash(email, "888888"),
+                    uuid7(),
+                    repository.token_hash(uuid7()),
+                    "sql-device",
+                    issued_at + timedelta(seconds=62 + attempt),
+                )
+                assert user is None
+                assert alert == (batch == 2 and attempt == 4)
+
+        assert not repository.issue_code(email, repository.code_hash(email, "123456"), now + timedelta(hours=1))
+        assert repository.issue_code(email, repository.code_hash(email, "123456"), now + timedelta(days=1, minutes=1))
+        user, alert = repository.verify_and_create_session(
+            email,
+            repository.code_hash(email, "123456"),
+            uuid7(),
+            repository.token_hash(uuid7()),
+            "sql-device",
+            now + timedelta(days=1, minutes=2),
+        )
+        assert alert is False
+        assert user and user["sessionId"] and user["deviceId"] == "sql-device"
+    finally:
+        store.close()
 
 
 def test_member_duplicate_is_owned_by_linked_operator_on_sql():

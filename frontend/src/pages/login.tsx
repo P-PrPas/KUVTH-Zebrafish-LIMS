@@ -108,7 +108,7 @@ export function Login({ onLogin }: Props) {
               type="email"
               autoComplete="email"
               required
-              pattern=".+@ku\.th"
+              pattern=".+@[kK][uU]\.[tT][hH]"
               title={th ? "ใช้เฉพาะอีเมลที่ลงท้ายด้วย @ku.th" : "Use an email ending in @ku.th"}
               placeholder="name@ku.th"
               value={email}

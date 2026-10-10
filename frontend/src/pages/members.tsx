@@ -231,7 +231,7 @@ export function Members({ language }: { language: Language }) {
             id="invite-email"
             type="email"
             required
-            pattern=".+@ku\.th"
+            pattern=".+@[kK][uU]\.[tT][hH]"
             placeholder="name@ku.th"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -360,7 +360,7 @@ export function Members({ language }: { language: Language }) {
                 {member.syncDevices.length ? (
                   member.syncDevices.map((device) => (
                     <span key={device.deviceId}>
-                      {device.deviceId.slice(0, 8)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
+                      {device.deviceId.slice(-6)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
                       {device.stale ? (th ? "สถานะเก่า" : "stale") : th ? "อัปเดตล่าสุด" : "reported recently"}
                     </span>
                   ))

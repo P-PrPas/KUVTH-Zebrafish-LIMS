@@ -49,7 +49,10 @@ describe("email OTP login", () => {
     request.mockResolvedValueOnce(jsonResponse({}));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    expect(rendered.element.querySelector<HTMLInputElement>("#login-email")?.checkValidity()).toBe(false);
     await changeValue("#login-email", " PEERAPAS.C@KU.TH ");
+    await changeValue("#login-email", "PEERAPAS.C@KU.TH");
+    expect(rendered.element.querySelector<HTMLInputElement>("#login-email")?.checkValidity()).toBe(true);
     await submitForm();
     expect(request).toHaveBeenCalledWith("/auth/request-code", {
       method: "POST",
