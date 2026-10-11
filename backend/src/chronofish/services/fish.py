@@ -121,7 +121,7 @@ def recompute_fish(state: State, fish_id: str) -> None:
             fish.update(
                 {"status": latest["outcome"], "exitDate": latest["observedOn"], "exitReason": latest["outcome"]}
             )
-    else:
+    elif not fish.get("importJobId"):
         fish["status"] = "ALIVE"
         fish.pop("exitDate", None)
         fish.pop("exitReason", None)

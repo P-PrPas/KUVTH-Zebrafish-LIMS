@@ -37,8 +37,9 @@ from ...services.fish import (
 from ...store import Store
 
 BANGKOK = ZoneInfo("Asia/Bangkok")
-SPECIMEN_KINDS = {"CL", "RT", "DC"}
-SPECIMEN_TYPES = {"WHOLE_EMBRYO", "CAUDAL_FIN_CLIP"}
+SPECIMEN_KINDS = {"CL", "CLA", "RT", "DC"}
+SPECIMEN_TYPES = {"WHOLE_EMBRYO", "CAUDAL_FIN_CLIP", "ANAL_FIN_CLIP", "LEFTOVER_CELLS", "WHOLE_ADULT", "UNKNOWN"}
+SPECIMEN_PRESERVATION_STATES = {"FRESH", "CRYOPRESERVED", "UNKNOWN"}
 SPECIMEN_STORAGES = {"-20", "-80"}
 FISH_OBSERVATION_PATCH_FIELDS = {
     "observedOn",
@@ -400,7 +401,9 @@ def build_fish_router(store: Store) -> APIRouter:
         result["specimens"] = [
             copy.deepcopy(item)
             for item in state.entities["specimens"].values()
-            if item.get("cloneFishId") == fish_id and item.get("active") is not False and item.get("deletedAt") is None
+            if (item.get("cloneFishId") == fish_id or fish_id in item.get("linkedFishIds", []))
+            and item.get("active") is not False
+            and item.get("deletedAt") is None
         ]
         result["embryoTimeline"] = sorted(
             (
@@ -456,7 +459,7 @@ def build_fish_router(store: Store) -> APIRouter:
             "items": [
                 copy.deepcopy(item)
                 for item in state.entities["specimens"].values()
-                if item.get("cloneFishId") == fish_id
+                if (item.get("cloneFishId") == fish_id or fish_id in item.get("linkedFishIds", []))
                 and item.get("active") is not False
                 and item.get("deletedAt") is None
             ]
@@ -476,6 +479,9 @@ def build_fish_router(store: Store) -> APIRouter:
                     raise APIError(422, "validation_error", f"ต้องระบุ {field}")
             if body["specimenKind"] not in SPECIMEN_KINDS or body["specimenType"] not in SPECIMEN_TYPES:
                 raise APIError(422, "validation_error", "specimenKind หรือ specimenType ไม่ถูกต้อง")
+            preservation_state = body.get("preservationState") or "UNKNOWN"
+            if preservation_state not in SPECIMEN_PRESERVATION_STATES:
+                raise APIError(422, "validation_error", "preservationState ไม่ถูกต้อง")
             collected_on = _specimen_date(body.get("collectedOn"), "collectedOn")
             frozen_on = _specimen_date(body.get("frozenOn"), "frozenOn")
             if collected_on and collected_on > datetime.now(BANGKOK).date():
@@ -500,6 +506,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 "specimenCode": str(body["specimenCode"]),
                 "specimenKind": body["specimenKind"],
                 "specimenType": body["specimenType"],
+                "preservationState": preservation_state,
                 "collectedOn": collected_on.isoformat() if collected_on else None,
                 "frozenOn": frozen_on.isoformat() if frozen_on else None,
                 "storage": body.get("storage") or None,

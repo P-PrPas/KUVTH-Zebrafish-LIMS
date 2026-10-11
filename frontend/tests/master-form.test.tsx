@@ -150,7 +150,11 @@ describe("master data form", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/sites") && !init?.method)
-        return new Response(JSON.stringify({ items: [{ id: "site-1", code: "KU", name: "KUVTH", active: true }] }));
+        return new Response(
+          JSON.stringify({
+            items: [{ id: "site-1", code: "KU", name: "KUVTH", timeZone: "Asia/Bangkok", active: true }],
+          }),
+        );
       return new Response(JSON.stringify({ id: "ok" }));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -168,19 +172,25 @@ describe("master data form", () => {
 
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
     const siteForm = document.querySelector(".admin-layout > section form") as HTMLFormElement;
-    const [code, name] = Array.from(siteForm.querySelectorAll("input")) as HTMLInputElement[];
+    const [code, name, timeZone] = Array.from(siteForm.querySelectorAll("input")) as HTMLInputElement[];
     await act(async () => {
       setValue?.call(code, "VET");
       code.dispatchEvent(new Event("input", { bubbles: true }));
       setValue?.call(name, "Veterinary Lab");
       name.dispatchEvent(new Event("input", { bubbles: true }));
+      setValue?.call(timeZone, "Asia/Bangkok");
+      timeZone.dispatchEvent(new Event("input", { bubbles: true }));
       siteForm.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     const create = fetchMock.mock.calls.find(
       ([input, init]) => String(input).endsWith("/sites") && init?.method === "POST",
     );
-    expect(JSON.parse(String(create?.[1]?.body))).toEqual({ code: "VET", name: "Veterinary Lab" });
+    expect(JSON.parse(String(create?.[1]?.body))).toEqual({
+      code: "VET",
+      name: "Veterinary Lab",
+      timeZone: "Asia/Bangkok",
+    });
     expect(document.body.textContent).toContain("Saved");
 
     const siteRow = Array.from(document.querySelectorAll(".admin-layout > section .list-row")).find((row) =>
