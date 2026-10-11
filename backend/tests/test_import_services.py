@@ -27,6 +27,27 @@ def row(**cells: object) -> list[object | None]:
     return values
 
 
+def test_embryo_headers_are_not_control_counts_and_missing_identity_is_reviewable():
+    parsed = _parse_matrix(
+        "V2Raw",
+        [
+            row(A="No", B="DATE", AJ="Running number"),
+            row(AJ="Observation time"),
+            row(D="Normal", E="Abnormal", AF="10:27", AI=1, AK=0),
+            row(B="2026-04-29", C="KU eggs", AJ="Observation time", AK="14:02"),
+            row(AJ="Degenerated"),
+            row(AJ="Observed Dead"),
+            row(AJ="Nor/Ab"),
+        ],
+    )
+    record = next(record for record in parsed.records if record.record_kind == "embryo_candidate")
+    meaning = interpret(record.record_kind, record.working)
+    assert meaning["controlCounts"] == []
+    assert not any("control count" in warning for warning in meaning["warnings"])
+    issue = next(issue for issue in parsed.issues if issue.code == "embryo_incomplete")
+    assert (issue.severity, issue.source_column, issue.source_locator) == ("blocking", "AJ", "AJ3")
+
+
 def test_csv_and_xlsx_keep_source_values_and_formula_warnings():
     csv_sheet, encoding, delimiter = parse_csv(b"Number,Code,Material\n1,RT7,whole adult\n", "V1Specimen")
     assert (encoding, delimiter) == ("utf-8-sig", ",")
