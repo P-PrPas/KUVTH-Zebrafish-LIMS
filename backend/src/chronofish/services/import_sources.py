@@ -18,6 +18,8 @@ from typing import Any, Literal
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
+from .import_interpret import embryo_validation_errors, interpret
+
 MAX_FILES = 60
 MAX_FILE_BYTES = 25 * 1024 * 1024
 MAX_EXPANDED_BYTES = 120 * 1024 * 1024
@@ -162,6 +164,13 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
             ):
                 continue
             for column in metadata_columns & row.keys():
+                # Jan's first result shares row 3 with the control-count subheaders.
+                if (
+                    index < 3
+                    and column in {get_column_letter(i) for i in range(4, 22)}
+                    and _text(row[column]).casefold() in {"normal", "abnormal"}
+                ):
+                    continue
                 context[column] = {"value": row[column], "sourceRow": index + 1}
             for column in metadata_columns & following.keys():
                 context[column] = {"value": following[column], "sourceRow": index + 2}
@@ -176,6 +185,21 @@ def _extract_records(sheet: ParsedSheet, rows: list[dict[str, Any]]) -> None:
             row_no = index + 1
             record = _record(sheet.name, row_no, "embryo_candidate", block, row.get("AJ"))
             sheet.records.append(record)
+            meaning = interpret("embryo_candidate", block) or {}
+            for column, message in embryo_validation_errors(meaning):
+                value = row.get(column, context.get(column, {}).get("value"))
+                sheet.issues.append(
+                    SourceIssue(
+                        "blocking",
+                        "embryo_incomplete",
+                        message,
+                        sheet.name,
+                        row_no,
+                        column,
+                        _text(value) or None,
+                        f"{column}{row_no}",
+                    )
+                )
             for stage_index in range(38, 59):
                 column = get_column_letter(stage_index)
                 value = row.get(column)
