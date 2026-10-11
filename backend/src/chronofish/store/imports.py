@@ -15,7 +15,7 @@ from sqlalchemy import text
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.import_deferred import deferred_cells
-from ..services.import_interpret import interpret
+from ..services.import_interpret import embryo_validation_errors, interpret
 from ..services.import_sources import ParsedSheet, SourceIssue, record_json
 
 
@@ -1168,11 +1168,12 @@ class ImportRepository:
                     raise APIError(409, "not_ready", "An embryo row cannot be interpreted")
                 day = meaning["experimentDate"]
                 running = str(meaning.get("sourceRunningNumber") or "").strip()
-                if not day or not running or len(running) > 60:
+                errors = embryo_validation_errors(meaning)
+                if errors:
                     raise APIError(
                         409,
                         "embryo_incomplete",
-                        f"{record['sheet_name']} {record['source_locator']}: date or source embryo number is missing",
+                        f"{record['sheet_name']} {errors[0][0]}{record['row_no']}: {errors[0][1]}",
                     )
                 site_id = site_mappings.get(record["sheet_name"])
                 time_zone = sites.get(site_id or "")
@@ -1208,20 +1209,6 @@ class ImportRepository:
                     "injection_source": meaning.get("injectionSource"),
                     "lot_no_source": meaning.get("lotNoSource"),
                 }
-                limits = {
-                    "activation_source": 100,
-                    "recipient_source": 300,
-                    "egg_code_source": 150,
-                    "group_source": 150,
-                    "injection_source": 150,
-                    "lot_no_source": 100,
-                }
-                if any(len(str(value)) > limits[name] for name, value in source_fields.items() if value is not None):
-                    raise APIError(
-                        409,
-                        "embryo_incomplete",
-                        f"{record['sheet_name']} {record['source_locator']}: source label exceeds field limit",
-                    )
                 experiment_id = self._historical_experiment(
                     connection,
                     job_id,
@@ -2588,6 +2575,9 @@ class ImportRepository:
             valid = (interpret("specimen", working) or {}).get("specimenType") != "UNKNOWN"
         elif code == "invalid_specimen_code":
             valid = bool(re.fullmatch(r"(?:CLA|CL|RT|DC)\d+", str(new).strip(), re.IGNORECASE))
+        elif code == "embryo_incomplete":
+            meaning = interpret("embryo_candidate", working) or {}
+            valid = not any(source_column == column for source_column, _ in embryo_validation_errors(meaning))
         if not valid:
             raise APIError(409, "not_corrected", "The new value still fails this issue's validation")
 
