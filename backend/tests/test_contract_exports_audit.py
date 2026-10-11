@@ -35,19 +35,19 @@ def worksheet_rows(xml: bytes) -> list[list[str]]:
 def test_fastapi_registers_every_openapi_operation(client):
     document = yaml.safe_load((Path(__file__).parents[2] / "api" / "openapi.yaml").read_text(encoding="utf-8"))
     expected = {
-        (method.upper(), f"/api/v1{path}")
+        (method.upper(), re.sub(r"\{[^/]+\}", "{}", f"/api/v1{path}"))
         for path, operations in document["paths"].items()
         for method in operations
         if method in {"get", "post", "put", "patch", "delete"}
     }
     actual = {
-        (method, route.path)
+        (method, re.sub(r"\{[^/]+\}", "{}", route.path))
         for route in client.app.routes
         for method in getattr(route, "methods", set())
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 95
+    assert len(expected) == 120
 
 
 def test_r_export_has_stable_30_column_shape(client):

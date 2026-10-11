@@ -13,6 +13,7 @@ export type Page =
   | "export"
   | "members"
   | "admin"
+  | "imports"
   | "corrections"
   | "my-requests";
 export type Language = "th" | "en";

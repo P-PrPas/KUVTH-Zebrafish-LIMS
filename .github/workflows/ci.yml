@@ -132,7 +132,7 @@ jobs:
       - run: python -m pip install -c backend/constraints.txt -e "backend[dev]"
       - name: Run PostgreSQL integration suite
         working-directory: backend
-        run: python -m pytest tests/test_sql_integration.py
+        run: python -m pytest tests/test_sql_integration.py tests/test_import_api.py --cov=chronofish.store.imports --cov=chronofish.api.routes.imports --cov-report=term-missing
       - name: Boot API and verify health
         working-directory: backend
         run: |
@@ -180,7 +180,7 @@ jobs:
       - run: python -m pip install -c backend/constraints.txt -e "backend[dev]"
       - name: Run MySQL integration suite
         working-directory: backend
-        run: python -m pytest tests/test_sql_integration.py
+        run: python -m pytest tests/test_sql_integration.py tests/test_import_api.py --cov=chronofish.store.imports --cov=chronofish.api.routes.imports --cov-report=term-missing
       - name: Boot API and verify health
         working-directory: backend
         run: |
