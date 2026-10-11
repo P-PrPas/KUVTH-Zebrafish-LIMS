@@ -38,14 +38,12 @@ If all admins lose access, the database owner can recover an administrator out o
 ```sql
 BEGIN;
 SELECT id, email, role, active FROM auth_user WHERE email = 'verified-admin@ku.th' FOR UPDATE;
-UPDATE auth_login_challenge SET failed_count = 0, locked_until = NULL,
-    attempts = 0, code_hash = '', expires_at = CURRENT_TIMESTAMP,
-    last_sent_at = '2000-01-01 00:00:00', failed_window_started_at = CURRENT_TIMESTAMP,
-    send_count = 0, window_started_at = CURRENT_TIMESTAMP
-WHERE email = 'verified-admin@ku.th';
+DELETE FROM auth_login_challenge WHERE email = 'verified-admin@ku.th';
 DELETE FROM auth_login_failure WHERE email = 'verified-admin@ku.th';
 COMMIT;
 ```
+
+Deleting the challenge invalidates the old code and clears its send quota; the next code request creates a fresh challenge. This recovery does not depend on the database session time zone.
 
 Record this emergency operation in the incident log, request a new code, establish a second verified admin, and investigate the attack before reopening traffic. Prefer the audited admin endpoint whenever a session remains available.
 
