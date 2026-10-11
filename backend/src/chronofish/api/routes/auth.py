@@ -6,7 +6,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-from ...runtime.errors import APIError
+from ...runtime.errors import APIError, error_response
 from ...runtime.values import utc_now
 from ...services.auth import SESSION_COOKIE, SESSION_COOKIE_MAX_AGE, AuthService
 
@@ -45,11 +45,18 @@ def build_auth_router(auth: AuthService) -> APIRouter:
     def request_code(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
         email = auth.validate_code_request(body)
         background_tasks.add_task(auth.deliver_code, email)
-        return {"status": "If this email is invited, a sign-in code has been sent."}
+        return {"status": "If this email is invited, check its inbox for a sign-in code."}
 
     @router.post("/verify-code")
-    def verify_code(request: Request, response: Response, body: dict[str, Any]) -> dict[str, Any]:
-        user, token = auth.verify_code(body, request.headers.get("X-Device-Id", ""))
+    def verify_code(
+        request: Request, response: Response, body: dict[str, Any], background_tasks: BackgroundTasks
+    ) -> Any:
+        try:
+            user, token = auth.verify_code(body, request.headers.get("X-Device-Id", ""), background_tasks)
+        except APIError as error:
+            result = error_response(error)
+            result.background = background_tasks
+            return result
         response.set_cookie(
             SESSION_COOKIE,
             token,
@@ -128,6 +135,11 @@ def build_auth_router(auth: AuthService) -> APIRouter:
             raise APIError(400, "invalid_update", "Provide at least one field to update")
         result = auth.repository.update_user(user_id, changes, _actor(request), utc_now())
         return {"user": auth.public_user(result)}
+
+    @router.post("/admin/users/{user_id}/unlock", status_code=204)
+    def unlock_user(request: Request, user_id: str) -> Response:
+        auth.repository.unlock_user(user_id, _actor(request), utc_now())
+        return Response(status_code=204)
 
     @router.get("/admin/users/{user_id}/sessions")
     def admin_list_sessions(request: Request, user_id: str) -> dict[str, Any]:

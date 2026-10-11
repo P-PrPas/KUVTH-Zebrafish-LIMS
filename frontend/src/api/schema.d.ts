@@ -641,6 +641,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/admin/users/{user_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear sign-in failures and invalidate the old code */
+        post: operations["unlockMember"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/admin/users/{user_id}/sessions": {
         parameters: {
             query?: never;
@@ -3078,6 +3095,22 @@ export interface components {
             email: string;
             code: string;
         };
+        AuthMember: components["schemas"]["AuthUser"] & {
+            active: boolean;
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            /** Format: date-time */
+            invitedAt?: string | null;
+            /** Format: date-time */
+            loginLockedUntil: string | null;
+            syncDevices: {
+                deviceId: string;
+                pendingCount: number;
+                /** Format: date-time */
+                lastReportedAt: string;
+                stale: boolean;
+            }[];
+        };
         AuthUser: {
             /** Format: uuid */
             id: string;
@@ -4381,12 +4414,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Member list */
+            /** @description Member list including sign-in lock expiration */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AuthMember"][];
+                    };
+                };
             };
             /** @description Admin role required */
             403: {
@@ -4475,6 +4512,40 @@ export interface operations {
         responses: {
             /** @description Invitation email sent */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlockMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account unlocked; a new code may be requested immediately */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin role required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Member not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
