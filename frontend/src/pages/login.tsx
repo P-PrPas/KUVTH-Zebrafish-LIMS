@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { deviceId, request } from "../api/client";
-import { type AuthUser, finishPendingLogout, rememberUser, setOfflineQueueIdentity } from "../auth";
+import { type AuthUser, finishPendingLogout, KU_EMAIL_PATTERN, rememberUser, setOfflineQueueIdentity } from "../auth";
 
 type Props = { onLogin: (user: AuthUser) => void };
 
@@ -72,8 +72,8 @@ export function Login({ onLogin }: Props) {
       setError(
         status === 401
           ? th
-            ? "รหัสไม่ถูกต้องหรือหมดอายุ ขอรหัสใหม่แล้วลองอีกครั้ง"
-            : "That code is invalid or expired. Request a new one and try again."
+            ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
+            : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
           : (cause as Error).message,
       );
     } finally {
@@ -108,7 +108,7 @@ export function Login({ onLogin }: Props) {
               type="email"
               autoComplete="email"
               required
-              pattern=".+@ku\.th"
+              pattern={KU_EMAIL_PATTERN}
               title={th ? "ใช้เฉพาะอีเมลที่ลงท้ายด้วย @ku.th" : "Use an email ending in @ku.th"}
               placeholder="name@ku.th"
               value={email}
@@ -121,7 +121,7 @@ export function Login({ onLogin }: Props) {
         ) : (
           <form className="auth-form" onSubmit={verifyCode}>
             <p className="auth-recipient">
-              {th ? "ส่งรหัสไปที่" : "Code sent to"} <strong>{email}</strong>
+              {th ? "ตรวจสอบอีเมลของ" : "Check the inbox for"} <strong>{email}</strong>
             </p>
             <label htmlFor="login-code">{th ? "รหัสยืนยัน 6 หลัก" : "6-digit verification code"}</label>
             <input
@@ -140,7 +140,9 @@ export function Login({ onLogin }: Props) {
               onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             />
             <p className="auth-help" id="code-help">
-              {th ? "รหัสใช้ได้ครั้งเดียวและหมดอายุใน 10 นาที" : "The code works once and expires after 10 minutes."}
+              {th
+                ? "รหัสใช้ได้ครั้งเดียวใน 10 นาที ตรวจ Spam หากอีเมลไม่มา ขอซ้ำจะใช้รหัสเดิมจนหมดอายุหรือใส่ผิดครบ 5 ครั้ง"
+                : "The code works once for 10 minutes. Check spam if it is missing. Requesting again keeps the current code until it expires or fails 5 times."}
             </p>
             <button className="button button--primary auth-submit" type="submit" disabled={busy || code.length !== 6}>
               {busy ? (th ? "กำลังตรวจสอบ…" : "Verifying…") : th ? "ยืนยันและเข้าสู่ระบบ" : "Verify and sign in"}
@@ -173,6 +175,11 @@ export function Login({ onLogin }: Props) {
             </div>
           </form>
         )}
+        <p className="auth-help">
+          {th
+            ? "บัญชีที่ถูกล็อกจะขอรหัสไม่ได้ 24 ชั่วโมง ติดต่อผู้ดูแลเพื่อปลดล็อก"
+            : "Locked accounts cannot request codes for 24 hours. Contact an admin to unlock your account."}
+        </p>
         {error && (
           <p className="error auth-error" role="alert">
             {error}
