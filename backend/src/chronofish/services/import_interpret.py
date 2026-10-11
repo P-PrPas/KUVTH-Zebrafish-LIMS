@@ -207,6 +207,8 @@ def _embryo(block: dict[str, Any]) -> dict[str, Any]:
     context = block.get("sourceContext") or {}
 
     def contextual(column: str) -> Any:
+        if column in result:
+            return result[column]
         return context.get(column, {}).get("value")
 
     experiment_date = _day(contextual("B"))
@@ -304,6 +306,27 @@ def _embryo(block: dict[str, Any]) -> dict[str, Any]:
         "controlCounts": control_counts,
         "warnings": warnings,
     }
+
+
+def embryo_validation_errors(meaning: dict[str, Any]) -> list[tuple[str, str]]:
+    errors = []
+    if not meaning.get("experimentDate"):
+        errors.append(("B", "Experiment date is missing or invalid; correct this cell before confirming"))
+    running = str(meaning.get("sourceRunningNumber") or "").strip()
+    if not running or len(running) > 60:
+        errors.append(("AJ", "Source embryo number is required and must be at most 60 characters"))
+    for field, column, limit in (
+        ("activationSource", "AK", 100),
+        ("recipientSource", "C", 300),
+        ("eggCodeSource", "W", 150),
+        ("groupSource", "X", 150),
+        ("injectionSource", "Y", 150),
+        ("lotNoSource", "AC", 100),
+    ):
+        value = meaning.get(field)
+        if value is not None and len(str(value)) > limit:
+            errors.append((column, f"Source label must be at most {limit} characters"))
+    return errors
 
 
 def _specimen(cells: dict[str, Any]) -> dict[str, Any]:
