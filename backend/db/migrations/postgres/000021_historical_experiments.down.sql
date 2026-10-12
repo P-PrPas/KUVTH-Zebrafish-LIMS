@@ -1,0 +1,14 @@
+ALTER TABLE historical_embryo DROP CONSTRAINT IF EXISTS fk_hist_embryo_historical_lot;
+ALTER TABLE historical_embryo DROP CONSTRAINT IF EXISTS fk_hist_embryo_historical_experiment;
+DROP INDEX IF EXISTS ix_hist_embryo_historical_lot;
+DROP INDEX IF EXISTS ix_hist_embryo_historical_experiment;
+ALTER TABLE historical_embryo DROP COLUMN historical_lot_id;
+ALTER TABLE historical_embryo DROP COLUMN historical_experiment_id;
+ALTER TABLE historical_stage_count DROP CONSTRAINT IF EXISTS fk_hist_count_historical_lot;
+ALTER TABLE historical_stage_count DROP CONSTRAINT IF EXISTS fk_hist_count_historical_experiment;
+DROP INDEX IF EXISTS ix_hist_count_historical_lot;
+DROP INDEX IF EXISTS ix_hist_count_historical_experiment;
+ALTER TABLE historical_stage_count DROP COLUMN historical_lot_id;
+ALTER TABLE historical_stage_count DROP COLUMN historical_experiment_id;
+DROP TABLE historical_lot;
+DROP TABLE historical_experiment;

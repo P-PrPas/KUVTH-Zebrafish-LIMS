@@ -1,5 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { type ApiItem, get, request } from "../api/client";
+import { KU_EMAIL_PATTERN } from "../auth";
 import { Toast } from "../toast";
 import type { Language } from "../types";
 
@@ -9,6 +10,7 @@ type Member = ApiItem & {
   role: "admin" | "member" | "guest";
   active: boolean;
   verifiedAt?: string | null;
+  loginLockedUntil?: string | null;
   operatorId?: string | null;
   syncDevices: { deviceId: string; pendingCount: number; lastReportedAt: string; stale: boolean }[];
 };
@@ -25,6 +27,7 @@ export function Members({ language }: { language: Language }) {
   const [operators, setOperators] = useState<ApiItem[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { role: "admin" | "member" | "guest"; operatorId: string }>>({});
   const [sessions, setSessions] = useState<Record<string, Session[]>>({});
+  const [email, setEmail] = useState("");
   const [sender, setSender] = useState("");
   const [smtpConfigured, setSmtpConfigured] = useState(false);
   const [deactivateTarget, setDeactivateTarget] = useState<Member | null>(null);
@@ -49,6 +52,71 @@ export function Members({ language }: { language: Language }) {
   useEffect(() => {
     void reload().catch((cause) => setError(errorText(cause)));
   }, []);
+
+  async function submitInvitation(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setNotice(null);
+    try {
+      const response = await request("/auth/admin/users", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const result = await response.json();
+      setEmail("");
+      setNotice({
+        message: result.emailSent
+          ? th
+            ? "ส่งคำเชิญทางอีเมลแล้ว"
+            : "Invitation email sent."
+          : th
+            ? "สร้างบัญชีแล้ว แต่ส่งอีเมลไม่สำเร็จ กรุณากดส่งคำเชิญอีกครั้งในรายชื่อสมาชิก"
+            : "Account created, but email delivery failed. Use Resend invitation in the member list.",
+        tone: result.emailSent ? "success" : "danger",
+      });
+      await reload();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unlockMember(member: Member) {
+    setBusy(true);
+    setError("");
+    setNotice(null);
+    try {
+      await request(`/auth/admin/users/${member.id}/unlock`, { method: "POST", body: "{}" });
+      setNotice({
+        message: th ? "ปลดล็อกบัญชีแล้ว ขอรหัสใหม่ได้ทันที" : "Account unlocked. A new code can be requested now.",
+        tone: "success",
+      });
+      await reload();
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendInvitation(member: Member) {
+    setBusy(true);
+    setError("");
+    setNotice(null);
+    try {
+      await request(`/auth/admin/users/${member.id}/invite`, { method: "POST", body: "{}" });
+      setNotice({
+        message: th ? `ส่งคำเชิญไปที่ ${member.email} แล้ว` : `Invitation resent to ${member.email}.`,
+        tone: "success",
+      });
+    } catch (cause) {
+      setError(errorText(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function moveTab(event: KeyboardEvent<HTMLButtonElement>) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -187,6 +255,30 @@ export function Members({ language }: { language: Language }) {
         }}
       />
 
+      <section className="form-card members-invite">
+        <div>
+          <h2>{th ? "เชิญสมาชิก" : "Invite a member"}</h2>
+          <p className="muted">
+            {th ? "ระบบจะส่งคำเชิญไปยังอีเมลนี้ทันที" : "The system sends an invitation email immediately."}
+          </p>
+        </div>
+        <form className="members-inline-form" onSubmit={submitInvitation}>
+          <label htmlFor="invite-email">{th ? "อีเมลมหาวิทยาลัย" : "University email"}</label>
+          <input
+            id="invite-email"
+            type="email"
+            required
+            pattern={KU_EMAIL_PATTERN}
+            placeholder="name@ku.th"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <button className="button button--primary" disabled={busy}>
+            {th ? "เชิญสมาชิก" : "Send invitation"}
+          </button>
+        </form>
+      </section>
+
       <div className="tabs" role="tablist" aria-label={th ? "สถานะบัญชี" : "Account status"}>
         {memberTabs.map((tab) => (
           <button
@@ -243,6 +335,33 @@ export function Members({ language }: { language: Language }) {
                     </span>
                   </div>
                   <div className="member-card__actions">
+                    {member.loginLockedUntil && (
+                      <>
+                        <span role="status" className="error">
+                          {th ? "ล็อกการเข้าสู่ระบบถึง " : "Sign-in locked until "}
+                          {new Date(member.loginLockedUntil).toLocaleString(th ? "th-TH" : "en-US")}
+                        </span>
+                        <button
+                          className="button button--secondary"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void unlockMember(member)}
+                        >
+                          {th ? "ปลดล็อกบัญชี" : "Unlock account"}
+                        </button>
+                      </>
+                    )}
+                    {!member.verifiedAt && member.active && (
+                      <button
+                        className="button button--secondary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void resendInvitation(member)}
+                      >
+                        {th ? "ส่งคำเชิญอีกครั้ง" : "Resend invitation"}
+                      </button>
+                    )}
+
                     {member.active && (
                       <button
                         className="button button--secondary"

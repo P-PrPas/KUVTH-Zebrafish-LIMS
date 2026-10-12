@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { deviceId, request } from "../api/client";
-import { type AuthUser, finishPendingLogout, rememberUser, setOfflineQueueIdentity } from "../auth";
+import { type AuthUser, finishPendingLogout, KU_EMAIL_PATTERN, rememberUser, setOfflineQueueIdentity } from "../auth";
 import { notify } from "../notifications";
 import { ResearchArtwork } from "../research-artwork";
 
@@ -14,13 +14,13 @@ export function Login({ onLogin }: Props) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [code, setCode] = useState("");
-  const [mode, setMode] = useState<"login" | "register" | "reset">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset" | "otp">("login");
   const [step, setStep] = useState<"credentials" | "code">("credentials");
   const [cooldown, setCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const th = language === "th";
-  const settingPassword = mode !== "login";
+  const settingPassword = mode === "register" || mode === "reset";
   useEffect(() => {
     if (error) notify(error, "danger");
   }, [error]);
@@ -45,9 +45,9 @@ export function Login({ onLogin }: Props) {
   }
 
   async function sendCode() {
-    await request("/auth/register", {
+    await request(mode === "otp" ? "/auth/request-code" : "/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), ...(mode === "otp" ? {} : { password }) }),
     });
     setStep("code");
     setCooldown(60);
@@ -64,14 +64,18 @@ export function Login({ onLogin }: Props) {
     setBusy(true);
     try {
       await finishPendingLogout();
-      if (settingPassword && step === "credentials") {
+      if ((settingPassword || mode === "otp") && step === "credentials") {
         await sendCode();
         return;
       }
       const response = await request(step === "code" ? "/auth/verify-code" : "/auth/login", {
         method: "POST",
         headers: { "X-Device-Id": deviceId() },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password, ...(step === "code" ? { code } : {}) }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          ...(mode === "otp" ? {} : { password }),
+          ...(step === "code" ? { code } : {}),
+        }),
       });
       const result = (await response.json()) as { user: AuthUser };
       setPassword("");
@@ -81,7 +85,30 @@ export function Login({ onLogin }: Props) {
       onLogin(result.user);
       notify(th ? "เข้าสู่ระบบสำเร็จ" : "Signed in successfully.");
     } catch (cause) {
-      setError((cause as Error).message);
+      const status = (cause as Error & { status?: number }).status;
+      if (mode === "otp" && step === "code") {
+        setError(
+          status === 401
+            ? th
+              ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
+              : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
+            : (cause as Error).message,
+        );
+      } else if (mode === "otp") {
+        setError(
+          status === 429
+            ? th
+              ? "กรุณารอสักครู่ก่อนขอรหัสใหม่"
+              : "Please wait before requesting another code."
+            : status === 503
+              ? th
+                ? "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"
+                : "Email delivery is not configured yet. Contact an administrator."
+              : (cause as Error).message,
+        );
+      } else {
+        setError((cause as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -93,24 +120,51 @@ export function Login({ onLogin }: Props) {
     try {
       await sendCode();
     } catch (cause) {
-      setError((cause as Error).message);
+      const status = (cause as Error & { status?: number }).status;
+      if (mode === "otp" && step === "code") {
+        setError(
+          status === 401
+            ? th
+              ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
+              : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
+            : (cause as Error).message,
+        );
+      } else if (mode === "otp") {
+        setError(
+          status === 429
+            ? th
+              ? "กรุณารอสักครู่ก่อนขอรหัสใหม่"
+              : "Please wait before requesting another code."
+            : status === 503
+              ? th
+                ? "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"
+                : "Email delivery is not configured yet. Contact an administrator."
+              : (cause as Error).message,
+        );
+      } else {
+        setError((cause as Error).message);
+      }
     } finally {
       setBusy(false);
     }
   }
 
   const title =
-    mode === "register"
+    mode === "otp"
       ? th
-        ? "สมัครบัญชีใหม่"
-        : "Create an account"
-      : mode === "reset"
+        ? "\u0e40\u0e02\u0e49\u0e32\u0e2a\u0e39\u0e48\u0e23\u0e30\u0e1a\u0e1a\u0e14\u0e49\u0e27\u0e22\u0e23\u0e2b\u0e31\u0e2a\u0e2d\u0e35\u0e40\u0e21\u0e25"
+        : "Sign in to your lab"
+      : mode === "register"
         ? th
-          ? "ตั้งหรือรีเซ็ตรหัสผ่าน"
-          : "Set or reset your password"
-        : th
-          ? "เข้าสู่ระบบห้องปฏิบัติการ"
-          : "Sign in to your lab";
+          ? "สมัครบัญชีใหม่"
+          : "Create an account"
+        : mode === "reset"
+          ? th
+            ? "ตั้งหรือรีเซ็ตรหัสผ่าน"
+            : "Set or reset your password"
+          : th
+            ? "เข้าสู่ระบบห้องปฏิบัติการ"
+            : "Sign in to your lab";
 
   return (
     <main className="auth-shell auth-shell--login">
@@ -155,26 +209,31 @@ export function Login({ onLogin }: Props) {
                   autoComplete="username"
                   required
                   maxLength={254}
+                  pattern={KU_EMAIL_PATTERN}
                   placeholder="name@ku.th"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                 />
-                <label htmlFor="login-password">{th ? "รหัสผ่าน" : "Password"}</label>
-                <input
-                  id="login-password"
-                  name="password"
-                  type="password"
-                  autoComplete={settingPassword ? "new-password" : "current-password"}
-                  required
-                  minLength={8}
-                  maxLength={128}
-                  aria-describedby="password-help"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
-                <p className="auth-help" id="password-help">
-                  {th ? "8 ตัวขึ้นไป" : "At least 8 characters."}
-                </p>
+                {mode !== "otp" && (
+                  <>
+                    <label htmlFor="login-password">{th ? "รหัสผ่าน" : "Password"}</label>
+                    <input
+                      id="login-password"
+                      name="password"
+                      type="password"
+                      autoComplete={settingPassword ? "new-password" : "current-password"}
+                      required
+                      minLength={8}
+                      maxLength={128}
+                      aria-describedby="password-help"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                    <p className="auth-help" id="password-help">
+                      {th ? "8 ตัวขึ้นไป" : "At least 8 characters."}
+                    </p>
+                  </>
+                )}
                 {settingPassword && (
                   <>
                     <label htmlFor="confirm-password">{th ? "ยืนยันรหัสผ่าน" : "Confirm password"}</label>
@@ -249,11 +308,24 @@ export function Login({ onLogin }: Props) {
             </p>
           )}
           <div className="auth-actions">
+            {mode === "login" && (
+              <button
+                data-login-mode="otp"
+                className="text-button"
+                type="button"
+                disabled={busy}
+                onClick={() => switchMode("otp")}
+              >
+                {th
+                  ? "\u0e40\u0e02\u0e49\u0e32\u0e2a\u0e39\u0e48\u0e23\u0e30\u0e1a\u0e1a\u0e14\u0e49\u0e27\u0e22\u0e23\u0e2b\u0e31\u0e2a\u0e2d\u0e35\u0e40\u0e21\u0e25"
+                  : "Sign in with an email code"}
+              </button>
+            )}
             <button
               className="text-button"
               type="button"
               disabled={busy}
-              onClick={() => switchMode(mode === "login" ? "register" : "login")}
+              onClick={() => switchMode(mode === "otp" ? "otp" : mode === "login" ? "register" : "login")}
             >
               {mode === "login" ? (th ? "สมัครบัญชีใหม่" : "Create an account") : th ? "กลับไปเข้าสู่ระบบ" : "Back to sign in"}
             </button>

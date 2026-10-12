@@ -121,7 +121,7 @@ def recompute_fish(state: State, fish_id: str) -> None:
             fish.update(
                 {"status": latest["outcome"], "exitDate": latest["observedOn"], "exitReason": latest["outcome"]}
             )
-    else:
+    elif not fish.get("importJobId"):
         fish["status"] = "ALIVE"
         fish.pop("exitDate", None)
         fish.pop("exitReason", None)
@@ -166,9 +166,8 @@ def apply_fish_update(state: State, fish_id: str, body: dict[str, Any]) -> tuple
     if "finClipped" in body and not isinstance(body["finClipped"], bool):
         raise APIError(422, "validation_error", "finClipped ต้องเป็น boolean")
     if "fishBoxId" in body and body["fishBoxId"]:
-        box = state.entities["fish-boxes"].get(str(body["fishBoxId"]))
-        if not box or box.get("active") is False or box.get("deletedAt") is not None:
-            raise APIError(422, "validation_error", "ไม่พบ fishBoxId ที่ active")
+        if not fish_box_is_assignable(state, str(body["fishBoxId"]), str(fish.get("siteId") or "")):
+            raise APIError(422, "validation_error", "ไม่พบ fishBoxId ที่ active ใน site นี้")
     if body.get("fishCode") and any(
         item["id"] != fish_id and str(item.get("fishCode", "")).casefold() == str(body["fishCode"]).casefold()
         for item in state.entities["fish"].values()

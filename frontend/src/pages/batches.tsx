@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
+import { cachedUser } from "../auth";
 import { Empty, ErrorMessage, RecordingOperator } from "../components";
 import { parseFilters, withFilters } from "../filters";
 import { notify } from "../notifications";
@@ -7,6 +8,7 @@ import { saveObservationLocation } from "../observation-draft";
 import { putQueue, type QueuedWrite } from "../offline";
 import { dateTimeLocalToRFC3339, formatBangkokDate, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
 import { type AppText, text } from "../types";
+import { CorrectionRequestButton } from "./corrections";
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
 const dateTimeInput = (value: string) =>
@@ -229,6 +231,7 @@ function BatchForm({
   onQueued?: (batch: ApiItem) => void;
 }) {
   const thai = t === text.th;
+  const isMember = cachedUser()?.role === "member";
   const [form, setForm] = useState({
     batchCode: String(batch?.batchCode ?? ""),
     dayNo: String(batch?.dayNo ?? ""),
@@ -255,6 +258,7 @@ function BatchForm({
     "csof-lots": [],
   });
   const [error, setError] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
   useEffect(() => {
     void Promise.all(
       [
@@ -296,6 +300,7 @@ function BatchForm({
       replicateNo: form.replicateNo ? Number(form.replicateNo) : null,
       incubationTempC: form.incubationTempC ? Number(form.incubationTempC) : null,
       notes: form.notes || null,
+      ...(batch ? { correctionReason: correctionReason.trim() } : {}),
     };
     try {
       const result = (await putQueue(
@@ -380,7 +385,12 @@ function BatchForm({
         <div className="form-card--inline batch-form__fields batch-form__fields--team">
           <label>
             {thai ? "ผู้ปฏิบัติงาน" : "Operator"}
-            <select required value={form.operatorId} onChange={(e) => set("operatorId", e.target.value)}>
+            <select
+              required
+              disabled={isMember}
+              value={form.operatorId}
+              onChange={(e) => set("operatorId", e.target.value)}
+            >
               <option value="">{thai ? "เลือกผู้ปฏิบัติงาน" : "Choose operator"}</option>
               {(masters.operators ?? []).map((item) => (
                 <option key={String(item.id)} value={String(item.id)}>
@@ -473,6 +483,17 @@ function BatchForm({
           </div>
         </div>
       </details>
+      {batch && (
+        <label>
+          {thai ? "เหตุผลที่แก้ไข" : "Correction reason"}
+          <textarea
+            required
+            maxLength={2000}
+            value={correctionReason}
+            onChange={(event) => setCorrectionReason(event.target.value)}
+          />
+        </label>
+      )}
       {error && <ErrorMessage message={error} toast />}
       <div className="form-actions">
         <RecordingOperator />
@@ -485,6 +506,7 @@ function BatchForm({
 }
 
 function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack: () => void }) {
+  const signedInUser = cachedUser();
   const [detail, setDetail] = useState<ApiItem | null>(null);
   const [embryos, setEmbryos] = useState<Record<string, ApiItem[]>>({});
   const [message, setMessage] = useState("");
@@ -552,6 +574,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   }, [batch.id, load]);
   const setLotValue = (key: string, value: string) => setLot((current) => ({ ...current, [key]: value }));
   const existingLots = (detail?.injectionLots as ApiItem[] | undefined) ?? [];
+  const canEditBatch = signedInUser?.role === "admin" || detail?.canEditDirectly === true;
   const fallbackNextLotNo = Math.max(0, ...existingLots.map((item) => Number(item.lotNo)).filter(Number.isFinite)) + 1;
   const nextLotNo = String(detail?.nextLotNo ?? fallbackNextLotNo);
   const currentLotNo = templateId ? lot.lotNo : nextLotNo;
@@ -723,6 +746,11 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     }
   };
   const updateWell = async (embryo: ApiItem, wellPosition: string | null) => {
+    const correctionReason =
+      embryo.wellPosition != null
+        ? window.prompt(thai ? "เหตุผลที่แก้ไขตำแหน่งหลุม" : "Reason for changing this well")
+        : null;
+    if (embryo.wellPosition != null && !correctionReason?.trim()) return;
     const lotId = String(embryo.injectionLotId ?? "");
     const previous = embryos[lotId] ?? [];
     setEmbryos((current) => ({
@@ -732,7 +760,15 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       ),
     }));
     try {
-      await putQueue(`/embryos/${embryo.id}`, { wellPosition: wellPosition || null }, "application/json", "PATCH");
+      await putQueue(
+        `/embryos/${embryo.id}`,
+        {
+          wellPosition: wellPosition || null,
+          ...(correctionReason ? { correctionReason: correctionReason.trim() } : {}),
+        },
+        "application/json",
+        "PATCH",
+      );
       if (!String(embryo.id).startsWith("queued-")) load();
     } catch (e) {
       setEmbryos((current) => ({ ...current, [lotId]: previous }));
@@ -807,11 +843,19 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           >
             {showLotForm ? (thai ? "ปิดแบบฟอร์ม" : "Close form") : thai ? "+ เพิ่มชุดตัวอ่อน" : "+ Add injection lot"}
           </button>
-          <button className="button button--secondary" onClick={() => setEditing(!editing)}>
-            {thai ? "แก้ไขข้อมูลการทดลอง" : "Edit batch"}
-          </button>
+          {canEditBatch && (
+            <button className="button button--secondary" onClick={() => setEditing(!editing)}>
+              {thai ? "แก้ไขข้อมูลการทดลอง" : "Edit batch"}
+            </button>
+          )}
           <button className="button button--secondary" onClick={() => void duplicate()}>
-            {thai ? "ทำสำเนาการทดลอง" : "Duplicate"}
+            {signedInUser?.role === "member"
+              ? thai
+                ? "ทำสำเนาเป็นการทดลองของฉัน"
+                : "Duplicate for my operator"
+              : thai
+                ? "ทำสำเนาการทดลอง"
+                : "Duplicate"}
           </button>
         </div>
       </div>
@@ -851,8 +895,11 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           <strong>{String((detail?.injectionLots ?? []).length)}</strong>
         </div>
       </div>
+      {detail && !String(detail.id).startsWith("queued-") && (
+        <CorrectionRequestButton table="experiment_batch" item={detail} language={thai ? "th" : "en"} />
+      )}
       {message && <ErrorMessage message={message} />}
-      {editing && detail && (
+      {editing && detail && canEditBatch && (
         <BatchForm
           t={t}
           batch={detail}
@@ -1027,6 +1074,9 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       )}
       {(detail?.injectionLots ?? []).map((item: ApiItem) => (
         <article className="form-card lot-card" key={String(item.id)}>
+          {!String(item.id).startsWith("queued-") && (
+            <CorrectionRequestButton table="injection_lot" item={item} language={thai ? "th" : "en"} />
+          )}
           <div className="page-heading">
             <div>
               <h2>
@@ -1107,20 +1157,27 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                       </td>
                       <td>{String(embryo.embryoCode)}</td>
                       <td>
-                        <button
-                          className="inline-action inline-action--danger"
-                          type="button"
-                          onClick={() => void updateWell(embryo, null)}
-                        >
-                          {thai ? "เอาออกจากหลุม" : "Clear well"}
-                        </button>
-                        <button
-                          className="inline-action inline-action--danger"
-                          type="button"
-                          onClick={() => void deleteEmbryo(embryo)}
-                        >
-                          {thai ? "ลบตัวอ่อน" : "Delete embryo"}
-                        </button>
+                        {embryo.wellPosition != null && (
+                          <CorrectionRequestButton table="embryo" item={embryo} language={thai ? "th" : "en"} />
+                        )}
+                        {signedInUser?.role === "admin" && (
+                          <button
+                            className="inline-action inline-action--danger"
+                            type="button"
+                            onClick={() => void updateWell(embryo, null)}
+                          >
+                            {thai ? "เอาออกจากหลุม" : "Clear well"}
+                          </button>
+                        )}
+                        {signedInUser?.role === "admin" && (
+                          <button
+                            className="inline-action inline-action--danger"
+                            type="button"
+                            onClick={() => void deleteEmbryo(embryo)}
+                          >
+                            {thai ? "ลบตัวอ่อน" : "Delete embryo"}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

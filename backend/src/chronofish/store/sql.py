@@ -49,7 +49,7 @@ def _columns(value: str) -> frozenset[str]:
 
 
 TABLE_COLUMNS = {
-    "site": "id code name active created_at updated_at deleted_at",
+    "site": "id code name time_zone active created_at updated_at deleted_at",
     "operator": "id site_id name active created_at updated_at deleted_at",
     "donor_cell_line": (
         "id strain preparation batch_code preservation sample_info active created_at updated_at deleted_at"
@@ -88,6 +88,7 @@ TABLE_COLUMNS = {
     """,
     "clone_fish": """
         id embryo_id fish_code running_no dob donor_cell_line_id site_id fish_box_id status
+        import_job_id life_state disposition
         biological_condition first_abnormal_on first_abnormal_age_days first_abnormal_stage_id sex
         recipient_egg_lot_id health_status
         fin_clipped exit_date exit_reason remarks created_at updated_at deleted_at
@@ -97,8 +98,8 @@ TABLE_COLUMNS = {
         device_id is_backdated health_status notes created_at updated_at deleted_at
     """,
     "specimen": """
-        id clone_fish_id specimen_code specimen_kind specimen_type collected_on frozen_on storage notes
-        created_at updated_at deleted_at
+        id clone_fish_id specimen_code specimen_kind specimen_type preservation_state
+        collected_on frozen_on storage notes created_at updated_at deleted_at
     """,
 }
 TABLE_COLUMNS = {table: _columns(columns) for table, columns in TABLE_COLUMNS.items()}
@@ -203,6 +204,13 @@ class SQLStore:
                     item["firstAbnormalStageCode"] = stage_by_id.get(str(item["firstAbnormalStageId"]))
                 records[str(item["id"])] = item
             state.entities[resource] = records
+        for row in connection.execute(text("SELECT specimen_id, clone_fish_id FROM specimen_fish_link")).mappings():
+            specimen = state.entities["specimens"].get(str(row["specimen_id"]))
+            if specimen is not None:
+                linked = specimen.setdefault("linkedFishIds", [])
+                fish_id = str(row["clone_fish_id"])
+                if fish_id not in linked:
+                    linked.append(fish_id)
         profiles = state.entities["timing-profiles"]
         for profile in profiles.values():
             profile["entries"] = []
@@ -233,6 +241,27 @@ class SQLStore:
                 )
         state.observations = self._load_observations(connection, "embryo_observation", stage_by_id)
         state.fish_observations = self._load_observations(connection, "fish_observation", stage_by_id)
+        for row in self._rows(connection, "correction_request"):
+            state.correction_requests[str(row["id"])] = {
+                "id": str(row["id"]),
+                "requesterId": str(row["requester_id"]),
+                "requesterEmail": str(row["requester_email"]),
+                "recordedOperatorId": str(row["recorded_operator_id"]) if row["recorded_operator_id"] else None,
+                "recordedByUserId": str(row["recorded_by_user_id"]) if row["recorded_by_user_id"] else None,
+                "targetTable": str(row["target_table"]),
+                "targetId": str(row["target_id"]),
+                "fieldName": str(row["field_name"]),
+                "oldValue": _decode_json(row["old_value"]),
+                "proposedValue": _decode_json(row["proposed_value"]),
+                "sourceUpdatedAt": str(row["source_updated_at"]),
+                "reason": str(row["reason"]),
+                "status": str(row["status"]),
+                "decisionReason": row["decision_reason"],
+                "decidedByUserId": str(row["decided_by_user_id"]) if row["decided_by_user_id"] else None,
+                "appliedAuditId": str(row["applied_audit_id"]) if row["applied_audit_id"] else None,
+                "createdAt": _api_value("created_at", row["created_at"]),
+                "updatedAt": _api_value("updated_at", row["updated_at"]),
+            }
         self._hydrate_derived(state)
         state.next_fish_no = int(
             connection.execute(
@@ -386,6 +415,34 @@ class SQLStore:
         self._sync_collection(
             connection, "fish_observation", before.fish_observations, after.fish_observations, stage_ids, False
         )
+        for item_id, item in after.correction_requests.items():
+            previous = before.correction_requests.get(item_id)
+            if previous == item:
+                continue
+            values = {
+                "id": item_id,
+                "requester_id": item["requesterId"],
+                "requester_email": item["requesterEmail"],
+                "recorded_operator_id": item.get("recordedOperatorId"),
+                "recorded_by_user_id": item.get("recordedByUserId"),
+                "target_table": item["targetTable"],
+                "target_id": item["targetId"],
+                "field_name": item["fieldName"],
+                "old_value": json.dumps(item["oldValue"], ensure_ascii=False),
+                "proposed_value": json.dumps(item["proposedValue"], ensure_ascii=False),
+                "source_updated_at": item["sourceUpdatedAt"],
+                "reason": item["reason"],
+                "status": item["status"],
+                "decision_reason": item.get("decisionReason"),
+                "decided_by_user_id": item.get("decidedByUserId"),
+                "applied_audit_id": item.get("appliedAuditId"),
+                "created_at": _database_value("created_at", item["createdAt"]),
+                "updated_at": _database_value("updated_at", item["updatedAt"]),
+            }
+            if previous is None:
+                self._insert(connection, "correction_request", values)
+            else:
+                self._update(connection, "correction_request", item_id, values)
         for item in after.audits[len(before.audits) :]:
             self._insert(
                 connection,
@@ -422,7 +479,7 @@ class SQLStore:
                     {"id": FISH_SEQUENCE_ID},
                 ).scalar_one()
                 state = self._load_state(connection)
-                operator_id, device_id, key = validate_write_context(request, state)
+                operator_id, device_id, key = validate_write_context(request, state, body)
                 previous = (
                     connection.execute(
                         text(
@@ -460,7 +517,7 @@ class SQLStore:
                         "status_code": status,
                         "content_type": media_type,
                         "response_body": "base64:" + base64.b64encode(encoded).decode(),
-                        "operator_id": operator_id,
+                        "operator_id": operator_id or None,
                         "device_id": device_id,
                         "created_at": now,
                         "completed_at": now,
@@ -472,11 +529,28 @@ class SQLStore:
         except IntegrityError as error:
             raise APIError(409, "conflict", "the write conflicts with an existing record") from error
 
+    def creator_for_record(self, table: str, record_id: str) -> str | None:
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text(
+                        "SELECT actor_user_id FROM audit_log "
+                        "WHERE table_name = :table AND record_id = :record_id AND action = 'INSERT' "
+                        "ORDER BY occurred_at ASC, id ASC LIMIT 1"
+                    ),
+                    {"table": table, "record_id": record_id},
+                )
+                .mappings()
+                .first()
+            )
+        return str(row["actor_user_id"]) if row and row["actor_user_id"] else None
+
     def query_audits(
         self,
         *,
         table: str | None,
         record_id: str | None,
+        audit_id: str | None = None,
         operator_id: str | None,
         from_time: datetime | None,
         to_time: datetime | None,
@@ -488,6 +562,9 @@ class SQLStore:
             if value:
                 where.append(f"{column} = :{column}")
                 values[column] = value
+        if audit_id:
+            where.append("id = :audit_id")
+            values["audit_id"] = audit_id
         if from_time:
             where.append("occurred_at >= :from_time")
             values["from_time"] = from_time.replace(tzinfo=None)

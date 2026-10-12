@@ -10,7 +10,11 @@ export type Page =
   | "promotions"
   | "audit"
   | "export"
-  | "members";
+  | "members"
+  | "admin"
+  | "imports"
+  | "corrections"
+  | "my-requests";
 export type Language = "th" | "en";
 export type AppText = typeof text.th;
 

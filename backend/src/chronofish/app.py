@@ -14,9 +14,11 @@ from . import __version__
 from .api.routes.analytics import build_analytics_router
 from .api.routes.audit import build_audit_router
 from .api.routes.auth import build_auth_router
+from .api.routes.corrections import build_corrections_router
 from .api.routes.experiments import build_experiments_router
 from .api.routes.exports import build_export_router
 from .api.routes.fish import build_fish_router
+from .api.routes.imports import build_import_router
 from .api.routes.master import build_master_router
 from .api.routes.observations import build_observations_router
 from .api.routes.timing import build_timing_router
@@ -28,6 +30,7 @@ from .store import MemoryStore, Store
 
 LOGGER = logging.getLogger("chronofish.http")
 MAX_REQUEST_BYTES = 10 * 1024 * 1024
+MAX_IMPORT_REQUEST_BYTES = 52 * 1024 * 1024
 MAX_RATE_LIMIT_CLIENTS = 10_000
 
 
@@ -48,15 +51,6 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
     app.state.auth = auth
     if close_store := getattr(store, "close", None):
         app.router.add_event_handler("shutdown", close_store)
-    if config.allowed_origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=list(config.allowed_origins),
-            allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key", "X-Actor-User-Id"],
-        )
-
     hits: OrderedDict[str, deque[float]] = OrderedDict()
     app.state.rate_limit_hits = hits
 
@@ -103,7 +97,9 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             content_length = int(request.headers.get("content-length", "0") or 0)
         except ValueError:
             return secure(error_response(APIError(400, "invalid_request", "Content-Length is invalid")))
-        if content_length > MAX_REQUEST_BYTES:
+        import_upload = request.method == "POST" and request.url.path in {"/api/v1/imports", "/api/v1/imports/inspect"}
+        max_request_bytes = MAX_IMPORT_REQUEST_BYTES if import_upload else MAX_REQUEST_BYTES
+        if content_length > max_request_bytes:
             return secure(error_response(APIError(413, "request_too_large", "request body is too large")))
         received_bytes = 0
         receive = request._receive
@@ -113,7 +109,7 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             message = await receive()
             if message.get("type") == "http.request":
                 received_bytes += len(message.get("body", b""))
-                if received_bytes > MAX_REQUEST_BYTES:
+                if received_bytes > max_request_bytes:
                     raise APIError(413, "request_too_large", "request body is too large")
             return message
 
@@ -123,7 +119,13 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
         except APIError as error:
             return secure(error_response(error))
         media_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
-        expected_media_type = "text/csv" if request.url.path == "/api/v1/timing-profiles/csv" else "application/json"
+        expected_media_type = (
+            "multipart/form-data"
+            if import_upload
+            else "text/csv"
+            if request.url.path == "/api/v1/timing-profiles/csv"
+            else "application/json"
+        )
         body_required = request.method in {"POST", "PUT", "PATCH"} and request.url.path != "/api/v1/auth/logout"
         if (body_required or content_length) and media_type != expected_media_type:
             return secure(
@@ -144,7 +146,9 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
                 return secure(error_response(APIError(401, "authentication_required", "Sign in to continue")))
             request.state.user = user
             guest_allowed = path in {
-                "/api/v1/analytics/guest-dashboard", "/api/v1/auth/me", "/api/v1/auth/sessions",
+                "/api/v1/analytics/guest-dashboard",
+                "/api/v1/auth/me",
+                "/api/v1/auth/sessions",
                 "/api/v1/auth/devices/sync-status",
             } or path.startswith("/api/v1/auth/sessions/")
             if user["role"] == "guest" and not guest_allowed:
@@ -157,7 +161,11 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
                             APIError(401, "actor_mismatch", "Sign in again as the account that recorded this work")
                         )
                     )
-            admin_only = path.startswith("/api/v1/auth/admin/")
+            admin_only = (
+                path.startswith("/api/v1/auth/admin/")
+                or path.startswith("/api/v1/audit-log")
+                or path.startswith("/api/v1/imports")
+            )
             master_resources = {
                 "sites",
                 "operators",
@@ -172,6 +180,8 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             }
             resource = path.removeprefix("/api/v1/").split("/", 1)[0]
             if request.method in {"POST", "PUT", "PATCH", "DELETE"} and resource in master_resources:
+                admin_only = True
+            if request.method == "DELETE" and resource == "embryos":
                 admin_only = True
             if admin_only and user["role"] != "admin":
                 return secure(error_response(APIError(403, "admin_required", "Admin access is required")))
@@ -191,16 +201,27 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
         )
         return secure(response)
 
+    if config.allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(config.allowed_origins),
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "X-Operator-Id", "X-Device-Id", "X-Idempotency-Key", "X-Actor-User-Id"],
+        )
+
     @app.get("/api/v1/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
     app.include_router(build_auth_router(auth))
+    app.include_router(build_corrections_router(store))
     app.include_router(build_master_router(store))
     app.include_router(build_timing_router(store))
     app.include_router(build_experiments_router(store))
     app.include_router(build_observations_router(store))
     app.include_router(build_fish_router(store))
+    app.include_router(build_import_router(store))
     app.include_router(build_analytics_router(store))
     app.include_router(build_export_router(store))
     app.include_router(build_audit_router(store))

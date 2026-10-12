@@ -1,3 +1,9 @@
+-- ===========================================================================
+-- GENERATED FILE — do not edit by hand.
+-- Source: backend/db/migrations/postgres/000012_authentication.up.sql
+-- Regenerate: python3 scripts/gen_mysql_migrations.py
+-- ===========================================================================
+
 CREATE TABLE auth_user (
     id CHAR(36) NOT NULL,
     email VARCHAR(254) NOT NULL,
@@ -21,10 +27,10 @@ CREATE TABLE auth_login_challenge (
     email VARCHAR(254) NOT NULL,
     code_hash CHAR(64) NOT NULL,
     expires_at DATETIME(3) NOT NULL,
-    attempts INT NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
     last_sent_at DATETIME(3) NOT NULL,
     window_started_at DATETIME(3) NOT NULL,
-    send_count INT NOT NULL DEFAULT 1,
+    send_count INTEGER NOT NULL DEFAULT 1,
     CONSTRAINT pk_auth_login_challenge PRIMARY KEY (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
@@ -39,14 +45,14 @@ CREATE TABLE auth_session (
     revoked_at DATETIME(3) NULL,
     CONSTRAINT pk_auth_session PRIMARY KEY (id),
     CONSTRAINT uq_auth_session_token UNIQUE (token_hash),
-    CONSTRAINT fk_auth_session_user FOREIGN KEY (user_id) REFERENCES auth_user (id),
-    INDEX ix_auth_session_user (user_id, last_seen_at)
+    CONSTRAINT fk_auth_session_user FOREIGN KEY (user_id) REFERENCES auth_user (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+CREATE INDEX ix_auth_session_user ON auth_session (user_id, last_seen_at);
 
 CREATE TABLE auth_device_sync (
     user_id CHAR(36) NOT NULL,
     device_id VARCHAR(64) NOT NULL,
-    pending_count INT NOT NULL,
+    pending_count INTEGER NOT NULL,
     last_reported_at DATETIME(3) NOT NULL,
     CONSTRAINT pk_auth_device_sync PRIMARY KEY (user_id, device_id),
     CONSTRAINT fk_auth_device_sync_user FOREIGN KEY (user_id) REFERENCES auth_user (id),

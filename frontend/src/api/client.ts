@@ -85,6 +85,15 @@ export function deviceId(): string {
 }
 
 export function operatorId(): string {
+  try {
+    const user = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null") as {
+      role?: string;
+      operatorId?: string | null;
+    } | null;
+    if (user?.role === "member") return user.operatorId ?? "";
+  } catch {
+    return "";
+  }
   const current = sessionStorage.getItem("chronofish.operator_id");
   if (current) return current;
   // Migrate the pre-session setting once; mutations thereafter remain scoped
@@ -119,13 +128,31 @@ export function mutationHeaders(key = uuidv7()): Record<string, string> {
   };
 }
 
+export function accountMutationHeaders(key = uuidv7()): Record<string, string> {
+  let actorUserId = "";
+  try {
+    actorUserId = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null")?.id ?? "";
+  } catch {
+    actorUserId = "";
+  }
+  return {
+    "X-Device-Id": deviceId(),
+    "X-Idempotency-Key": key,
+    ...(actorUserId ? { "X-Actor-User-Id": actorUserId } : {}),
+  };
+}
+
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const authRequest = path.startsWith("/auth/");
   const headers: Record<string, string> = {
     Accept: "application/json",
-    ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(method !== "GET" && method !== "HEAD" && !authRequest ? mutationHeaders() : {}),
+    ...(init.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
+    ...(method !== "GET" && method !== "HEAD" && !authRequest
+      ? path.startsWith("/corrections") || path.startsWith("/imports")
+        ? accountMutationHeaders()
+        : mutationHeaders()
+      : {}),
     ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: "include", headers });

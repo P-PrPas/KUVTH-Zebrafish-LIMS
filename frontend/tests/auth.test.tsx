@@ -234,7 +234,7 @@ describe("KU authentication", () => {
     });
     vi.stubGlobal("fetch", fetch);
     await act(async () => root.render(<Members language="en" />));
-    expect(container.textContent).not.toContain("Invite a member");
+    expect(container.textContent).toContain("Invite a member");
     const access = container.querySelector<HTMLDetailsElement>(".member-access")!;
     expect(access.open).toBe(false);
     expect(container.querySelector(".member-card__identity")?.textContent).toContain("guest");
