@@ -33,6 +33,7 @@ from .observations import _interval_metrics, _recompute_embryo, _recompute_inter
 LOGGER = logging.getLogger("chronofish.corrections")
 BANGKOK = ZoneInfo("Asia/Bangkok")
 FIELDS = {
+    "auth_user": {"operatorId"},
     "experiment_batch": {
         "experimentDate",
         "dayNo",
@@ -93,11 +94,18 @@ def _value_label(state: State, field: str, value: Any) -> str | None:
     )
 
 
-def _target(state: State, table: str, target_id: str) -> dict[str, Any]:
+def _target(state: State, table: str, target_id: str, request: Request | None = None) -> dict[str, Any]:
     try:
         UUID(target_id)
     except ValueError as error:
         raise APIError(400, "invalid_target", "Record id must be a UUID") from error
+    if table == "auth_user" and request is not None:
+        if request.state.user["role"] != "admin" and request.state.user["id"] != target_id:
+            raise APIError(403, "forbidden", "You can only request changes to your own account")
+        user = request.app.state.auth.repository.user_by_id(target_id)
+        if not user or not user["active"]:
+            raise APIError(404, "not_found", "Active account not found")
+        return user
     collection = {
         "experiment_batch": state.entities["batches"],
         "injection_lot": state.entities["injection-lots"],
@@ -115,7 +123,7 @@ def _target(state: State, table: str, target_id: str) -> dict[str, Any]:
 
 
 def _operator_id(state: State, table: str, item: dict[str, Any]) -> str | None:
-    if table in {"experiment_batch", "embryo_observation", "fish_observation"}:
+    if table in {"auth_user", "experiment_batch", "embryo_observation", "fish_observation"}:
         return str(item.get("operatorId") or "") or None
     if table == "injection_lot":
         batch = state.entities["batches"].get(str(item.get("batchId")), {})
@@ -131,6 +139,8 @@ def _operator_id(state: State, table: str, item: dict[str, Any]) -> str | None:
 
 
 def _target_label(state: State, table: str, item: dict[str, Any]) -> str:
+    if table == "auth_user":
+        return str(item["email"])
     if table == "experiment_batch":
         return str(item.get("batchCode") or item.get("id"))
     if table == "injection_lot":
@@ -152,10 +162,27 @@ def _target_label(state: State, table: str, item: dict[str, Any]) -> str:
 def _validate_and_apply(
     state: State, request: Request, table: str, target_id: str, field: str, value: Any, reason: str
 ) -> None:
-    item = _target(state, table, target_id)
+    item = _target(state, table, target_id, request)
     old = copy.deepcopy(item)
     candidate = {**item, field: value, "updatedAt": iso_now()}
-    if table == "experiment_batch":
+    if table == "auth_user":
+        operator = state.entities["operators"].get(str(value))
+        if item["role"] != "member":
+            raise APIError(422, "invalid_account", "Operator requests require an active member account")
+        if not isinstance(value, str) or not operator or operator.get("active") is False or operator.get("deletedAt"):
+            raise APIError(422, "invalid_operator", "Choose an active existing operator")
+        if any(
+            user["id"] != target_id and user.get("operatorId") == value
+            for user in request.app.state.auth.repository.list_users(utc_now())
+        ):
+            raise APIError(409, "operator_already_linked", "This operator is already linked to another account")
+        state.operator_changes[target_id] = {
+            "operatorId": value,
+            "expectedOperatorId": item.get("operatorId"),
+            "expectedUpdatedAt": item["updatedAt"],
+            "updatedAt": candidate["updatedAt"],
+        }
+    elif table == "experiment_batch":
         _validate_batch(state, candidate, target_id)
         experiment_date = date.fromisoformat(str(candidate["experimentDate"]))
         for lot in state.entities["injection-lots"].values():
@@ -288,7 +315,7 @@ def build_corrections_router(store: Store) -> APIRouter:
         item = copy.deepcopy(row)
         target = None
         try:
-            target = _target(state, row["targetTable"], row["targetId"])
+            target = _target(state, row["targetTable"], row["targetId"], request)
         except APIError:
             pass
         item["targetLabel"] = _target_label(state, row["targetTable"], target) if target else row["targetId"]
@@ -381,7 +408,7 @@ def build_corrections_router(store: Store) -> APIRouter:
     @router.get("/markers")
     def markers(request: Request, targetTable: str, targetId: str) -> dict[str, Any]:
         state = store.snapshot()
-        _target(state, targetTable, targetId)
+        _target(state, targetTable, targetId, request)
         pending = [
             row
             for row in state.correction_requests.values()
@@ -427,11 +454,13 @@ def build_corrections_router(store: Store) -> APIRouter:
         if isinstance(value, str) and len(value) > 2000 or isinstance(value, float) and not math.isfinite(value):
             raise APIError(422, "validation_error", "The proposed value is invalid")
         user = request.state.user
+        if table == "auth_user" and (user["role"] != "member" or target_id != user["id"]):
+            raise APIError(403, "forbidden", "Only members can request a change to their own operator")
         creator_query = getattr(store, "creator_for_record", None)
         recorded_by = creator_query(table, target_id) if creator_query else None
 
         def operation(state: State):
-            current = _target(state, table, target_id)
+            current = _target(state, table, target_id, request)
             if current.get(field) == value:
                 raise APIError(422, "no_change", "The proposed value matches the current value")
             if any(
@@ -444,6 +473,8 @@ def build_corrections_router(store: Store) -> APIRouter:
             ):
                 raise APIError(409, "duplicate_request", "You already have a pending request for this field")
             now, request_id = iso_now(), uuid7()
+            if table == "auth_user":
+                _validate_and_apply(copy.deepcopy(state), request, table, target_id, field, value, reason)
             original_actor = recorded_by or next(
                 (
                     entry.get("actorUserId")
@@ -474,6 +505,8 @@ def build_corrections_router(store: Store) -> APIRouter:
                 "createdAt": now,
                 "updatedAt": now,
             }
+            if table == "auth_user":
+                row["recordedByUserId"] = user["id"]
             state.correction_requests[request_id] = row
             audit(state, request, "INSERT", "correction_request", request_id, None, row)
             return 201, row
@@ -529,7 +562,7 @@ def build_corrections_router(store: Store) -> APIRouter:
                 raise APIError(409, "invalid_state", "This request has already been resolved")
             if decision == "approve":
                 try:
-                    current = _target(state, row["targetTable"], row["targetId"])
+                    current = _target(state, row["targetTable"], row["targetId"], request)
                 except APIError as error:
                     raise APIError(
                         409, "source_changed", "The original record is no longer available. Reject this request"

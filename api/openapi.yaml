@@ -2776,6 +2776,11 @@ paths:
     post:
       tags: [Corrections]
       summary: Submit a single-field correction request
+      description: >
+        Members may also request a linked operator change using targetTable auth_user,
+        their own account id, fieldName operatorId, and an active unassigned operator.
+        Only an admin may approve; the account change, request decision and audits
+        commit together. This does not allow members to change their role or another account.
       operationId: createCorrection
       x-account-write: true
       parameters:

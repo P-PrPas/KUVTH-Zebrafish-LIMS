@@ -36,6 +36,8 @@ export function Members({ language }: { language: Language }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState<{ message: string; tone: "success" | "danger" } | null>(null);
   const [status, setStatus] = useState<(typeof memberTabs)[number]>("active");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   async function reload() {
     const [users, operatorData, mailSettings] = await Promise.all([
@@ -65,6 +67,7 @@ export function Members({ language }: { language: Language }) {
       });
       const result = await response.json();
       setEmail("");
+      setInviteOpen(false);
       setNotice({
         message: result.emailSent
           ? th
@@ -245,6 +248,15 @@ export function Members({ language }: { language: Language }) {
               : "Review registered @ku.th guests, grant member access, and manage roles and operators."}
           </p>
         </div>
+        <button
+          className="button button--primary"
+          type="button"
+          aria-expanded={inviteOpen}
+          aria-controls="member-invitation"
+          onClick={() => setInviteOpen(!inviteOpen)}
+        >
+          {th ? "เชิญสมาชิก" : "Invite a member"}
+        </button>
       </header>
 
       <Toast
@@ -255,7 +267,7 @@ export function Members({ language }: { language: Language }) {
         }}
       />
 
-      <section className="form-card members-invite">
+      <section className="form-card members-invite" id="member-invitation" hidden={!inviteOpen}>
         <div>
           <h2>{th ? "เชิญสมาชิก" : "Invite a member"}</h2>
           <p className="muted">
@@ -279,26 +291,37 @@ export function Members({ language }: { language: Language }) {
         </form>
       </section>
 
-      <div className="tabs" role="tablist" aria-label={th ? "สถานะบัญชี" : "Account status"}>
-        {memberTabs.map((tab) => (
-          <button
-            key={tab}
-            id={`members-tab-${tab}`}
-            type="button"
-            role="tab"
-            className={status === tab ? "tab tab--active" : "tab"}
-            aria-selected={status === tab}
-            aria-controls="members-panel"
-            tabIndex={status === tab ? 0 : -1}
-            onKeyDown={moveTab}
-            onClick={() => {
-              setStatus(tab);
-              setDeactivateTarget(null);
-            }}
-          >
-            {tab === "active" ? (th ? "ใช้งาน" : "Active") : th ? "ปิดใช้งาน" : "Inactive"}
-          </button>
-        ))}
+      <div className="member-toolbar">
+        <div className="tabs" role="tablist" aria-label={th ? "สถานะบัญชี" : "Account status"}>
+          {memberTabs.map((tab) => (
+            <button
+              key={tab}
+              id={`members-tab-${tab}`}
+              type="button"
+              role="tab"
+              className={status === tab ? "tab tab--active" : "tab"}
+              aria-selected={status === tab}
+              aria-controls="members-panel"
+              tabIndex={status === tab ? 0 : -1}
+              onKeyDown={moveTab}
+              onClick={() => {
+                setStatus(tab);
+                setDeactivateTarget(null);
+              }}
+            >
+              {tab === "active" ? (th ? "ใช้งาน" : "Active") : th ? "ปิดใช้งาน" : "Inactive"}
+            </button>
+          ))}
+        </div>
+        <label className="member-search">
+          {th ? "ค้นหาในบัญชีที่โหลดแล้ว" : "Search loaded accounts"}
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="name@ku.th"
+          />
+        </label>
       </div>
       <section
         id="members-panel"
@@ -307,248 +330,308 @@ export function Members({ language }: { language: Language }) {
         aria-labelledby={`members-tab-${status}`}
         tabIndex={0}
       >
-        {!members.some((member) => member.active === (status === "active")) && (
-          <p className="muted">{th ? "ไม่มีบัญชีในรายการนี้" : "No accounts in this list."}</p>
-        )}
+        {!members.some(
+          (member) =>
+            member.active === (status === "active") && member.email.toLowerCase().includes(query.trim().toLowerCase()),
+        ) && <p className="muted">{th ? "ไม่มีบัญชีในรายการนี้" : "No accounts in this list."}</p>}
         {members
-          .filter((member) => member.active === (status === "active"))
+          .filter(
+            (member) =>
+              member.active === (status === "active") &&
+              member.email.toLowerCase().includes(query.trim().toLowerCase()),
+          )
           .map((member) => {
             const draft = draftFor(member);
             const pending = pendingTotal(member);
             return (
-              <article className={`member-card ${member.active ? "" : "member-card--inactive"}`} key={member.id}>
-                <div className="member-card__header">
-                  <div>
-                    <h2>{member.email}</h2>
-                    <span className={`member-status ${member.active ? "member-status--active" : ""}`}>
-                      {member.active
-                        ? member.verifiedAt
-                          ? th
-                            ? "ใช้งาน"
-                            : "Active"
-                          : th
-                            ? "รอยืนยันอีเมล"
-                            : "Email verification pending"
-                        : th
-                          ? "ปิดใช้งาน"
-                          : "Disabled"}
+              <article
+                className={`member-card member-card--compact ${member.active ? "" : "member-card--inactive"}`}
+                key={member.id}
+              >
+                <details className="member-details">
+                  <summary className="member-summary">
+                    <span className="member-summary__identity">
+                      <strong>{member.email}</strong>
+                      <small>
+                        {member.role === "admin"
+                          ? "Admin"
+                          : member.role === "member"
+                            ? th
+                              ? "สมาชิก"
+                              : "Member"
+                            : th
+                              ? "ผู้เยี่ยมชม"
+                              : "Guest"}{" "}
+                        ·{" "}
+                        {operators.find((operator) => operator.id === member.operatorId)?.name ??
+                          (th ? "ยังไม่เชื่อมผู้ปฏิบัติงาน" : "No operator linked")}
+                      </small>
                     </span>
-                  </div>
-                  <div className="member-card__actions">
-                    {member.loginLockedUntil && (
-                      <>
-                        <span role="status" className="error">
-                          {th ? "ล็อกการเข้าสู่ระบบถึง " : "Sign-in locked until "}
-                          {new Date(member.loginLockedUntil).toLocaleString(th ? "th-TH" : "en-US")}
+                    <span className="member-summary__statuses">
+                      <span className={`member-status ${member.active ? "member-status--active" : ""}`}>
+                        {!member.active
+                          ? th
+                            ? "ปิดใช้งาน"
+                            : "Disabled"
+                          : member.verifiedAt
+                            ? th
+                              ? "ใช้งาน"
+                              : "Active"
+                            : th
+                              ? "รอยืนยันอีเมล"
+                              : "Email verification pending"}
+                      </span>
+                      {member.loginLockedUntil && (
+                        <span className="member-status member-status--warning">
+                          {th ? "ล็อกการเข้าสู่ระบบ" : "Sign-in locked"}
                         </span>
+                      )}
+                      {pending > 0 && (
+                        <span className="member-status member-status--warning">
+                          {pending} {th ? "งานออฟไลน์ค้าง" : "pending offline items"}
+                        </span>
+                      )}
+                    </span>
+                    <span className="member-summary__chevron" aria-hidden="true">
+                      ⌄
+                    </span>
+                  </summary>
+                  <div className="member-detail-body">
+                    <div className="member-card__header">
+                      <div>
+                        <h2>{member.email}</h2>
+                        <span className={`member-status ${member.active ? "member-status--active" : ""}`}>
+                          {member.active
+                            ? member.verifiedAt
+                              ? th
+                                ? "ใช้งาน"
+                                : "Active"
+                              : th
+                                ? "รอยืนยันอีเมล"
+                                : "Email verification pending"
+                            : th
+                              ? "ปิดใช้งาน"
+                              : "Disabled"}
+                        </span>
+                      </div>
+                      <div className="member-card__actions">
+                        {member.loginLockedUntil && (
+                          <>
+                            <span role="status" className="error">
+                              {th ? "ล็อกการเข้าสู่ระบบถึง " : "Sign-in locked until "}
+                              {new Date(member.loginLockedUntil).toLocaleString(th ? "th-TH" : "en-US")}
+                            </span>
+                            <button
+                              className="button button--secondary"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void unlockMember(member)}
+                            >
+                              {th ? "ปลดล็อกบัญชี" : "Unlock account"}
+                            </button>
+                          </>
+                        )}
+                        {!member.verifiedAt && member.active && (
+                          <button
+                            className="button button--secondary"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void resendInvitation(member)}
+                          >
+                            {th ? "ส่งคำเชิญอีกครั้ง" : "Resend invitation"}
+                          </button>
+                        )}
+
+                        {member.active && (
+                          <button
+                            className="button button--secondary"
+                            type="button"
+                            onClick={() => {
+                              setDeactivateTarget(member);
+                              setAcknowledgeRisk(false);
+                            }}
+                          >
+                            {th ? "ปิดบัญชี" : "Disable account"}
+                          </button>
+                        )}
+                        {!member.active && (
+                          <button
+                            className="button button--secondary"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void setMemberActive(member, true)}
+                          >
+                            {th ? "เปิดใช้งานอีกครั้ง" : "Reactivate"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="member-card__identity">
+                      <span>{member.role === "member" && th ? "สมาชิก" : member.role}</span>
+                      <span>
+                        {operators.find((operator) => operator.id === member.operatorId)?.name ??
+                          (th ? "ยังไม่เชื่อมผู้ปฏิบัติงาน" : "No linked operator")}
+                      </span>
+                    </p>
+                    <details className="member-access">
+                      <summary>
+                        {th ? "แก้ไขบทบาทและผู้ปฏิบัติงาน" : "Edit role and operator"}
+                        {(draft.role !== member.role || draft.operatorId !== (member.operatorId ?? "")) && (
+                          <span className="member-access__unsaved">{th ? "ยังไม่บันทึก" : "Unsaved changes"}</span>
+                        )}
+                      </summary>
+                      <div className="member-fields">
+                        <label>
+                          {th ? "บทบาท" : "Role"}
+                          <select
+                            value={draft.role}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [member.id]: { ...draft, role: event.target.value as "admin" | "member" | "guest" },
+                              }))
+                            }
+                          >
+                            <option value="guest">Guest</option>
+                            <option value="member">{th ? "สมาชิก" : "Member"}</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </label>
+                        <label>
+                          {th ? "ผู้ปฏิบัติงานทดลอง" : "Experimental operator"}
+                          <select
+                            value={draft.operatorId}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [member.id]: { ...draft, operatorId: event.target.value },
+                              }))
+                            }
+                          >
+                            <option value="">{th ? "ยังไม่เชื่อม" : "Not linked"}</option>
+                            {operators.map((operator) => (
+                              <option key={String(operator.id)} value={String(operator.id)}>
+                                {String(operator.name)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                         <button
                           className="button button--secondary"
                           type="button"
                           disabled={busy}
-                          onClick={() => void unlockMember(member)}
+                          onClick={() => void saveMember(member)}
                         >
-                          {th ? "ปลดล็อกบัญชี" : "Unlock account"}
+                          {th ? "บันทึกสิทธิ์" : "Save access"}
                         </button>
-                      </>
-                    )}
-                    {!member.verifiedAt && member.active && (
-                      <button
-                        className="button button--secondary"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void resendInvitation(member)}
-                      >
-                        {th ? "ส่งคำเชิญอีกครั้ง" : "Resend invitation"}
-                      </button>
-                    )}
+                      </div>
+                    </details>
 
-                    {member.active && (
-                      <button
-                        className="button button--secondary"
-                        type="button"
-                        onClick={() => {
-                          setDeactivateTarget(member);
-                          setAcknowledgeRisk(false);
-                        }}
-                      >
-                        {th ? "ปิดบัญชี" : "Disable account"}
-                      </button>
-                    )}
-                    {!member.active && (
-                      <button
-                        className="button button--secondary"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void setMemberActive(member, true)}
-                      >
-                        {th ? "เปิดใช้งานอีกครั้ง" : "Reactivate"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <p className="member-card__identity">
-                  <span>{member.role === "member" && th ? "สมาชิก" : member.role}</span>
-                  <span>
-                    {operators.find((operator) => operator.id === member.operatorId)?.name ??
-                      (th ? "ยังไม่เชื่อมผู้ปฏิบัติงาน" : "No linked operator")}
-                  </span>
-                </p>
-                <details className="member-access">
-                  <summary>
-                    {th ? "แก้ไขบทบาทและผู้ปฏิบัติงาน" : "Edit role and operator"}
-                    {(draft.role !== member.role || draft.operatorId !== (member.operatorId ?? "")) && (
-                      <span className="member-access__unsaved">{th ? "ยังไม่บันทึก" : "Unsaved changes"}</span>
-                    )}
-                  </summary>
-                  <div className="member-fields">
-                    <label>
-                      {th ? "บทบาท" : "Role"}
-                      <select
-                        value={draft.role}
-                        onChange={(event) =>
-                          setDrafts((current) => ({
-                            ...current,
-                            [member.id]: { ...draft, role: event.target.value as "admin" | "member" | "guest" },
-                          }))
-                        }
-                      >
-                        <option value="guest">Guest</option>
-                        <option value="member">{th ? "สมาชิก" : "Member"}</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </label>
-                    <label>
-                      {th ? "ผู้ปฏิบัติงานทดลอง" : "Experimental operator"}
-                      <select
-                        value={draft.operatorId}
-                        onChange={(event) =>
-                          setDrafts((current) => ({
-                            ...current,
-                            [member.id]: { ...draft, operatorId: event.target.value },
-                          }))
-                        }
-                      >
-                        <option value="">{th ? "ยังไม่เชื่อม" : "Not linked"}</option>
-                        {operators.map((operator) => (
-                          <option key={String(operator.id)} value={String(operator.id)}>
-                            {String(operator.name)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className="button button--secondary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void saveMember(member)}
-                    >
-                      {th ? "บันทึกสิทธิ์" : "Save access"}
-                    </button>
-                  </div>
-                </details>
-
-                <div className="sync-summary">
-                  <strong>
-                    {th ? "งานออฟไลน์ที่ทราบ" : "Known offline work"}: {pending}
-                  </strong>
-                  {member.syncDevices.length ? (
-                    member.syncDevices.map((device) => (
-                      <span key={device.deviceId}>
-                        {device.deviceId.slice(0, 8)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
-                        {device.stale ? (th ? "สถานะเก่า" : "stale") : th ? "อัปเดตล่าสุด" : "reported recently"}
-                      </span>
-                    ))
-                  ) : (
-                    <span>{th ? "ยังไม่มีอุปกรณ์รายงานสถานะ" : "No device has reported a sync status."}</span>
-                  )}
-                  {blockedByPending(member) && (
-                    <p className="error-text">
-                      {th
-                        ? "มีงานค้างบนอุปกรณ์ที่ยังรายงานสถานะล่าสุด กรุณาให้สมาชิกเชื่อมต่อและ sync ก่อน"
-                        : "A recently reported device still has pending work. Ask the member to reconnect and sync first."}
-                    </p>
-                  )}
-                </div>
-
-                <details
-                  className="member-sessions"
-                  onToggle={(event) => {
-                    if (event.currentTarget.open && !sessions[member.id]) void toggleSessions(member);
-                  }}
-                >
-                  <summary>{th ? "Session และอุปกรณ์" : "Sessions and devices"}</summary>
-                  {(sessions[member.id] ?? []).map((session) => (
-                    <div className="member-session" key={session.id}>
-                      <span>
-                        {session.deviceId} · {th ? "ใช้งานล่าสุด" : "last used"}{" "}
-                        {new Date(session.lastSeenAt).toLocaleString(language === "th" ? "th-TH" : "en-US")}
-                      </span>
-                      {session.revokedAt ? (
-                        <span>{th ? "ยกเลิกแล้ว" : "Revoked"}</span>
+                    <div className="sync-summary">
+                      <strong>
+                        {th ? "งานออฟไลน์ที่ทราบ" : "Known offline work"}: {pending}
+                      </strong>
+                      {member.syncDevices.length ? (
+                        member.syncDevices.map((device) => (
+                          <span key={device.deviceId}>
+                            {device.deviceId.slice(0, 8)} · {device.pendingCount} {th ? "รายการ" : "items"} ·{" "}
+                            {device.stale ? (th ? "สถานะเก่า" : "stale") : th ? "อัปเดตล่าสุด" : "reported recently"}
+                          </span>
+                        ))
                       ) : (
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void revokeSession(member, session)}
-                        >
-                          {th ? "ยกเลิก session" : "Revoke session"}
-                        </button>
+                        <span>{th ? "ยังไม่มีอุปกรณ์รายงานสถานะ" : "No device has reported a sync status."}</span>
+                      )}
+                      {blockedByPending(member) && (
+                        <p className="error-text">
+                          {th
+                            ? "มีงานค้างบนอุปกรณ์ที่ยังรายงานสถานะล่าสุด กรุณาให้สมาชิกเชื่อมต่อและ sync ก่อน"
+                            : "A recently reported device still has pending work. Ask the member to reconnect and sync first."}
+                        </p>
                       )}
                     </div>
-                  ))}
-                </details>
 
-                {deactivateTarget?.id === member.id && (
-                  <div
-                    className="deactivate-confirm"
-                    role="group"
-                    aria-label={th ? "ยืนยันการปิดบัญชี" : "Confirm account disable"}
-                  >
-                    <strong>{th ? "ปิดบัญชีสมาชิกนี้?" : "Disable this account?"}</strong>
-                    <p>
-                      {th
-                        ? "ระบบจะยกเลิกทุก session และเก็บประวัติไว้ งานออฟไลน์จะ sync ได้หลังเปิดบัญชีใหม่และเข้าสู่ระบบด้วยบัญชีเดิม"
-                        : "All sessions will be revoked and history retained. Offline work can sync after reactivation and sign-in with this same account."}
-                    </p>
-                    {canOverride(member) && (
-                      <label className="acknowledge-risk">
-                        <input
-                          type="checkbox"
-                          checked={acknowledgeRisk}
-                          onChange={(event) => setAcknowledgeRisk(event.target.checked)}
-                        />
-                        {th
-                          ? "ฉันรับทราบว่าสถานะออฟไลน์ล้าสมัยหรือไม่พร้อม และยอมปิดบัญชี"
-                          : "I acknowledge the offline status is stale or unavailable and approve disabling this account."}
-                      </label>
+                    <details
+                      className="member-sessions"
+                      onToggle={(event) => {
+                        if (event.currentTarget.open && !sessions[member.id]) void toggleSessions(member);
+                      }}
+                    >
+                      <summary>{th ? "Session และอุปกรณ์" : "Sessions and devices"}</summary>
+                      {(sessions[member.id] ?? []).map((session) => (
+                        <div className="member-session" key={session.id}>
+                          <span>
+                            {session.deviceId} · {th ? "ใช้งานล่าสุด" : "last used"}{" "}
+                            {new Date(session.lastSeenAt).toLocaleString(language === "th" ? "th-TH" : "en-US")}
+                          </span>
+                          {session.revokedAt ? (
+                            <span>{th ? "ยกเลิกแล้ว" : "Revoked"}</span>
+                          ) : (
+                            <button
+                              className="text-button"
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void revokeSession(member, session)}
+                            >
+                              {th ? "ยกเลิก session" : "Revoke session"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </details>
+
+                    {deactivateTarget?.id === member.id && (
+                      <div
+                        className="deactivate-confirm"
+                        role="group"
+                        aria-label={th ? "ยืนยันการปิดบัญชี" : "Confirm account disable"}
+                      >
+                        <strong>{th ? "ปิดบัญชีสมาชิกนี้?" : "Disable this account?"}</strong>
+                        <p>
+                          {th
+                            ? "ระบบจะยกเลิกทุก session และเก็บประวัติไว้ งานออฟไลน์จะ sync ได้หลังเปิดบัญชีใหม่และเข้าสู่ระบบด้วยบัญชีเดิม"
+                            : "All sessions will be revoked and history retained. Offline work can sync after reactivation and sign-in with this same account."}
+                        </p>
+                        {canOverride(member) && (
+                          <label className="acknowledge-risk">
+                            <input
+                              type="checkbox"
+                              checked={acknowledgeRisk}
+                              onChange={(event) => setAcknowledgeRisk(event.target.checked)}
+                            />
+                            {th
+                              ? "ฉันรับทราบว่าสถานะออฟไลน์ล้าสมัยหรือไม่พร้อม และยอมปิดบัญชี"
+                              : "I acknowledge the offline status is stale or unavailable and approve disabling this account."}
+                          </label>
+                        )}
+                        <div className="button-row">
+                          <button
+                            className="button button--secondary"
+                            type="button"
+                            onClick={() => setDeactivateTarget(null)}
+                          >
+                            {th ? "ยกเลิก" : "Cancel"}
+                          </button>
+                          <button
+                            className="button button--primary"
+                            type="button"
+                            disabled={busy || blockedByPending(member) || (canOverride(member) && !acknowledgeRisk)}
+                            onClick={() => void setMemberActive(member, false)}
+                          >
+                            {th ? "ยืนยันปิดบัญชี" : "Confirm disable"}
+                          </button>
+                        </div>
+                      </div>
                     )}
-                    <div className="button-row">
-                      <button
-                        className="button button--secondary"
-                        type="button"
-                        onClick={() => setDeactivateTarget(null)}
-                      >
-                        {th ? "ยกเลิก" : "Cancel"}
-                      </button>
-                      <button
-                        className="button button--primary"
-                        type="button"
-                        disabled={busy || blockedByPending(member) || (canOverride(member) && !acknowledgeRisk)}
-                        onClick={() => void setMemberActive(member, false)}
-                      >
-                        {th ? "ยืนยันปิดบัญชี" : "Confirm disable"}
-                      </button>
-                    </div>
                   </div>
-                )}
+                </details>
               </article>
             );
           })}
       </section>
 
-      <section className="form-card sender-settings">
+      <details className="form-card sender-settings">
+        <summary>{th ? "ตั้งค่าอีเมลผู้ส่งระบบ" : "System sender settings"}</summary>
         <div>
           <h2>{th ? "อีเมลผู้ส่งระบบ" : "System sender email"}</h2>
           <p className="muted">
@@ -577,7 +660,7 @@ export function Members({ language }: { language: Language }) {
             {th ? "บันทึกผู้ส่ง" : "Save sender"}
           </button>
         </form>
-      </section>
+      </details>
     </section>
   );
 }

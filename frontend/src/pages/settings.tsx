@@ -319,7 +319,7 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
     );
   const thai = t === text.th;
   return (
-    <section>
+    <section className="work-screen timing-page">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "มาตรฐานเวลาแบบเก็บเวอร์ชัน" : "VERSIONED TIMING STANDARD"}</p>
@@ -373,7 +373,8 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
                 {thai ? "เวอร์ชันที่ใช้อยู่" : "Current version"} {String(profile.version)}
               </strong>
               <small>
-                {String(profile.name)} · {createdAt(profile)} · {thai ? "บันทึกโดย" : "by"}{" "}
+                {String(profile.name ?? (thai ? "เวอร์ชันเวลามาตรฐาน" : "Timing profile"))} · {createdAt(profile)} ·{" "}
+                {thai ? "บันทึกโดย" : "by"}{" "}
                 {operatorNames[String(profile.createdByOperatorId)] ?? (thai ? "ไม่ระบุผู้ปฏิบัติงาน" : "Unknown operator")}
               </small>
             </span>
@@ -436,6 +437,10 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
                 </table>
               </div>
             </details>
+            <div className="timing-review">
+              <h3>{thai ? "สรุปค่าที่จะเปลี่ยนในเวอร์ชันใหม่" : "Changes in the new version"}</h3>
+              <p>{changedStages({ entries }, profile, thai)}</p>
+            </div>
             <RecordingOperator />
             <button className="button button--primary" disabled={saving}>
               {saving ? t.saving : t.saveTimingVersion}

@@ -35,6 +35,7 @@ import { Imports } from "./pages/imports";
 import { Login } from "./pages/login";
 import { Master } from "./pages/master";
 import { Members } from "./pages/members";
+import { Profile } from "./pages/profile";
 import { Promotions, Timing } from "./pages/settings";
 import { ActionToasts } from "./toast";
 import { type ApiItem, type Language, type Page, text } from "./types";
@@ -94,13 +95,15 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const isAdmin = user.role === "admin";
   const adminMode = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   const adminPages: Page[] = ["admin", "corrections", "master", "timing", "members", "audit", "imports"];
+  const canAccessPage = (next: Page) =>
+    next === "profile" || (next === "audit" ? isAdmin : adminMode === adminPages.includes(next));
   const initialPage = (location.hash === "#controls" ? "dashboard" : location.hash.slice(1)) as Page;
   const [page, setPage] = useState<Page>(() =>
     adminMode
-      ? adminPages.includes(initialPage)
+      ? adminPages.includes(initialPage) || initialPage === "profile"
         ? initialPage
         : "admin"
-      : adminPages.includes(initialPage)
+      : !canAccessPage(initialPage)
         ? "dashboard"
         : initialPage || "dashboard",
   );
@@ -132,6 +135,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     "corrections",
     "my-requests",
     "imports",
+    "profile",
   ].includes(page);
   const t = text[language];
   const currentOperatorName = String(
@@ -187,8 +191,11 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     { page: "members", label: t.members, icon: "people", group: "system" },
     { page: "imports", label: language === "th" ? "นำเข้าข้อมูล" : "Imports", icon: "export", group: "system" },
   ];
-  const visibleNav = navItems.filter((item) => adminMode === adminPages.includes(item.page));
-  const currentNav = visibleNav.find((item) => item.page === page) ?? visibleNav[0];
+  const visibleNav = navItems.filter((item) => canAccessPage(item.page));
+  const currentNav =
+    page === "profile"
+      ? { label: language === "th" ? "โปรไฟล์ของฉัน" : "My profile" }
+      : (visibleNav.find((item) => item.page === page) ?? visibleNav[0]);
 
   useEffect(() => {
     pendingRef.current = pending;
@@ -201,7 +208,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     void get("/operators")
       .then((data) => setOperators(data.items ?? []))
       .catch(() => undefined);
-  }, []);
+  }, [user.operatorId]);
   useEffect(() => {
     document.documentElement.lang = language;
     localStorage.setItem("chronofish.language", language);
@@ -210,7 +217,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     document.title = `${currentNav.label} · ${adminMode ? "KUVACB Admin" : productName}`;
   }, [currentNav.label]);
   useEffect(() => {
-    if (adminMode !== adminPages.includes(page)) {
+    if (!canAccessPage(page)) {
       const fallback = adminMode ? "admin" : "dashboard";
       setPage(fallback);
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${fallback}`);
@@ -226,7 +233,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   useEffect(() => {
     const followHistory = () => {
       const next = (location.hash === "#controls" ? "dashboard" : location.hash.slice(1)) as Page;
-      if (navItems.some((item) => item.page === next) && adminMode === adminPages.includes(next)) setPage(next);
+      if ((next === "profile" || navItems.some((item) => item.page === next)) && canAccessPage(next)) setPage(next);
     };
     window.addEventListener("hashchange", followHistory);
     window.addEventListener("popstate", followHistory);
@@ -351,13 +358,15 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "research"))}</div>
             </details>
           )}
-          <details
-            className="nav-disclosure nav-disclosure--desktop"
-            open={visibleNav.some((item) => item.group === "system" && item.page === page)}
-          >
-            <summary>{language === "th" ? "ข้อมูลอ้างอิงและระบบ" : "Reference & system"}</summary>
-            <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "system"))}</div>
-          </details>
+          {visibleNav.some((item) => item.group === "system") && (
+            <details
+              className="nav-disclosure nav-disclosure--desktop"
+              open={visibleNav.some((item) => item.group === "system" && item.page === page)}
+            >
+              <summary>{language === "th" ? "ข้อมูลอ้างอิงและระบบ" : "Reference & system"}</summary>
+              <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "system"))}</div>
+            </details>
+          )}
           <details className="nav-disclosure nav-disclosure--mobile">
             <summary>
               <Icon name="more" />
@@ -377,51 +386,53 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           </span>
         </div>
         <div className="top-actions">
-          <details
-            className={`operator-menu${currentOperator ? "" : " operator-menu--required"}`}
-            ref={operatorMenu}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.currentTarget.open = false;
-                event.currentTarget.querySelector("summary")?.focus();
-              }
-            }}
-          >
-            <summary aria-label={`${t.operator}: ${currentOperator ? currentOperatorName : t.chooseOperator}`}>
-              <Icon name="people" />
-              <span>{currentOperator ? currentOperatorName : t.chooseOperator}</span>
-              <svg className="operator-menu__chevron" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-            </summary>
-            <div className="operator-menu__panel">
-              <label className="operator-select">
-                <span>{t.operator}</span>
-                <select
-                  id="operator-select"
-                  aria-label={t.chooseOperator}
-                  value={currentOperator}
-                  onChange={(event) => {
-                    sessionStorage.setItem("chronofish.operator_id", event.target.value);
-                    window.location.reload();
-                  }}
-                >
-                  <option value="">{t.chooseOperator}</option>
-                  {operators.map((operator) => (
-                    <option key={String(operator.id)} value={String(operator.id)}>
-                      {String(operator.name)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p>
-                {language === "th"
-                  ? "ชื่อนี้ใช้ระบุผู้ปฏิบัติงานในการบันทึกข้อมูล"
-                  : "This name identifies the operator recorded with your entries."}
-              </p>
-            </div>
-          </details>
-          {!currentOperator && (
+          {isAdmin && writePage && (
+            <details
+              className={`operator-menu${currentOperator ? "" : " operator-menu--required"}`}
+              ref={operatorMenu}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector("summary")?.focus();
+                }
+              }}
+            >
+              <summary aria-label={`${t.operator}: ${currentOperator ? currentOperatorName : t.chooseOperator}`}>
+                <Icon name="people" />
+                <span>{currentOperator ? currentOperatorName : t.chooseOperator}</span>
+                <svg className="operator-menu__chevron" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </summary>
+              <div className="operator-menu__panel">
+                <label className="operator-select">
+                  <span>{t.operator}</span>
+                  <select
+                    id="operator-select"
+                    aria-label={t.chooseOperator}
+                    value={currentOperator}
+                    onChange={(event) => {
+                      sessionStorage.setItem("chronofish.operator_id", event.target.value);
+                      window.location.reload();
+                    }}
+                  >
+                    <option value="">{t.chooseOperator}</option>
+                    {operators.map((operator) => (
+                      <option key={String(operator.id)} value={String(operator.id)}>
+                        {String(operator.name)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p>
+                  {language === "th"
+                    ? "ชื่อนี้ใช้ระบุผู้ปฏิบัติงานในการบันทึกข้อมูล"
+                    : "This name identifies the operator recorded with your entries."}
+                </p>
+              </div>
+            </details>
+          )}
+          {writePage && !currentOperator && (
             <span className="sr-only" role="status">
               {t.operatorRequired}
             </span>
@@ -491,12 +502,39 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           >
             {language === "th" ? "EN" : "ไทย"}
           </button>
-          <details className="account-menu">
-            <summary>
+          <details
+            className="account-menu"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector("summary")?.focus();
+              }
+            }}
+          >
+            <summary aria-label={language === "th" ? "บัญชีและโปรไฟล์" : "Account and profile"}>
               <Icon name="people" />
-              <span>{language === "th" ? "บัญชี" : "Account"}</span>
+              <span>
+                {!isAdmin
+                  ? currentOperator
+                    ? currentOperatorName
+                    : user.email.split("@")[0]
+                  : language === "th"
+                    ? "บัญชี"
+                    : "Account"}
+              </span>
             </summary>
             <div className="account-menu__panel">
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={(event) => {
+                  navigate("profile");
+                  const menu = event.currentTarget.closest("details");
+                  if (menu) menu.open = false;
+                }}
+              >
+                {language === "th" ? "โปรไฟล์ของฉัน" : "My profile"}
+              </button>
               {isAdmin && (
                 <a className="button button--secondary" href={adminMode ? "/" : "/admin"}>
                   {adminMode ? (language === "th" ? "กลับเว็บหลัก" : "Research workspace") : "Admin"}
@@ -533,17 +571,29 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           </div>
         )}
         {writePage && !currentOperator && (
-          <div className="operator-gate" role="alert">
-            <strong>{t.operatorRequired}</strong>
-            <button
-              type="button"
-              onClick={() => {
-                if (operatorMenu.current) operatorMenu.current.open = true;
-                document.getElementById("operator-select")?.focus();
-              }}
-            >
-              {t.chooseOperator}
-            </button>
+          <div className="operator-gate" id="operator-gate" role="alert">
+            <strong>
+              {isAdmin
+                ? t.operatorRequired
+                : language === "th"
+                  ? "บัญชีนี้ยังไม่ได้เชื่อมผู้ปฏิบัติงาน กรุณาส่งคำร้องให้ Admin"
+                  : "Your account has no linked operator. Request assignment from an admin."}
+            </strong>
+            {!isAdmin ? (
+              <a className="button button--secondary" href="#profile">
+                {language === "th" ? "ส่งคำร้องเปลี่ยนผู้ปฏิบัติงาน" : "Request an operator assignment"}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (operatorMenu.current) operatorMenu.current.open = true;
+                  document.getElementById("operator-select")?.focus();
+                }}
+              >
+                {t.chooseOperator}
+              </button>
+            )}
           </div>
         )}
         {formErrors.length > 0 && (
@@ -564,7 +614,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           <fieldset
             className="page-gate"
             disabled={writePage && !currentOperator}
-            aria-describedby={writePage && !currentOperator ? "operator-select" : undefined}
+            aria-describedby={writePage && !currentOperator ? "operator-gate" : undefined}
             onInvalid={(event: FormEvent<HTMLElement>) => {
               const field = event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
               window.cancelAnimationFrame(validationFrame.current);
@@ -599,6 +649,9 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               </p>
             )}
             {page === "my-requests" && <MyRequests language={language} />}
+            {page === "profile" && (
+              <Profile user={user} operators={operators} language={language} onLogout={onLogout} />
+            )}
             {page === "admin" && isAdmin && <AdminHome language={language} onNavigate={navigate} />}
             {page === "corrections" && isAdmin && <AdminRequests language={language} />}
             {page === "imports" && isAdmin && <Imports language={language} />}
@@ -609,7 +662,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             {page === "master" && <Master t={t} />}
             {page === "timing" && <Timing t={t} />}
             {page === "promotions" && <Promotions t={t} />}
-            {page === "audit" && <Audit t={t} />}
+            {page === "audit" && isAdmin && <Audit t={t} />}
             {page === "export" && <Export t={t} />}
             {page === "members" && isAdmin && <Members language={language} />}
           </fieldset>

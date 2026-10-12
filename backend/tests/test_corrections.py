@@ -53,6 +53,93 @@ def submit(member: TestClient, member_id: str, batch_id: str, field: str = "note
     )
 
 
+def test_member_requests_account_operator_and_admin_applies_it(correction_context, write_headers):
+    admin, member, admin_id, member_id, _batch = correction_context
+    operator = admin.post(
+        "/api/v1/operators",
+        headers={**write_headers, "X-Idempotency-Key": uuid7()},
+        json={"name": "Requested operator"},
+    )
+    assert operator.status_code == 201, operator.text
+    body = {
+        "targetTable": "auth_user",
+        "targetId": member_id,
+        "fieldName": "operatorId",
+        "proposedValue": operator.json()["id"],
+        "reason": "Assigned to this research team",
+    }
+    created = member.post("/api/v1/corrections", headers=account_headers(member_id), json=body)
+    assert created.status_code == 201, created.text
+    assert member.get("/api/v1/auth/me").json()["user"]["operatorId"] is None
+    assert member.post("/api/v1/corrections", headers=account_headers(member_id), json=body).status_code == 409
+    assert (
+        member.post(
+            "/api/v1/corrections", headers=account_headers(member_id), json={**body, "targetId": admin_id}
+        ).status_code
+        == 403
+    )
+    request_id = created.json()["id"]
+    assert (
+        member.post(
+            f"/api/v1/corrections/{request_id}/decide", headers=account_headers(member_id), json={"decision": "approve"}
+        ).status_code
+        == 403
+    )
+    decided = admin.post(
+        f"/api/v1/corrections/{request_id}/decide", headers=account_headers(admin_id), json={"decision": "approve"}
+    )
+    assert decided.status_code == 200, decided.text
+    assert member.get("/api/v1/auth/me").json()["user"]["operatorId"] == operator.json()["id"]
+    assert admin.get(f"/api/v1/corrections/{request_id}").json()["status"] == "approved"
+
+
+@pytest.mark.parametrize("change", ["source", "occupied", "inactive"])
+def test_operator_request_rechecks_account_and_operator_before_approval(correction_context, write_headers, change):
+    admin, member, admin_id, member_id, _batch = correction_context
+    operator = admin.post(
+        "/api/v1/operators",
+        headers={**write_headers, "X-Idempotency-Key": uuid7()},
+        json={"name": "Requested operator"},
+    ).json()
+    body = {
+        "targetTable": "auth_user",
+        "targetId": member_id,
+        "fieldName": "operatorId",
+        "proposedValue": operator["id"],
+        "reason": "Updated research assignment",
+    }
+    created = member.post("/api/v1/corrections", headers=account_headers(member_id), json=body)
+    assert created.status_code == 201, created.text
+    expected = None
+    if change == "source":
+        expected = write_headers["X-Operator-Id"]
+        assert admin.patch(f"/api/v1/auth/admin/users/{member_id}", json={"operatorId": expected}).status_code == 200
+    elif change == "occupied":
+        other = admin.post("/api/v1/auth/admin/users", json={"email": "other.operator@ku.th"}).json()
+        assert (
+            admin.patch(
+                f"/api/v1/auth/admin/users/{other['user']['id']}", json={"operatorId": operator["id"]}
+            ).status_code
+            == 200
+        )
+    else:
+        assert (
+            admin.patch(
+                f"/api/v1/operators/{operator['id']}",
+                headers={**write_headers, "X-Idempotency-Key": uuid7()},
+                json={"active": False},
+            ).status_code
+            == 200
+        )
+    request_id = created.json()["id"]
+    decided = admin.post(
+        f"/api/v1/corrections/{request_id}/decide", headers=account_headers(admin_id), json={"decision": "approve"}
+    )
+    assert decided.status_code == (422 if change == "inactive" else 409), decided.text
+    assert member.get("/api/v1/auth/me").json()["user"]["operatorId"] == expected
+    assert admin.get(f"/api/v1/corrections/{request_id}").json()["status"] == "pending"
+
+
 def test_member_submits_without_operator_and_admin_applies_with_audit(correction_context):
     admin, member, admin_id, member_id, batch = correction_context
     created = submit(member, member_id, batch["id"])

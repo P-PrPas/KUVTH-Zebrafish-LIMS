@@ -242,6 +242,15 @@ class AuthRepository:
                     {"id": uuid7(), "email": email, "active": True, "now": _stored(now)},
                 )
 
+    def user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        if self.engine is None:
+            with self.lock:
+                row = self.store.auth_users.get(user_id)
+                return {**_user_payload(row), "updatedAt": _iso(row["updated_at"])} if row else None
+        with self.engine.connect() as connection:
+            row = connection.execute(text("SELECT * FROM auth_user WHERE id = :id"), {"id": user_id}).mappings().first()
+            return {**_user_payload(row), "updatedAt": _iso(row["updated_at"])} if row else None
+
     def user_by_email(self, email: str) -> dict[str, Any] | None:
         if self.engine is None:
             with self.lock:

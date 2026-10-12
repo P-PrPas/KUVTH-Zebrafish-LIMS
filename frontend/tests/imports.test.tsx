@@ -278,6 +278,16 @@ async function clickButton(label: string) {
   });
 }
 
+async function selectImportMethod(mode: string) {
+  await act(async () => {
+    const select = document.querySelector<HTMLSelectElement>(".import-mode select")!;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, mode);
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    document.querySelectorAll<HTMLButtonElement>(".import-stepper button")[3].click();
+    await Promise.resolve();
+  });
+}
+
 async function fill(control: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(control), "value")?.set;
   await act(async () => {
@@ -479,6 +489,22 @@ it("shows a reviewable import draft with source, issues, mapping, and deferred f
   await act(async () => root.render(<Imports language="en" />));
   await openJob();
   expect(document.body.textContent).toContain("Review duplicate sources and changes");
+  expect(document.querySelector('.import-stepper button[aria-current="step"]')?.textContent).toContain("Mapping");
+  const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent === "Confirm all selected sheets",
+  )!;
+  expect(confirm.hidden).toBe(true);
+  await act(async () => {
+    document.querySelectorAll<HTMLButtonElement>(".import-stepper button")[2].click();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(document.activeElement).toBe(document.querySelector('.import-stepper button[aria-current="step"]'));
+  expect(document.querySelector('.import-stepper button[aria-current="step"]')?.textContent).toContain("Issues");
+  expect(document.querySelector<HTMLDetailsElement>(".import-source-details")?.open).toBe(false);
+  await act(async () => document.querySelectorAll<HTMLButtonElement>(".import-stepper button")[3].click());
+  expect(confirm.hidden).toBe(false);
+  expect(confirm.disabled).toBe(true);
+  await act(async () => document.querySelectorAll<HTMLButtonElement>(".import-stepper button")[2].click());
   expect(document.body.textContent).toContain("Confirm all selected sheets");
   expect(document.body.textContent).toContain("Check fish status");
   const interpretation = Array.from(document.querySelectorAll("button")).find(
@@ -502,6 +528,59 @@ it("shows a reviewable import draft with source, issues, mapping, and deferred f
   await fill(deferredReason, "Add researcher notes");
   await clickButton("Apply value");
   expect(document.body.textContent).toContain("Deferred source value applied");
+  expect(document.querySelector(".member-toast--success strong")?.textContent).toContain(
+    "Deferred source value applied",
+  );
+  expect(document.querySelector("p.import-page__notice")).toBeNull();
+  root.unmount();
+});
+
+it("keeps readiness and confirmation aligned until all mappings and reasons are complete", async () => {
+  const api = mockImportApi();
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await api(input, init);
+    const body = await response.json();
+    if (String(input).endsWith("/mapping-requirements")) body.unresolvedIssueCount = 0;
+    return new Response(JSON.stringify(body));
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  await selectImportMethod("mixed");
+  const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (button) => button.textContent === "Confirm all selected sheets",
+  )!;
+  expect(document.querySelector(".import-review-summary--pending")).not.toBeNull();
+  expect(confirm.disabled).toBe(true);
+  const mappingLink = Array.from(document.querySelectorAll<HTMLLIElement>(".import-checklist li"))
+    .find((row) => row.textContent?.includes("locations mapped"))!
+    .querySelector<HTMLButtonElement>("button")!;
+  await act(async () => mappingLink.click());
+  expect(document.querySelector('.import-stepper [aria-current="step"]')?.textContent).toContain("Mapping");
+  await act(async () => {
+    const controls = document.querySelectorAll<HTMLSelectElement>(".import-page__mapping:not([hidden]) > label select");
+    ["site-1", "donor-1"].forEach((value, index) => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(controls[index], value);
+      controls[index].dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  });
+  await selectImportMethod("mixed");
+  for (const key of ["zero", "aggregate", "embryos"]) {
+    const labels = { zero: "ambiguous zero", aggregate: "count warnings", embryos: "embryo warnings" };
+    const row = Array.from(document.querySelectorAll<HTMLLIElement>(".import-checklist li")).find((item) =>
+      item.textContent?.includes(labels[key as keyof typeof labels]),
+    )!;
+    await act(async () => {
+      row.querySelector<HTMLButtonElement>("button")!.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect((document.activeElement as HTMLTextAreaElement).dataset.importReason).toBe(key);
+    await fill(document.activeElement as HTMLTextAreaElement, "Verified against source records");
+  }
+  expect(document.querySelector(".import-review-summary--ready")).not.toBeNull();
+  expect(document.querySelector(".import-readiness")?.textContent).toBe("Ready to confirm import");
+  expect(confirm.disabled).toBe(false);
+  expect(api.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   root.unmount();
 });
 
@@ -584,12 +663,19 @@ it("confirms each supported draft type through the guarded actions", async () =>
   const root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () => root.render(<Imports language="en" />));
   await openJob();
-  for (const label of [
-    "Confirm all selected sheets",
-    "Confirm entire job",
-    "Confirm entire embryo job",
-    "Confirm entire count job",
+  for (const [mode, label] of [
+    ["mixed", "Confirm all selected sheets"],
+    ["fish", "Confirm entire job"],
+    ["embryos", "Confirm entire embryo job"],
+    ["aggregate", "Confirm entire count job"],
   ]) {
+    const select = document.querySelector<HTMLSelectElement>(".import-mode select")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, mode);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelectorAll<HTMLButtonElement>(".import-stepper button")[3].click();
+      await Promise.resolve();
+    });
     await clickButton(label);
   }
   expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/confirm-")).length).toBe(4);
@@ -742,7 +828,8 @@ it.each(["en", "th"] as const)("renders all guarded confirmation paths in %s", a
     (button) => button.textContent?.includes(language === "en" ? "Confirm" : "ยืนยัน"),
   );
   expect(buttons).toHaveLength(4);
-  for (const button of buttons) {
+  for (const [index, button] of buttons.entries()) {
+    await selectImportMethod(["mixed", "fish", "embryos", "aggregate"][index]);
     await act(async () => {
       button.click();
       await Promise.resolve();
@@ -783,6 +870,14 @@ it.each(["/confirm-all", "/confirm-fish-specimens", "/confirm-v2-embryos", "/con
       "/confirm-v2-embryos": "Confirm entire embryo job",
       "/confirm-aggregate": "Confirm entire count job",
     };
+    await selectImportMethod(
+      {
+        "/confirm-all": "mixed",
+        "/confirm-fish-specimens": "fish",
+        "/confirm-v2-embryos": "embryos",
+        "/confirm-aggregate": "aggregate",
+      }[endpoint]!,
+    );
     await clickButton(labels[endpoint]);
     expect(document.body.textContent).toContain("Draft changed; reload before confirming");
     root.unmount();

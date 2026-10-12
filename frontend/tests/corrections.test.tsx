@@ -22,6 +22,141 @@ afterEach(() => {
 });
 
 describe("correction request interface", () => {
+  it("creates an operator request from My requests without changing the account directly", async () => {
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "member-1", email: "member@ku.th", role: "member", operatorId: "operator-1" }),
+    );
+    window.history.replaceState(null, "", "/");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/operators"))
+        return json({
+          items: [
+            { id: "operator-1", name: "Current researcher", active: true },
+            { id: "operator-2", name: "Requested researcher", active: true },
+            { id: "operator-3", name: "Inactive researcher", active: false },
+          ],
+        });
+      if (path.includes("/corrections/markers")) return json({ fields: [], ownFields: [] });
+      if (init?.method === "POST") return json({ id: "operator-request" });
+      return json({ items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () => {
+      root.render(<MyRequests language="en" />);
+      await settle();
+    });
+    await act(async () => {
+      Array.from(element.querySelectorAll("button"))
+        .find((button) => button.textContent === "Create request")
+        ?.click();
+      await settle();
+    });
+    const kind = element.querySelector<HTMLSelectElement>(".request-creator > label select")!;
+    await act(async () => {
+      setSelect?.call(kind, "operator");
+      kind.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    });
+    const form = element.querySelector<HTMLFormElement>(".correction-form")!;
+    expect(form.textContent).toContain("Current researcher");
+    expect(form.textContent).not.toContain("Inactive researcher");
+    const proposed = form.querySelectorAll<HTMLSelectElement>("select")[1];
+    await act(async () => {
+      setSelect?.call(proposed, "operator-2");
+      proposed.dispatchEvent(new Event("change", { bubbles: true }));
+      setTextarea?.call(form.querySelector("textarea"), "New laboratory assignment");
+      form.querySelector("textarea")!.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+    });
+    await act(async () => {
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await settle();
+    });
+    const sent = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(JSON.parse(String(sent[1]?.body))).toEqual({
+      targetTable: "auth_user",
+      targetId: "member-1",
+      fieldName: "operatorId",
+      proposedValue: "operator-2",
+      reason: "New laboratory assignment",
+    });
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes("/auth/admin/") && init?.method)).toBe(
+      false,
+    );
+    expect(element.querySelector(".request-creator")).toBeNull();
+    await act(async () => root.unmount());
+  });
+
+  it("creates a record correction directly from the selected experiment", async () => {
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "member-1", email: "member@ku.th", role: "member" }),
+    );
+    window.history.replaceState(null, "", "/");
+    const batch = { id: "batch-1", batchCode: "KU-042", experimentDate: "2026-10-12", notes: "Original note" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.endsWith("/batches")) return json({ items: [batch] });
+      if (path.endsWith("/batches/batch-1")) return json(batch);
+      if (path.includes("/markers")) return json({ fields: [], ownFields: [] });
+      if (init?.method === "POST") return json({ id: "data-request" });
+      return json({ items: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () => {
+      root.render(<MyRequests language="en" />);
+      await settle();
+    });
+    await act(async () => {
+      Array.from(element.querySelectorAll("button"))
+        .find((button) => button.textContent === "Create request")
+        ?.click();
+      await settle();
+    });
+    const experiment = element.querySelectorAll<HTMLSelectElement>(".request-record-picker select")[1];
+    await act(async () => {
+      setSelect?.call(experiment, "batch-1");
+      experiment.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    });
+    const form = element.querySelector<HTMLFormElement>(".correction-form")!;
+    expect(form.textContent).toContain("KU-042");
+    const field = form.querySelector("select")!;
+    await act(async () => {
+      setSelect?.call(field, "notes");
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      await settle();
+    });
+    await act(async () => {
+      setInput?.call(form.querySelector("input"), "Corrected note");
+      form.querySelector("input")!.dispatchEvent(new Event("input", { bubbles: true }));
+      setTextarea?.call(form.querySelector("textarea"), "Verified source record");
+      form.querySelector("textarea")!.dispatchEvent(new Event("input", { bubbles: true }));
+      await settle();
+    });
+    await act(async () => {
+      form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+      await settle();
+    });
+    expect(
+      JSON.parse(String(fetchMock.mock.calls.find(([, init]) => init?.method === "POST")?.[1]?.body)),
+    ).toMatchObject({
+      targetTable: "experiment_batch",
+      targetId: "batch-1",
+      fieldName: "notes",
+      proposedValue: "Corrected note",
+    });
+    await act(async () => root.unmount());
+  });
+
   it("submits a single proposed field as the signed-in member without an operator header", async () => {
     localStorage.setItem(
       "chronofish.auth_user",
@@ -189,6 +324,16 @@ describe("correction request interface", () => {
   });
 
   it("shows stale and invalid proposals and sends a mandatory rejection reason", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation((media) => ({
+      media,
+      matches: true,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+    }));
     const base = {
       requesterId: "member-1",
       requesterEmail: "member@ku.th",
@@ -220,8 +365,23 @@ describe("correction request interface", () => {
       await settle();
     });
     expect(element.textContent).toContain("The original record has changed");
+    await act(async () => {
+      element.querySelectorAll<HTMLButtonElement>(".request-list__item")[1].click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(document.activeElement).toBe(element.querySelector(".request-detail"));
     expect(element.textContent).toContain("A later observation exists");
+    await act(async () => {
+      element.querySelector<HTMLButtonElement>(".request-detail__back")?.click();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    expect(element.querySelector(".requests-workspace")?.getAttribute("data-detail-open")).toBe("false");
+    expect(document.activeElement).toBe(element.querySelector('.request-list__item[aria-pressed="true"]'));
+    await act(async () => element.querySelectorAll<HTMLButtonElement>(".request-list__item")[0].click());
     expect(element.querySelector('a[href*="auditLogId=audit-1"]')).not.toBeNull();
+    const rejectPanel = element.querySelector<HTMLDetailsElement>(".correction-reject")!;
+    expect(rejectPanel.open).toBe(false);
+    rejectPanel.open = true;
     const rejection = element.querySelector("textarea") as HTMLTextAreaElement;
     await act(async () => {
       setTextarea?.call(rejection, "source changed");
