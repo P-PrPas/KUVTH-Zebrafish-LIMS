@@ -66,7 +66,7 @@ describe("browser shell workflows", () => {
     sessionStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    window.location.hash = "";
+    window.history.replaceState(null, "", "/");
   });
 
   it.each(["admin", "member"] as const)(
@@ -99,7 +99,7 @@ describe("browser shell workflows", () => {
         for (const label of element.querySelectorAll(".nav-label--compact")) {
           expect(label.closest("button")?.getAttribute("aria-label")).toContain(label.textContent);
         }
-        expect(element.querySelector(`nav button[aria-label="${text.en.members}"]`) !== null).toBe(role === "admin");
+        expect(element.querySelector('a[href="/admin"]') !== null).toBe(role === "admin");
         await act(async () => element.querySelector<HTMLButtonElement>(".language")?.click());
         expect(element.querySelector(".account-menu > summary")?.textContent).toContain("บัญชี");
         expect(element.querySelector(".nav-label--compact")?.textContent).toBe("สรุปผล");
@@ -146,6 +146,35 @@ describe("browser shell workflows", () => {
     root.unmount();
   });
 
+  it("opens a separate administrator workspace with its own navigation", async () => {
+    window.history.replaceState(null, "", "/admin#admin");
+    localStorage.setItem("chronofish.language", "en");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+    });
+    expect(document.querySelector("nav")?.textContent).toContain("Administration");
+    expect(document.querySelector("nav")?.textContent).toContain("Corrections");
+    expect(document.querySelector("nav")?.textContent).not.toContain("New experiment");
+    await act(async () => {
+      window.history.pushState(null, "", "/admin#corrections");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      await Promise.resolve();
+    });
+    expect(document.title).toBe("Corrections · KUVACB Admin");
+    expect(document.querySelector<HTMLAnchorElement>('a[href="/"]')).not.toBeNull();
+    root.unmount();
+  });
+
   it("announces route changes and restores focus for history navigation", async () => {
     vi.stubGlobal(
       "fetch",
@@ -173,11 +202,11 @@ describe("browser shell workflows", () => {
     expect(document.activeElement?.id).toBe("main-content");
 
     await act(async () => {
-      window.history.pushState(null, "", `${window.location.pathname}#audit`);
+      window.history.pushState(null, "", `${window.location.pathname}#my-requests`);
       window.dispatchEvent(new PopStateEvent("popstate"));
       await new Promise((resolve) => requestAnimationFrame(resolve));
     });
-    expect(document.title).toBe("ตรวจสอบการแก้ไข · KUVACB AqLIMS");
+    expect(document.title).toBe("คำร้องของฉัน · KUVACB AqLIMS");
     expect(document.activeElement?.id).toBe("main-content");
     const current = document.querySelector<HTMLButtonElement>('[aria-current="page"]')!;
     const pushState = vi.spyOn(window.history, "pushState");
@@ -303,7 +332,7 @@ describe("browser shell workflows", () => {
       root.render(<App />);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const pages = ["dashboard", "due", "batches", "fish", "promotions", "timing", "master", "audit", "export"] as const;
+    const pages = ["dashboard", "due", "batches", "fish", "promotions", "export"] as const;
     expect(document.querySelector('[aria-current="page"]')?.textContent).toContain(text.en.dashboard);
     expect(document.querySelector('a[href="#controls"]')).toBeNull();
     const navigate = async (page: (typeof pages)[number]) => {
@@ -400,7 +429,7 @@ describe("browser shell workflows", () => {
       root.render(<App />);
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    for (const page of ["batches", "fish", "promotions", "timing", "master", "audit", "export"] as const) {
+    for (const page of ["batches", "fish", "promotions", "export"] as const) {
       await act(async () => {
         window.history.pushState(null, "", `/#${page}`);
         window.dispatchEvent(new PopStateEvent("popstate"));

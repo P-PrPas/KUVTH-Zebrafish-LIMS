@@ -35,19 +35,19 @@ def worksheet_rows(xml: bytes) -> list[list[str]]:
 def test_fastapi_registers_every_openapi_operation(client):
     document = yaml.safe_load((Path(__file__).parents[2] / "api" / "openapi.yaml").read_text(encoding="utf-8"))
     expected = {
-        (method.upper(), f"/api/v1{path}")
+        (method.upper(), re.sub(r"\{[^/]+\}", "{}", f"/api/v1{path}"))
         for path, operations in document["paths"].items()
         for method in operations
         if method in {"get", "post", "put", "patch", "delete"}
     }
     actual = {
-        (method, route.path)
+        (method, re.sub(r"\{[^/]+\}", "{}", route.path))
         for route in client.app.routes
         for method in getattr(route, "methods", set())
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 92
+    assert len(expected) == 124
 
 
 def test_r_export_has_stable_30_column_shape(client):
@@ -206,9 +206,7 @@ def test_excel_export_can_select_flat_sheets(client, write_headers, monkeypatch)
 
 
 def test_excel_export_rejects_unknown_analytics_filters(client, write_headers):
-    response = client.post(
-        "/api/v1/exports/excel", headers=write_headers, json={"filters": {"status": "DEAD"}}
-    )
+    response = client.post("/api/v1/exports/excel", headers=write_headers, json={"filters": {"status": "DEAD"}})
     assert response.status_code == 422
 
 

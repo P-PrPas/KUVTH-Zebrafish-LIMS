@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import timedelta
 
@@ -7,6 +8,44 @@ import pytest
 from fastapi.testclient import TestClient
 
 from chronofish.runtime.values import utc_now
+from chronofish.services.auth import LOGIN_LOCK_ALERT_SUBJECT
+
+
+def test_failed_delivery_can_retry_immediately(client, monkeypatch):
+    auth = client.app.state.auth
+    email = _invite(client, auth.mailer, "retry@ku.th")["email"]
+    original = auth.mailer.send
+    monkeypatch.setattr(auth.mailer, "send", lambda *args: (_ for _ in ()).throw(OSError("SMTP down")))
+    auth.deliver_code(email)
+    monkeypatch.setattr(auth.mailer, "send", original)
+    sent = len(auth.mailer.messages)
+    auth.deliver_code(email)
+    assert len(auth.mailer.messages) == sent + 1
+
+
+def test_success_resets_failed_attempts(client):
+    auth = client.app.state.auth
+    email = _invite(client, auth.mailer, "reset@ku.th")["email"]
+    auth.deliver_code(email)
+    challenge = auth.repository.store.auth_challenges[email]
+    challenge["failed_count"] = 10
+    _sign_in(TestClient(client.app), email, auth.mailer)
+    assert challenge["failed_count"] == 0
+
+
+def test_admin_can_see_and_unlock_an_account(client):
+    auth = client.app.state.auth
+    member = _invite(client, auth.mailer, "blocked@ku.th")
+    auth.deliver_code(member["email"])
+    challenge = auth.repository.store.auth_challenges[member["email"]]
+    challenge["failed_count"] = 15
+    users = client.get("/api/v1/auth/admin/users").json()["items"]
+    assert next(u for u in users if u["id"] == member["id"])["loginLockedUntil"]
+    response = client.post(f"/api/v1/auth/admin/users/{member['id']}/unlock", json={})
+    assert response.status_code == 204
+    assert challenge["failed_count"] == 0
+    auth.deliver_code(member["email"])
+    _sign_in(TestClient(client.app), member["email"], auth.mailer)
 
 
 def _code(mailer) -> str:
@@ -64,7 +103,209 @@ def test_otp_is_single_use_and_keeps_the_email_cooldown(client):
     cooldown = client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
 
     assert reused.status_code == 401
-    assert cooldown.status_code == 429
+    unknown = client.post("/api/v1/auth/request-code", json={"email": "unknown@ku.th"})
+    assert cooldown.status_code == unknown.status_code == 202
+    assert cooldown.json() == unknown.json()
+
+
+def test_otp_cooldown_is_logged_without_error_traceback(client, caplog):
+    with caplog.at_level(logging.INFO, logger="chronofish.auth"):
+        response = client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
+    assert response.status_code == 202
+    events = [record for record in caplog.records if record.name == "chronofish.auth"]
+    assert len(events) == 1
+    assert events[0].levelno == logging.INFO
+    assert events[0].exc_info is None
+
+
+def test_requesting_again_keeps_the_existing_usable_code(client):
+    mailer = client.app.state.auth.mailer
+    repository = client.app.state.auth.repository
+    email = _invite(client, mailer, "repeat.member@ku.th")["email"]
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    challenge = repository.store.auth_challenges[email]
+    first_code = _code(mailer)
+    challenge["last_sent_at"] -= timedelta(seconds=61)
+    sent_before = len(mailer.messages)
+
+    response = client.post("/api/v1/auth/request-code", json={"email": email})
+
+    assert response.status_code == 202
+    assert len(mailer.messages) == sent_before
+    assert challenge["send_count"] == 1
+    assert (
+        client.post(
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "second-browser"},
+            json={"email": email, "code": first_code},
+        ).status_code
+        == 200
+    )
+
+
+def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client):
+    mailer = client.app.state.auth.mailer
+    email = _invite(client, mailer, "guarded.member@ku.th")["email"]
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    challenge = client.app.state.auth.repository.store.auth_challenges[email]
+    for batch in range(3):
+        if batch:
+            challenge["last_sent_at"] -= timedelta(seconds=61)
+            challenge["expires_at"] = utc_now() - timedelta(seconds=1)
+            assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+        correct_code = _code(mailer)
+        wrong_code = "000000" if correct_code != "000000" else "999999"
+        for _ in range(5):
+            response = client.post(
+                "/api/v1/auth/verify-code",
+                headers={"X-Device-Id": "attacker"},
+                json={"email": email, "code": wrong_code},
+            )
+            assert response.status_code == 401
+
+    assert challenge["failed_count"] == 15
+    assert len([message for message in mailer.messages if message[1] == LOGIN_LOCK_ALERT_SUBJECT]) == 1
+    blocked = client.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "real-member"},
+        json={"email": email, "code": correct_code},
+    )
+    assert blocked.status_code == 401
+    assert len([message for message in mailer.messages if message[1] == LOGIN_LOCK_ALERT_SUBJECT]) == 1
+    sent_before = len(mailer.messages)
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    assert len(mailer.messages) == sent_before
+
+    challenge["failed_window_started_at"] -= timedelta(days=1, seconds=1)
+    challenge["locked_until"] -= timedelta(days=1, seconds=1)
+    challenge["last_sent_at"] -= timedelta(seconds=61)
+    challenge["expires_at"] = utc_now() - timedelta(seconds=1)
+    assert client.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    recovered = client.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "real-member"},
+        json={"email": email, "code": _code(mailer)},
+    )
+    assert recovered.status_code == 200
+
+
+def test_verify_returns_the_new_session_and_device_ids(client):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "session.member@ku.th")
+    signed_in = _sign_in(TestClient(client.app), invited["email"], mailer)
+
+    assert signed_in["sessionId"]
+    assert signed_in["deviceId"] == "member-browser"
+
+
+def test_member_duplicate_uses_linked_operator_and_cannot_edit_foreign_batch(client, write_headers, master_data):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "duplicate.member@ku.th")
+    linked_operator = client.post("/api/v1/operators", headers=write_headers, json={"name": "Linked member operator"})
+    assert linked_operator.status_code == 201, linked_operator.text
+    linked_id = linked_operator.json()["id"]
+    assert client.patch(f"/api/v1/auth/admin/users/{invited['id']}", json={"operatorId": linked_id}).status_code == 200
+    source = client.post(
+        "/api/v1/batches",
+        headers={**write_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000201"},
+        json={
+            "experimentDate": "2026-09-01",
+            "siteId": master_data["site"]["id"],
+            "operatorId": master_data["operator"]["id"],
+            "protocolId": "01900000-0000-7000-8000-000000000001",
+            "treatmentGroupId": master_data["treatment"]["id"],
+            "recipientEggLotId": master_data["recipient_egg_lot"]["id"],
+        },
+    )
+    assert source.status_code == 201, source.text
+    source_id = source.json()["id"]
+    member_client = TestClient(client.app)
+    member = _sign_in(member_client, invited["email"], mailer)
+    member_headers = {**write_headers, "X-Operator-Id": linked_id, "X-Actor-User-Id": member["id"]}
+
+    foreign_edit = member_client.patch(
+        f"/api/v1/batches/{source_id}",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000202"},
+        json={"notes": "should not change"},
+    )
+    duplicated = member_client.post(
+        f"/api/v1/batches/{source_id}/duplicate",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000203"},
+        json={"experimentDate": "2026-09-02"},
+    )
+
+    assert foreign_edit.status_code == 403
+    assert foreign_edit.json()["error"]["code"] == "operator_mismatch"
+    assert duplicated.status_code == 201, duplicated.text
+    assert duplicated.json()["operatorId"] == linked_id
+    assert client.get(f"/api/v1/batches/{source_id}").json()["operatorId"] == master_data["operator"]["id"]
+    own_edit = member_client.patch(
+        f"/api/v1/batches/{duplicated.json()['id']}",
+        headers={**member_headers, "X-Idempotency-Key": "01900000-0000-7000-8000-000000000204"},
+        json={"notes": "my own experiment"},
+    )
+    assert own_edit.status_code == 200, own_edit.text
+    audit = client.get(f"/api/v1/audit-log?recordId={duplicated.json()['id']}").json()["items"]
+    assert any(item["operatorId"] == linked_id and item["actorUserId"] == member["id"] for item in audit)
+    member_client.close()
+
+
+def test_member_cannot_record_as_another_operator_or_without_a_link(client, write_headers):
+    mailer = client.app.state.auth.mailer
+    invited = _invite(client, mailer, "operator.member@ku.th")
+    member_client = TestClient(client.app)
+    member = _sign_in(member_client, invited["email"], mailer)
+    operator_a = write_headers["X-Operator-Id"]
+    operator_b = "00000000-0000-7000-8000-000000000002"
+    headers = {**write_headers, "X-Actor-User-Id": member["id"]}
+
+    unlinked = member_client.post("/api/v1/batches", headers=headers, json={"operatorId": operator_a})
+    assert unlinked.status_code == 403
+    assert unlinked.json()["error"]["code"] == "operator_link_required"
+
+    assert client.patch(f"/api/v1/auth/admin/users/{member['id']}", json={"operatorId": operator_a}).status_code == 200
+    forged_header = member_client.post(
+        "/api/v1/batches", headers={**headers, "X-Operator-Id": operator_b}, json={"operatorId": operator_b}
+    )
+    forged_body = member_client.post("/api/v1/batches", headers=headers, json={"operatorId": operator_b})
+    assert forged_header.status_code == forged_body.status_code == 403
+    assert forged_header.json()["error"]["code"] == forged_body.json()["error"]["code"] == "operator_mismatch"
+    member_client.close()
+
+
+def test_invitation_delivery_failure_keeps_account_and_reports_resend(client):
+    mailer = client.app.state.auth.mailer
+    original_send = mailer.send
+
+    def fail_send(*_args):
+        raise RuntimeError("SMTP unavailable")
+
+    mailer.send = fail_send
+    invited = client.post("/api/v1/auth/admin/users", json={"email": "retry.member@ku.th"})
+    assert invited.status_code == 201
+    assert invited.json()["emailSent"] is False
+    user_id = invited.json()["user"]["id"]
+    assert any(item["id"] == user_id for item in client.get("/api/v1/auth/admin/users").json()["items"])
+    mailer.send = original_send
+    assert client.post(f"/api/v1/auth/admin/users/{user_id}/invite", json={}).status_code == 202
+
+
+def test_never_verified_invitation_can_be_disabled_without_sync_acknowledgement(client):
+    invited = _invite(client, client.app.state.auth.mailer, "cancel.member@ku.th")
+    response = client.patch(f"/api/v1/auth/admin/users/{invited['id']}", json={"active": False})
+    assert response.status_code == 200
+
+
+def test_session_last_seen_is_touched_at_most_once_per_minute(client):
+    repository = client.app.state.auth.repository
+    token = client.cookies.get("chronofish_session")
+    token_hash = repository.token_hash(token)
+    session = repository.store.auth_sessions[token_hash]
+    start = session["last_seen_at"]
+    assert repository.authenticate(token_hash, start + timedelta(seconds=30))
+    assert session["last_seen_at"] == start
+    assert repository.authenticate(token_hash, start + timedelta(seconds=61))
+    assert session["last_seen_at"] == start + timedelta(seconds=61)
 
 
 def test_invited_member_gets_member_role_and_cannot_use_admin_routes(client):

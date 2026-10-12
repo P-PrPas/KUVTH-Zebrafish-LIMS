@@ -26,6 +26,42 @@ describe("batch detail actions", () => {
     vi.unstubAllGlobals();
   });
 
+  it("hides metadata editing for a member viewing another operator's batch", async () => {
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "member-1", email: "member@ku.th", role: "member", operatorId: "operator-1" }),
+    );
+    const foreign = { id: "batch-foreign", batchCode: "FOREIGN", operatorId: "operator-2", injectionLots: [] };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        return json(
+          path.endsWith("/batches")
+            ? { items: [foreign] }
+            : path.endsWith("/batches/batch-foreign")
+              ? foreign
+              : { items: [] },
+        );
+      }),
+    );
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    await act(async () => {
+      root.render(<Batches t={text.en} />);
+      await settle();
+    });
+    await act(async () => {
+      (document.querySelector(".list-row") as HTMLButtonElement).click();
+      await settle();
+    });
+    const labels = Array.from(document.querySelectorAll("button"), (button) => button.textContent);
+    expect(labels).not.toContain("Edit batch");
+    expect(labels).toContain("Duplicate for my operator");
+    await act(async () => root.unmount());
+  });
+
   it("duplicates a batch and manages embryos in an activated injection lot", async () => {
     const detail = {
       id: "batch-1",
@@ -56,7 +92,13 @@ describe("batch detail actions", () => {
     );
     vi.stubGlobal(
       "prompt",
-      vi.fn().mockReturnValueOnce("2026-09-02").mockReturnValueOnce("7").mockReturnValueOnce("duplicate entry"),
+      vi
+        .fn()
+        .mockReturnValueOnce("2026-09-02")
+        .mockReturnValueOnce("7")
+        .mockReturnValueOnce("correct well")
+        .mockReturnValueOnce("clear well")
+        .mockReturnValueOnce("duplicate entry"),
     );
     const rootElement = document.createElement("div");
     document.body.append(rootElement);
@@ -270,11 +312,12 @@ describe("batch detail actions", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Duplicate code");
+    const beforeDrain = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches")).length;
     await act(async () => {
       window.dispatchEvent(new Event("chronofish:queue-drained"));
       await settle();
     });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches"))).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/batches"))).toHaveLength(beforeDrain + 1);
     root.unmount();
   });
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Query, Request
 
@@ -28,6 +29,14 @@ MASTER = {
 
 def _validate(state: State, resource: str, item: dict[str, Any], current_id: str = "") -> None:
     spec = MASTER[resource]
+    if resource == "sites" and item.get("timeZone") is not None:
+        zone = item["timeZone"]
+        if not isinstance(zone, str) or len(zone) > 64 or not zone.strip():
+            raise APIError(422, "validation_error", "timeZone must be an IANA time zone")
+        try:
+            ZoneInfo(zone)
+        except ZoneInfoNotFoundError as error:
+            raise APIError(422, "validation_error", "timeZone is not a recognized IANA time zone") from error
     if resource == "experiment-groups":
         for field, limit in (("code", 50), ("name", 200), ("description", 2000)):
             value = item.get(field)
@@ -45,11 +54,11 @@ def _validate(state: State, resource: str, item: dict[str, Any], current_id: str
     missing = next((field for field in spec["required"] if not str(item.get(field, "")).strip()), None)
     if missing and not (legacy_missing_preservation and missing == "preservation"):
         raise APIError(422, "validation_error", f"ต้องระบุ {missing}")
-    if resource == "donor-cell-lines" and item.get("preparation") not in {"DISSOCIATED", "CHUNKS"}:
-        raise APIError(422, "validation_error", "preparation ต้องเป็น DISSOCIATED หรือ CHUNKS")
-    if resource == "donor-cell-lines" and item.get("preservation") not in {"FRESH", "CRYOPRESERVED"}:
+    if resource == "donor-cell-lines" and item.get("preparation") not in {"DISSOCIATED", "CHUNKS", "UNKNOWN"}:
+        raise APIError(422, "validation_error", "preparation must be DISSOCIATED, CHUNKS, or UNKNOWN")
+    if resource == "donor-cell-lines" and item.get("preservation") not in {"FRESH", "CRYOPRESERVED", "UNKNOWN"}:
         if not legacy_missing_preservation:
-            raise APIError(422, "validation_error", "preservation ต้องเป็น FRESH หรือ CRYOPRESERVED")
+            raise APIError(422, "validation_error", "preservation must be FRESH, CRYOPRESERVED, or UNKNOWN")
     if resource == "donor-cell-lines" and any(
         len(str(item.get(field) or "")) > limit for field, limit in (("sampleInfo", 1000), ("batchCode", 100))
     ):

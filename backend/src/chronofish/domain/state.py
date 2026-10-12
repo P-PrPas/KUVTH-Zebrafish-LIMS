@@ -35,6 +35,7 @@ class State:
     entities: dict[str, dict[str, JSON]] = field(default_factory=lambda: {resource: {} for resource in RESOURCES})
     observations: dict[str, JSON] = field(default_factory=dict)
     fish_observations: dict[str, JSON] = field(default_factory=dict)
+    correction_requests: dict[str, JSON] = field(default_factory=dict)
     audits: list[JSON] = field(default_factory=list)
     next_fish_no: int = 1
 

@@ -7,6 +7,7 @@ import { type AppText, text } from "../types";
 type AuditFilters = {
   table: string;
   recordId: string;
+  auditId: string;
   operatorId: string;
   from: string;
   to: string;
@@ -15,10 +16,20 @@ type AuditFilters = {
 const emptyFilters: AuditFilters = {
   table: "",
   recordId: "",
+  auditId: "",
   operatorId: "",
   from: "",
   to: "",
 };
+function linkedFilters(): AuditFilters {
+  const query = new URLSearchParams(window.location.search);
+  return {
+    ...emptyFilters,
+    table: query.get("auditTable") ?? "",
+    recordId: query.get("auditRecordId") ?? "",
+    auditId: query.get("auditLogId") ?? "",
+  };
+}
 
 function queryString(filters: AuditFilters, cursor?: string): string {
   const values = Object.entries(filters).filter(([, value]) => value) as [string, string][];
@@ -54,8 +65,9 @@ const tableLabel = (value: string, thai: boolean) =>
 
 export function Audit({ t = text.en }: { t?: AppText } = {}) {
   const thai = t === text.th;
-  const [draft, setDraft] = useState<AuditFilters>(emptyFilters);
-  const [filters, setFilters] = useState<AuditFilters>(emptyFilters);
+  const linkedLogId = new URLSearchParams(window.location.search).get("auditLogId");
+  const [draft, setDraft] = useState<AuditFilters>(linkedFilters);
+  const [filters, setFilters] = useState<AuditFilters>(linkedFilters);
   const [items, setItems] = useState<ApiItem[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -90,6 +102,13 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    if (linkedLogId && items.some((item) => item.id === linkedLogId)) {
+      window.requestAnimationFrame(() =>
+        document.getElementById(`audit-log-${linkedLogId}`)?.scrollIntoView({ block: "center" }),
+      );
+    }
+  }, [items, linkedLogId]);
 
   const update = (key: keyof AuditFilters, value: string) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -146,6 +165,10 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
               <input value={draft.recordId} onChange={(event) => update("recordId", event.target.value)} />
             </label>
             <label>
+              {thai ? "รหัส log" : "Log ID"}
+              <input value={draft.auditId} onChange={(event) => update("auditId", event.target.value)} />
+            </label>
+            <label>
               {t.operatorId}
               <input value={draft.operatorId} onChange={(event) => update("operatorId", event.target.value)} />
             </label>
@@ -198,7 +221,13 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
             const readableAction = actionLabel(action, thai);
             const readableTable = tableLabel(table, thai);
             return (
-              <details className="list-row audit-row" data-action={action} key={String(item.id)}>
+              <details
+                className={`list-row audit-row${item.id === linkedLogId ? " audit-row--linked" : ""}`}
+                data-action={action}
+                key={String(item.id)}
+                id={`audit-log-${String(item.id)}`}
+                open={item.id === linkedLogId ? true : undefined}
+              >
                 <summary>
                   <span>
                     <strong>

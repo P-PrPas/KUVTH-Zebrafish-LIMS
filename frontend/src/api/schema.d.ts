@@ -4,17 +4,17 @@
  */
 
 export interface paths {
-    "/auth/register": {
+    "/analytics/guest-dashboard": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Central dashboard totals available to guests; ignores filters and exposes no record details */
+        get: operations["guestDashboard"];
         put?: never;
-        /** Register a KU guest or request a password reset verification code */
-        post: operations["registerGuest"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -38,17 +38,483 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/analytics/guest-dashboard": {
+    "/auth/register": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Central dashboard totals available to guests; ignores filters and exposes no record details */
-        get: operations["guestDashboard"];
+        get?: never;
+        put?: never;
+        /** Register a KU guest or request a password reset verification code */
+        post: operations["registerGuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Inspect one XLSX or a set of CSV files before selecting sources */
+        post: operations["inspectImportSources"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List historical import jobs */
+        get: operations["listImportJobs"];
+        put?: never;
+        /**
+         * Store selected source files as a durable review draft
+         * @description `selection` is a JSON string. XLSX uses `{"sheets":["V1Raw"]}`;
+         *     CSV uses `{"files":[{"sheetName":"V1Raw","encoding":"utf-8-sig"}]}`.
+         *     CSV choices align with uploaded file order. Files excluded from parsing
+         *     require `include:false` and `ignoreReason`.
+         */
+        post: operations["createImportJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/deferred-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page through source values awaiting future field mapping */
+        get: operations["listImportDeferredFields"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/deferred-fields/{fieldId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply a deferred source value to a supported empty target field */
+        post: operations["applyImportDeferredField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Get an import job and source-file inventory */
+        get: operations["getImportJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Page through source-addressed import records */
+        get: operations["listImportRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Page through import validation issues */
+        get: operations["listImportIssues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/issues/bulk-bypass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bypass a selected set of overridable issues with one reason and revision */
+        post: operations["bulkBypassImportIssues"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/issues/{issueId}/correct-cell": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Correct a flagged source cell in the working copy and resolve its issue atomically */
+        post: operations["correctImportIssueCell"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/files/{fileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        /** Download an unchanged uploaded source file */
+        get: operations["downloadImportSource"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/records/{recordId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit a draft working copy while keeping source values unchanged */
+        patch: operations["reviseImportRecord"];
+        trace?: never;
+    };
+    "/imports/{jobId}/issues/{issueId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record an audited issue correction, bypass, or dismissal */
+        post: operations["decideImportIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/records/{recordId}/interpretation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        /** Interpret a historical embryo, fish, specimen, or aggregate row */
+        get: operations["interpretImportRecord"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/mapping-requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** List source mappings and unresolved import warnings */
+        get: operations["getImportMappingRequirements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Compare this draft with exact prior files, source positions, and active codes */
+        get: operations["compareImportSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-fish-specimens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Atomically confirm a fish/specimen-only import draft
+         * @description Requires an active site with time zone per fish sheet and active donor cell per source label.
+         */
+        post: operations["confirmFishSpecimenImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically confirm V1, MSU, or QC historical count sheets */
+        post: operations["confirmAggregateImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-v2-embryos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm V2 embryos and historical observations without inventing operational lot data */
+        post: operations["confirmV2EmbryoImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm selected data sheets atomically and retain summary sheets as references */
+        post: operations["confirmMixedImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/fish-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** List imported fish awaiting or having admin status review */
+        get: operations["listImportedFishStatuses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/historical-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Historical-only stage counts and outcomes by source precision */
+        get: operations["getImportHistoricalSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/historical-structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** Page through historical experiments and their source lots */
+        get: operations["listHistoricalImportStructure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/fish-status/{fishId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                fishId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review a historical fish status with evidence and optimistic version */
+        post: operations["reviewImportedFishStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revert an entire committed fish/specimen or count import when safe */
+        post: operations["revertFishSpecimenImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -220,6 +686,23 @@ export interface paths {
         put?: never;
         /** Resend a member invitation */
         post: operations["resendMemberInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/users/{user_id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Clear sign-in failures and invalidate the old code */
+        post: operations["unlockMember"];
         delete?: never;
         options?: never;
         head?: never;
@@ -715,7 +1198,10 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Update a batch */
+        /**
+         * Update a batch
+         * @description Members may correct a batch they originally recorded within 24 hours. Older work uses a correction request. Admins may correct any batch; an audit reason is required outside the 24-hour window.
+         */
         patch: operations["updateBatch"];
         trace?: never;
     };
@@ -732,7 +1218,9 @@ export interface paths {
         put?: never;
         /**
          * Create a new batch by copying this one
-         * @description Copies everything except dates and times (FR-305) — enucleation settings repeat almost every run.
+         * @description Copies batch settings except dates and times (FR-305). For a member,
+         *     the new batch belongs to their linked operator even when the source
+         *     belongs to someone else. Admin copies retain the source operator.
          */
         post: operations["duplicateBatch"];
         delete?: never;
@@ -1151,7 +1639,7 @@ export interface paths {
         head?: never;
         /**
          * Update a fish
-         * @description Sex is usually only determinable weeks in (FR-609), so it can be set at any time.
+         * @description Members may fill an unknown sex or move a fish box as routine work. Other fields may be corrected by the original recorder within 24 hours; older work uses a correction request. Admin corrections outside that window require a reason.
          */
         patch: operations["updateFish"];
         trace?: never;
@@ -1408,6 +1896,92 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/corrections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List own correction requests or all requests for an admin */
+        get: operations["listCorrections"];
+        put?: never;
+        /** Submit a single-field correction request */
+        post: operations["createCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/markers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List fields with pending requests for one record, without exposing details */
+        get: operations["correctionMarkers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an own request or any request as an admin */
+        get: operations["getCorrection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw an own pending request */
+        post: operations["withdrawCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/corrections/{request_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve and apply or reject a pending request as an admin */
+        post: operations["decideCorrection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit-log": {
         parameters: {
             query?: never;
@@ -1415,7 +1989,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Change history */
+        /** Admin-only change history */
         get: operations["listAuditLog"];
         put?: never;
         post?: never;
@@ -1446,6 +2020,96 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        PasswordInput: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        ImportJob: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            inputKind: "xlsx" | "csv_set";
+            /** @enum {string} */
+            status: "draft" | "ready" | "committed" | "reverted";
+            /** Format: uuid */
+            createdByUserId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            confirmedAt?: string | null;
+            /** Format: date-time */
+            revertedAt?: string | null;
+            revision: number;
+            parserVersion: string;
+            selection: {
+                [key: string]: unknown;
+            };
+        };
+        ImportSourceFile: {
+            /** Format: uuid */
+            id: string;
+            fileName: string;
+            sheetName?: string | null;
+            encoding?: string | null;
+            mediaType: string;
+            sha256: string;
+            sizeBytes: number;
+        };
+        ImportJobDetail: {
+            job: components["schemas"]["ImportJob"];
+            files: components["schemas"]["ImportSourceFile"][];
+            recordCount: number;
+            issueCount: number;
+            sheets?: {
+                name: string;
+                kind: string;
+                recordCount: number;
+                issueCount: number;
+            }[];
+        };
+        CorrectionRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            requesterId: string;
+            /** Format: email */
+            requesterEmail: string;
+            /** Format: uuid */
+            recordedOperatorId?: string | null;
+            /** Format: uuid */
+            recordedByUserId?: string | null;
+            targetTable: string;
+            /** Format: uuid */
+            targetId: string;
+            targetLabel?: string;
+            fieldName: string;
+            oldValue: unknown;
+            oldLabel?: string | null;
+            proposedValue: unknown;
+            proposedLabel?: string | null;
+            currentValue?: unknown;
+            currentLabel?: string | null;
+            sourceUpdatedAt: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "rejected" | "withdrawn";
+            decisionReason?: string | null;
+            /** Format: uuid */
+            decidedByUserId?: string | null;
+            /** Format: uuid */
+            appliedAuditId?: string | null;
+            conflict?: boolean;
+            validationMessage?: string;
+            relatedAuditIds?: string[];
+            notificationOnly?: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /**
          * @description DEGENERATED is kept distinct from DEAD because the lab records the two separately.
          * @enum {string}
@@ -1475,14 +2139,14 @@ export interface components {
         /** @enum {string} */
         StageScope: "STAGE_1" | "STAGE_2";
         /** @enum {string} */
-        Preparation: "DISSOCIATED" | "CHUNKS";
+        Preparation: "DISSOCIATED" | "CHUNKS" | "UNKNOWN";
         /**
-         * @description Clone, Recipient Tail, Donor Cell.
+         * @description Clone, Clone Adult, Recipient Tail, Donor Cell.
          * @enum {string}
          */
-        SpecimenKind: "CL" | "RT" | "DC";
+        SpecimenKind: "CL" | "CLA" | "RT" | "DC";
         /** @enum {string} */
-        SpecimenType: "WHOLE_EMBRYO" | "CAUDAL_FIN_CLIP";
+        SpecimenType: "WHOLE_EMBRYO" | "CAUDAL_FIN_CLIP" | "ANAL_FIN_CLIP" | "LEFTOVER_CELLS" | "WHOLE_ADULT" | "UNKNOWN";
         /**
          * @description `duplicate` is a normal outcome of retrying, not a failure.
          * @enum {string}
@@ -1507,17 +2171,21 @@ export interface components {
             code: string;
             /** @example Kasetsart University */
             name: string;
+            /** @example Asia/Bangkok */
+            timeZone?: string | null;
             active: boolean;
         };
         SiteInput: {
             code: string;
             name: string;
+            timeZone?: string | null;
             /** @default true */
             active: boolean;
         };
         SitePatchInput: {
             code?: string;
             name?: string;
+            timeZone?: string | null;
             active?: boolean;
         };
         Operator: {
@@ -1549,7 +2217,7 @@ export interface components {
             strain: string;
             preparation: components["schemas"]["Preparation"];
             /** @enum {string|null} */
-            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            preservation?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN" | null;
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             /** @example AB240426_e48h */
@@ -1560,7 +2228,7 @@ export interface components {
             strain: string;
             preparation: components["schemas"]["Preparation"];
             /** @enum {string} */
-            preservation: "FRESH" | "CRYOPRESERVED";
+            preservation: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             batchCode?: string | null;
@@ -1571,7 +2239,7 @@ export interface components {
             strain?: string;
             preparation?: components["schemas"]["Preparation"];
             /** @enum {string|null} */
-            preservation?: "FRESH" | "CRYOPRESERVED" | null;
+            preservation?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN" | null;
             /** @description Cryovial or sample-level detail. */
             sampleInfo?: string | null;
             batchCode?: string | null;
@@ -1811,6 +2479,7 @@ export interface components {
             notes?: string | null;
         };
         BatchDetail: components["schemas"]["Batch"] & {
+            canEditDirectly?: boolean;
             injectionLots?: components["schemas"]["InjectionLot"][];
         };
         InjectionLot: {
@@ -2227,6 +2896,7 @@ export interface components {
             overrideReason?: string | null;
         };
         CloneFishDetail: components["schemas"]["CloneFish"] & {
+            canEditDirectly?: boolean;
             observations?: {
                 /** Format: uuid */
                 id: string;
@@ -2247,11 +2917,14 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            cloneFishId: string;
+            cloneFishId: string | null;
+            linkedFishIds?: string[];
             /** @example CL1 */
             specimenCode: string;
             specimenKind: components["schemas"]["SpecimenKind"];
             specimenType: components["schemas"]["SpecimenType"];
+            /** @enum {string} */
+            preservationState?: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** Format: date */
             collectedOn?: string | null;
             /** Format: date */
@@ -2264,6 +2937,11 @@ export interface components {
             specimenCode: string;
             specimenKind: components["schemas"]["SpecimenKind"];
             specimenType: components["schemas"]["SpecimenType"];
+            /**
+             * @default UNKNOWN
+             * @enum {string}
+             */
+            preservationState: "FRESH" | "CRYOPRESERVED" | "UNKNOWN";
             /** Format: date */
             collectedOn?: string | null;
             /** Format: date */
@@ -2475,10 +3153,21 @@ export interface components {
             /** @description Required for guests; set or reset password after verifying email and revoke previous sessions */
             password?: string;
         };
-        PasswordInput: {
-            /** Format: email */
-            email: string;
-            password: string;
+        AuthMember: components["schemas"]["AuthUser"] & {
+            active: boolean;
+            /** Format: date-time */
+            verifiedAt?: string | null;
+            /** Format: date-time */
+            invitedAt?: string | null;
+            /** Format: date-time */
+            loginLockedUntil: string | null;
+            syncDevices: {
+                deviceId: string;
+                pendingCount: number;
+                /** Format: date-time */
+                lastReportedAt: string;
+                stale: boolean;
+            }[];
         };
         AuthUser: {
             /** Format: uuid */
@@ -2566,46 +3255,30 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    registerGuest: {
+    guestDashboard: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PasswordInput"];
-            };
-        };
+        requestBody?: never;
         responses: {
-            /** @description Verification code sent for an active account; password is set only after verifying the code */
-            202: {
+            /** @description Unfiltered aggregate counts */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            /** @description Invalid email or password */
-            400: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": {
+                        nBatches: number;
+                        nActivated: number;
+                        nPromoted: number;
+                        nFish: number;
+                        nAlive: number;
+                        nDead: number;
+                    };
                 };
-                content?: never;
-            };
-            /** @description Email cooldown or rate limit reached */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Email delivery unavailable */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -2653,7 +3326,95 @@ export interface operations {
             };
         };
     };
-    guestDashboard: {
+    registerGuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordInput"];
+            };
+        };
+        responses: {
+            /** @description Verification code sent for an active account; password is set only after verifying the code */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid email or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email cooldown or rate limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email delivery unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    inspectImportSources: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    files: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Workbook sheet names or CSV text previews */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upload exceeds the import limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportJobs: {
         parameters: {
             query?: never;
             header?: never;
@@ -2662,21 +3423,980 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Unfiltered aggregate counts */
+            /** @description Recent jobs */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": {
-                        nBatches: number;
-                        nActivated: number;
-                        nPromoted: number;
-                        nFish: number;
-                        nAlive: number;
-                        nDead: number;
+                        items: components["schemas"]["ImportJob"][];
                     };
                 };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createImportJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    files: string[];
+                    selection: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Draft created; no experimental records have been written */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobDetail"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Upload exceeds the import limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Source file cannot be parsed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportDeferredFields: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deferred fields with source locations and supported targets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    applyImportDeferredField: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                fieldId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    targetField: string;
+                    value: string;
+                    reason: string;
+                    rowVersion: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Audited target update and applied field */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Target changed or already contains a value */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Job summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobDetail"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Job not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportRecords: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Import records with immutable source and editable working values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportIssues: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Issues with source sheet and cell location */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    bulkBypassImportIssues: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    issueIds: string[];
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description All selected issues bypassed atomically with audit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale revision or a selected issue cannot be bypassed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    correctImportIssueCell: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    value: string;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Working cell corrected while original source remains unchanged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description New value is still invalid */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    downloadImportSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                fileId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original source bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description File not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviseImportRecord: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    working: {
+                        [key: string]: unknown;
+                    };
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated working values and job revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Draft changed or was finalized */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    decideImportIssue: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+                issueId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    /** @enum {string} */
+                    decision: "corrected" | "bypassed" | "dismissed";
+                    reason: string;
+                    resolutionValue?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Issue decision and job revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Decision is invalid for the issue severity */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Draft changed or issue was already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    interpretImportRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+                recordId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Interpreted values */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Source layout does not yet have an interpretation */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportMappingRequirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Master mappings and warnings before confirmation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    compareImportSources: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Advisory reimport matches without changing canonical data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmFishSpecimenImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Canonical fish/specimen and historical observation counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmAggregateImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Historical count rows created with source provenance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmV2EmbryoImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Historical embryo identities and observations with provenance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmMixedImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                    aggregateWarningBypassReason?: string;
+                    embryoWarningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Data committed atomically; reconciliation sheets retained without canonical writes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Any unresolved issue or validation failure rolls back the whole job */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listImportedFishStatuses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fish status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportHistoricalSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate historical counts and observations without operational timing metrics */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listHistoricalImportStructure: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Historical source experiments and lots with provenance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviewImportedFishStatus: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+                fishId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    rowVersion: number;
+                    /** @enum {string} */
+                    status: "UNKNOWN" | "ALIVE" | "DEAD" | "FROZEN" | "DISCARDED";
+                    /** @enum {string} */
+                    lifeState: "UNKNOWN" | "ALIVE" | "DEAD";
+                    /** @enum {string} */
+                    disposition: "NONE" | "FROZEN" | "DISCARDED" | "LOST" | "UNKNOWN";
+                    /** Format: date */
+                    exitDate?: string | null;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Audited fish status change */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Fish changed since review was opened */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    revertFishSpecimenImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Whole job reverted and audit preserved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Later work */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -2693,21 +4413,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A code was sent when the account is active */
+            /** @description Same response for invited, unknown, and rate-limited addresses; delivery is queued */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Cooldown or per-email hourly limit reached */
+            /** @description Global per-IP API rate limit reached */
             429: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Email delivery is not configured or unavailable */
+            /** @description Email delivery is not configured */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -2866,12 +4586,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Member list */
+            /** @description Member list including sign-in lock expiration */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AuthMember"][];
+                    };
+                };
             };
             /** @description Admin role required */
             403: {
@@ -2895,12 +4619,17 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Member invited and invitation email sent */
+            /** @description Member created; emailSent reports whether invitation delivery succeeded */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": {
+                        user: components["schemas"]["AuthUser"];
+                        emailSent: boolean;
+                    };
+                };
             };
             /** @description Admin role required */
             403: {
@@ -2955,6 +4684,40 @@ export interface operations {
         responses: {
             /** @description Invitation email sent */
             202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlockMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account unlocked; a new code may be requested immediately */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin role required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Member not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4139,6 +5902,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Batch"];
                 };
+            };
+            /** @description Member is not linked to the batch operator */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             404: components["responses"]["NotFound"];
         };
@@ -5472,11 +7242,190 @@ export interface operations {
             };
         };
     };
+    listCorrections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Correction requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["CorrectionRequest"][];
+                    };
+                };
+            };
+        };
+    };
+    createCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    targetTable: string;
+                    /** Format: uuid */
+                    targetId: string;
+                    fieldName: string;
+                    proposedValue: unknown;
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Request submitted */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    correctionMarkers: {
+        parameters: {
+            query: {
+                targetTable: string;
+                targetId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending field names */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        fields: string[];
+                        ownFields: string[];
+                    };
+                };
+            };
+        };
+    };
+    getCorrection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Correction request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    withdrawCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Withdrawn request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
+    decideCorrection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "approve" | "reject";
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Decided request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrectionRequest"];
+                };
+            };
+        };
+    };
     listAuditLog: {
         parameters: {
             query?: {
                 table?: string;
                 recordId?: string;
+                auditId?: string;
                 operatorId?: string;
                 from?: string;
                 to?: string;

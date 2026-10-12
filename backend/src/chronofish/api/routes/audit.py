@@ -85,6 +85,7 @@ def build_audit_router(store: Store) -> APIRouter:
             raise APIError(400, "invalid_query", "limit must be an integer") from error
         table = _filter(query.get("table"), "table")
         record_id = _uuid_filter(query.get("recordId"), "recordId")
+        audit_id = _uuid_filter(query.get("auditId"), "auditId")
         operator_id = _uuid_filter(query.get("operatorId"), "operatorId")
         from_time, to_time, cursor = _time(query.get("from")), _time(query.get("to")), _cursor(query.get("cursor"))
         if from_time and to_time and from_time > to_time:
@@ -93,6 +94,7 @@ def build_audit_router(store: Store) -> APIRouter:
             page, more = query_audits(
                 table=table,
                 record_id=record_id,
+                audit_id=audit_id,
                 operator_id=operator_id,
                 from_time=from_time,
                 to_time=to_time,
@@ -106,6 +108,8 @@ def build_audit_router(store: Store) -> APIRouter:
             if table and item.get("tableName") != table:
                 continue
             if record_id and item.get("recordId") != record_id:
+                continue
+            if audit_id and item.get("id") != audit_id:
                 continue
             if operator_id and item.get("operatorId") != operator_id:
                 continue

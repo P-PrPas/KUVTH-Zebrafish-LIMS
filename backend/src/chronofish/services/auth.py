@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+import logging
 import secrets
 from datetime import datetime
 from typing import Any
@@ -8,12 +8,14 @@ from typing import Any
 from ..config import Config
 from ..runtime.errors import APIError
 from ..runtime.values import utc_now, uuid7
-from ..store.auth import AuthRepository
+from ..store.auth import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW, AuthRepository
 from .mail import Mailer
 from .passwords import hash_password, validate_password
 
 SESSION_COOKIE = "chronofish_session"
 SESSION_COOKIE_MAX_AGE = 90 * 24 * 60 * 60
+LOGGER = logging.getLogger("chronofish.auth")
+LOGIN_LOCK_ALERT_SUBJECT = "KUVACB sign-in attempts blocked"
 
 
 def _email(value: Any) -> str:
@@ -28,12 +30,7 @@ def _email(value: Any) -> str:
     ):
         raise APIError(400, "invalid_email", "Only a valid @ku.th email address is allowed")
     local = email.partition("@")[0]
-    if (
-        not re.fullmatch(r"[a-z0-9!#$%&'*+/=?^_`{|}~.-]+", local)
-        or local.startswith(".")
-        or local.endswith(".")
-        or ".." in local
-    ):
+    if not local or local.startswith(".") or local.endswith(".") or ".." in local:
         raise APIError(400, "invalid_email", "Enter a valid @ku.th email address")
     return email
 
@@ -43,21 +40,58 @@ class AuthService:
         self.config = config
         self.repository = AuthRepository(store, config.auth_secret)
         self.mailer = mailer
-        self.repository.ensure_bootstrap(config.bootstrap_admin_email, utc_now())
+        if config.bootstrap_admin_email:
+            self.repository.ensure_bootstrap(config.bootstrap_admin_email, utc_now())
 
-    def request_code(self, body: dict[str, Any]) -> None:
+    def validate_code_request(self, body: dict[str, Any]) -> str:
         email = _email(body.get("email"))
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Email delivery is not configured on this server")
+        return email
+
+    def deliver_code(self, email: str) -> None:
+        try:
+            self._deliver_code(email)
+        except APIError as error:
+            if error.status == 429:
+                LOGGER.info("Sign-in code request throttled")
+            else:
+                LOGGER.exception("Sign-in code delivery failed")
+        except Exception:
+            LOGGER.exception("Sign-in code delivery failed")
+
+    def _deliver_code(self, email: str) -> None:
         code = f"{secrets.randbelow(1_000_000):06d}"
-        accepted = self.repository.issue_code(email, self.repository.code_hash(email, code), utc_now())
+        digest = self.repository.code_hash(email, code)
+        accepted = self.repository.issue_code(email, digest, utc_now())
         if not accepted:
             return
-        self._send(
-            email,
-            "Your KUVACB verification code",
-            f"Your email verification code is {code}.\n\nIt expires in 10 minutes and can only be used once.",
-        )
+        try:
+            self._send(
+                email,
+                "Your KUVACB sign-in code",
+                f"Your one-time sign-in code is {code}.\n\nIt expires in 10 minutes and can only be used once.",
+            )
+        except APIError:
+            self.repository.expire_failed_delivery(email, digest, utc_now())
+            raise
+
+    def alert_login_lock(self, email: str) -> None:
+        LOGGER.warning("Sign-in verification locked for %s", email)
+        admins = [user for user in self.repository.list_users(utc_now()) if user["active"] and user["role"] == "admin"]
+        if not admins:
+            LOGGER.error("No active administrator available for sign-in lock alert")
+        for admin in admins:
+            try:
+                self._send(
+                    admin["email"],
+                    LOGIN_LOCK_ALERT_SUBJECT,
+                    f"Sign-in verification for {email} reached {OTP_DAILY_MAX_FAILURES} incorrect attempts "
+                    f"in {OTP_DAILY_WINDOW.total_seconds() / 3600:g} hours. "
+                    "Unlock the account in Members and access after verifying the owner's identity.",
+                )
+            except APIError:
+                LOGGER.exception("Sign-in attempt alert delivery failed for %s", admin["email"])
 
     def register(self, body: dict[str, Any]) -> None:
         email = _email(body.get("email"))
@@ -65,7 +99,7 @@ class AuthService:
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Email delivery is not configured on this server")
         self.repository.register_guest(email, utc_now())
-        self.request_code({"email": email})
+        self._deliver_code(email)
 
     @staticmethod
     def validate_device(device_id: str) -> None:
@@ -84,18 +118,21 @@ class AuthService:
             raise APIError(401, "invalid_credentials", "Email or password is incorrect, or email is not verified")
         return self.public_user(user), token
 
-    def verify_code(self, body: dict[str, Any], device_id: str) -> tuple[dict[str, Any], str]:
+    def verify_code(
+        self, body: dict[str, Any], device_id: str, background_tasks: Any = None
+    ) -> tuple[dict[str, Any], str]:
         email = _email(body.get("email"))
         code = body.get("code")
         if not isinstance(code, str) or len(code) != 6 or not code.isdigit():
             raise APIError(400, "invalid_code", "Enter the six-digit code from your email")
-        self.validate_device(device_id)
+        if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
+            raise APIError(400, "invalid_device", "Device id is invalid")
         password_hash = hash_password(validate_password(body["password"])) if "password" in body else None
         existing = self.repository.user_by_email(email)
         if existing and existing["role"] == "guest" and password_hash is None:
             raise APIError(400, "password_required", "Set a password to complete registration")
         token = secrets.token_urlsafe(48)
-        user = self.repository.verify_and_create_session(
+        result = self.repository.verify_and_create_session(
             email=email,
             digest=self.repository.code_hash(email, code),
             session_id=uuid7(),
@@ -104,6 +141,12 @@ class AuthService:
             now=utc_now(),
             password_hash=password_hash,
         )
+        user = result.user
+        if result.lock_reached:
+            if background_tasks is not None:
+                background_tasks.add_task(self.alert_login_lock, email)
+            else:
+                self.alert_login_lock(email)
         if not user:
             raise APIError(401, "code_invalid", "The code is invalid or expired. Request a new code and try again.")
         return self.public_user(user), token
@@ -118,19 +161,17 @@ class AuthService:
         if cookie:
             self.repository.revoke_token(self.repository.token_hash(cookie), utc_now())
 
-    def invite(self, body: dict[str, Any], actor: dict[str, Any]) -> dict[str, Any]:
+    def invite(self, body: dict[str, Any], actor: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         email = _email(body.get("email"))
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Configure SMTP before inviting members")
         user = self.repository.invite_user(email, actor, utc_now())
-        self._send(
-            email,
-            "You are invited to KUVACB AqLIMS",
-            "You have been invited to join the Kasetsart University Animal Cell Bank research workspace.\n\n"
-            f"Open {self.config.app_base_url} and sign in with this email address. "
-            "A one-time code will be sent to you.",
-        )
-        return self.public_user(user)
+        try:
+            self.resend_invitation(user)
+        except APIError:
+            LOGGER.exception("Invitation email delivery failed")
+            return self.public_user(user), False
+        return self.public_user(user), True
 
     def resend_invitation(self, user: dict[str, Any]) -> None:
         if not self.mailer.configured:

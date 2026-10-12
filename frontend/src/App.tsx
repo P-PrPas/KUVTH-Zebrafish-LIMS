@@ -25,11 +25,13 @@ import {
 } from "./offline";
 import { Audit } from "./pages/audit";
 import { Batches } from "./pages/batches";
+import { AdminHome, AdminRequests, MyRequests } from "./pages/corrections";
 import { Dashboard } from "./pages/dashboard";
 import { Due } from "./pages/due";
 import { Export } from "./pages/export";
 import { Fish } from "./pages/fish";
 import { GuestDashboard } from "./pages/guest-dashboard";
+import { Imports } from "./pages/imports";
 import { Login } from "./pages/login";
 import { Master } from "./pages/master";
 import { Members } from "./pages/members";
@@ -90,10 +92,17 @@ export function markInvalidFields(form: HTMLFormElement | null, page: Page, lang
 
 function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const isAdmin = user.role === "admin";
-  const adminPages: Page[] = ["master", "timing", "members"];
+  const adminMode = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
+  const adminPages: Page[] = ["admin", "corrections", "master", "timing", "members", "audit", "imports"];
   const initialPage = (location.hash === "#controls" ? "dashboard" : location.hash.slice(1)) as Page;
   const [page, setPage] = useState<Page>(() =>
-    adminPages.includes(initialPage) && !isAdmin ? "dashboard" : initialPage || "dashboard",
+    adminMode
+      ? adminPages.includes(initialPage)
+        ? initialPage
+        : "admin"
+      : adminPages.includes(initialPage)
+        ? "dashboard"
+        : initialPage || "dashboard",
   );
   const [language, setLanguage] = useState<Language>(() =>
     localStorage.getItem("chronofish.language") === "en" ? "en" : "th",
@@ -114,7 +123,16 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const previousPage = useRef(page);
   const currentOperator = operatorId();
   const operatorMenu = useRef<HTMLDetailsElement>(null);
-  const writePage = !["dashboard", "audit", "export", "members"].includes(page);
+  const writePage = ![
+    "dashboard",
+    "audit",
+    "export",
+    "members",
+    "admin",
+    "corrections",
+    "my-requests",
+    "imports",
+  ].includes(page);
   const t = text[language];
   const currentOperatorName = String(
     operators.find((operator) => String(operator.id) === currentOperator)?.name ??
@@ -146,14 +164,30 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     },
     { page: "due", label: t.due, compactLabel: language === "th" ? "ตัวอ่อน" : "Embryos", icon: "due", group: "primary" },
     { page: "fish", label: t.fish, compactLabel: language === "th" ? "ปลา" : "Fish", icon: "fish", group: "primary" },
+    { page: "my-requests", label: language === "th" ? "คำร้องของฉัน" : "My requests", icon: "audit", group: "research" },
+    {
+      page: "admin",
+      label: language === "th" ? "ดูแลระบบ" : "Administration",
+      compactLabel: language === "th" ? "ดูแลระบบ" : "Admin",
+      icon: "dashboard",
+      group: "primary",
+    },
+    {
+      page: "corrections",
+      label: language === "th" ? "คำร้องแก้ไข" : "Corrections",
+      compactLabel: language === "th" ? "คำร้อง" : "Requests",
+      icon: "audit",
+      group: "primary",
+    },
     { page: "promotions", label: t.promotions, icon: "promotions", group: "research" },
     { page: "timing", label: t.timing, icon: "timing", group: "system" },
     { page: "export", label: t.export, icon: "export", group: "research" },
     { page: "master", label: t.master, icon: "master", group: "system" },
     { page: "audit", label: t.audit, icon: "audit", group: "system" },
     { page: "members", label: t.members, icon: "people", group: "system" },
+    { page: "imports", label: language === "th" ? "นำเข้าข้อมูล" : "Imports", icon: "export", group: "system" },
   ];
-  const visibleNav = isAdmin ? navItems : navItems.filter((item) => !adminPages.includes(item.page));
+  const visibleNav = navItems.filter((item) => adminMode === adminPages.includes(item.page));
   const currentNav = visibleNav.find((item) => item.page === page) ?? visibleNav[0];
 
   useEffect(() => {
@@ -173,14 +207,15 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
     localStorage.setItem("chronofish.language", language);
   }, [language]);
   useEffect(() => {
-    document.title = `${currentNav.label} · ${productName}`;
+    document.title = `${currentNav.label} · ${adminMode ? "KUVACB Admin" : productName}`;
   }, [currentNav.label]);
   useEffect(() => {
-    if (!isAdmin && adminPages.includes(page)) {
-      setPage("dashboard");
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#dashboard`);
+    if (adminMode !== adminPages.includes(page)) {
+      const fallback = adminMode ? "admin" : "dashboard";
+      setPage(fallback);
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${fallback}`);
     }
-  }, [isAdmin, page]);
+  }, [adminMode, page]);
   useEffect(() => {
     if (previousPage.current === page) return;
     previousPage.current = page;
@@ -191,7 +226,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   useEffect(() => {
     const followHistory = () => {
       const next = (location.hash === "#controls" ? "dashboard" : location.hash.slice(1)) as Page;
-      if (navItems.some((item) => item.page === next) && (isAdmin || !adminPages.includes(next))) setPage(next);
+      if (navItems.some((item) => item.page === next) && adminMode === adminPages.includes(next)) setPage(next);
     };
     window.addEventListener("hashchange", followHistory);
     window.addEventListener("popstate", followHistory);
@@ -285,21 +320,21 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
       </button>
     ));
   return (
-    <div className="app">
+    <div className={adminMode ? "app app--admin" : "app"}>
       <a className="skip-link" href="#main-content">
         {language === "th" ? "ข้ามไปยังเนื้อหาหลัก" : "Skip to main content"}
       </a>
       <aside className="sidebar">
         <a
           className="brand-lockup"
-          href="#dashboard"
+          href={adminMode ? "#admin" : "#dashboard"}
           aria-label={language === "th" ? "KUVACB · สรุปผลการทดลอง" : "KUVACB · Experiment dashboard"}
         >
           <span className="brand-logo">
             <img src="/brand/kuvacb-logo.png" width="1095" height="351" alt="KUVACB" />
           </span>
           <span className="brand-copy">
-            <span className="brand">KUVACB AqLIMS</span>
+            <span className="brand">{adminMode ? "KUVACB Admin" : productName}</span>
             <span className="tagline">
               {language === "th" ? "ระบบบันทึกงานวิจัยปลาม้าลาย" : "Zebrafish research workspace"}
             </span>
@@ -310,10 +345,12 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
             <p className="nav-group__label">{language === "th" ? "งาน" : "Task"}</p>
             {renderNav(visibleNav.filter((item) => item.group === "primary"))}
           </div>
-          <details className="nav-disclosure nav-disclosure--desktop" open>
-            <summary>{language === "th" ? "งานต่อเนื่องและรายงาน" : "Follow-up & reports"}</summary>
-            <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "research"))}</div>
-          </details>
+          {visibleNav.some((item) => item.group === "research") && (
+            <details className="nav-disclosure nav-disclosure--desktop" open>
+              <summary>{language === "th" ? "งานต่อเนื่องและรายงาน" : "Follow-up & reports"}</summary>
+              <div className="nav-group">{renderNav(visibleNav.filter((item) => item.group === "research"))}</div>
+            </details>
+          )}
           <details
             className="nav-disclosure nav-disclosure--desktop"
             open={visibleNav.some((item) => item.group === "system" && item.page === page)}
@@ -460,6 +497,11 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
               <span>{language === "th" ? "บัญชี" : "Account"}</span>
             </summary>
             <div className="account-menu__panel">
+              {isAdmin && (
+                <a className="button button--secondary" href={adminMode ? "/" : "/admin"}>
+                  {adminMode ? (language === "th" ? "กลับเว็บหลัก" : "Research workspace") : "Admin"}
+                </a>
+              )}
               <span className="account-badge">
                 <span>{user.email}</span>
                 <small>{user.role === "admin" ? "Admin" : language === "th" ? "สมาชิก" : "Member"}</small>
@@ -556,6 +598,10 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                 {language === "th" ? "ช่องที่มีเครื่องหมาย * จำเป็นต้องกรอก" : "Fields marked * are required"}
               </p>
             )}
+            {page === "my-requests" && <MyRequests language={language} />}
+            {page === "admin" && isAdmin && <AdminHome language={language} onNavigate={navigate} />}
+            {page === "corrections" && isAdmin && <AdminRequests language={language} />}
+            {page === "imports" && isAdmin && <Imports language={language} />}
             {page === "dashboard" && <Dashboard onNavigate={navigate} t={t} />}
             {page === "due" && <Due t={t} />}
             {page === "batches" && <Batches t={t} />}
@@ -698,6 +744,19 @@ function SessionApp() {
           setAuthState("signed-in");
         }}
       />
+    );
+  if (
+    (window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/")) &&
+    user.role !== "admin"
+  )
+    return (
+      <main className="auth-shell">
+        <h1>Admin access required</h1>
+        <p>บัญชีนี้ไม่มีสิทธิ์เข้าหน้า Admin</p>
+        <a className="button button--primary" href="/">
+          กลับเว็บหลัก
+        </a>
+      </main>
     );
   if (user.role === "guest") return <GuestDashboard user={user} onLogout={() => void logout()} />;
   return <Workspace key={`${user.id}:${user.role}`} user={user} onLogout={() => void logout()} />;

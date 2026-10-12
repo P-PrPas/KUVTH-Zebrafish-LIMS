@@ -39,7 +39,8 @@ class SMTPMailer:
             )
         else:
             connection = smtplib.SMTP(self.config.mail_smtp_host, self.config.mail_smtp_port, timeout=15)
-            connection.starttls(context=context)
+            if self.config.mail_use_starttls:
+                connection.starttls(context=context)
         try:
             if self.config.mail_smtp_username:
                 connection.login(self.config.mail_smtp_username, self.config.mail_smtp_password)

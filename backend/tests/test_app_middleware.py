@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from fastapi import Request
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from chronofish.app import create_app
 from chronofish.config import Config
 from chronofish.runtime.errors import APIError
+from chronofish.services.mail import RecordingMailer
 from chronofish.store import MemoryStore
 
 
@@ -136,6 +138,42 @@ def test_cors_headers_present_only_when_origins_configured():
     assert allowed.headers["access-control-allow-origin"] == "https://x.example"
     assert "X-Idempotency-Key" in allowed.headers["access-control-allow-headers"]
     assert "access-control-allow-origin" not in disabled.headers
+
+
+def test_authentication_errors_include_cors_headers():
+    config = app_config(
+        allowed_origins=("https://x.example",), bootstrap_admin_email="admin@ku.th", session_cookie_secure=False
+    )
+    mailer = RecordingMailer()
+    with TestClient(create_app(config, MemoryStore(), mailer)) as client:
+        unauthenticated = client.get("/api/v1/sites", headers={"Origin": "https://x.example"})
+        assert client.post("/api/v1/auth/request-code", json={"email": "admin@ku.th"}).status_code == 202
+        code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
+        assert (
+            client.post(
+                "/api/v1/auth/verify-code",
+                headers={"X-Device-Id": "admin-browser"},
+                json={"email": "admin@ku.th", "code": code},
+            ).status_code
+            == 200
+        )
+        assert client.post("/api/v1/auth/admin/users", json={"email": "member@ku.th"}).status_code == 201
+        client.cookies.clear()
+        assert client.post("/api/v1/auth/request-code", json={"email": "member@ku.th"}).status_code == 202
+        code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
+        assert (
+            client.post(
+                "/api/v1/auth/verify-code",
+                headers={"X-Device-Id": "member-browser"},
+                json={"email": "member@ku.th", "code": code},
+            ).status_code
+            == 200
+        )
+        forbidden = client.get("/api/v1/auth/admin/users", headers={"Origin": "https://x.example"})
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["access-control-allow-origin"] == "https://x.example"
+    assert forbidden.status_code == 403
+    assert forbidden.headers["access-control-allow-origin"] == "https://x.example"
 
 
 def test_openapi_and_docs_routes_are_disabled(client):

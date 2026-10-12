@@ -67,6 +67,10 @@ jobs:
           test "$(docker image inspect kuvth-zebrafish-lims-frontend:ci --format '{{index .Config.Labels "org.opencontainers.image.title"}}')" = "KUVTH Zebrafish LIMS frontend"
           test "$(docker image inspect kuvth-zebrafish-lims-frontend:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
       - name: Smoke test Compose frontend proxies
+        env:
+          AUTH_SECRET: ci-smoke-test-secret-only-at-least-32-characters
+          BOOTSTRAP_ADMIN_EMAIL: ci-smoke-admin@ku.th
+          MAIL_SENDER_EMAIL: ci-smoke-sender@ku.th
         run: |
           trap 'docker compose -f compose.yaml logs --no-color || true; docker compose -f compose.mysql.yaml --profile mysql logs --no-color || true' ERR
           trap 'docker compose -f compose.yaml down -v; docker compose -f compose.mysql.yaml --profile mysql down -v' EXIT
@@ -128,7 +132,7 @@ jobs:
       - run: python -m pip install -c backend/constraints.txt -e "backend[dev]"
       - name: Run PostgreSQL integration suite
         working-directory: backend
-        run: python -m pytest tests/test_sql_integration.py
+        run: python -m pytest tests/test_sql_integration.py tests/test_import_api.py tests/test_auth_recovery.py --cov=chronofish.store.imports --cov=chronofish.api.routes.imports --cov-report=term-missing
       - name: Boot API and verify health
         working-directory: backend
         run: |
@@ -176,7 +180,7 @@ jobs:
       - run: python -m pip install -c backend/constraints.txt -e "backend[dev]"
       - name: Run MySQL integration suite
         working-directory: backend
-        run: python -m pytest tests/test_sql_integration.py
+        run: python -m pytest tests/test_sql_integration.py tests/test_import_api.py tests/test_auth_recovery.py --cov=chronofish.store.imports --cov=chronofish.api.routes.imports --cov-report=term-missing
       - name: Boot API and verify health
         working-directory: backend
         run: |

@@ -17,7 +17,47 @@ IP_ALLOWLIST=10.0.0.0/8,192.168.1.0/24
 
 `DB_DRIVER=memory` is restricted to development and test. Keep credentials in the deployment secret store, never in `.env` committed to the repository. The API validates configuration, connects, applies versioned migrations, loads canonical tables, and only then serves traffic.
 
+Set `BOOTSTRAP_ADMIN_EMAIL` to the invited `@ku.th` address of the first admin, `MAIL_SENDER_EMAIL` to the authorized SMTP sender, and `AUTH_SECRET` to a unique value of at least 32 characters. Production refuses to start if any are missing. Set `MAIL_SMTP_HOST`, `MAIL_SMTP_PORT`, and the SMTP credentials before requesting sign-in codes. SMTP uses STARTTLS by default; use `MAIL_USE_SSL=true` for implicit TLS. `MAIL_USE_STARTTLS=false` without SSL is allowed only in development or test for a local mail catcher.
+
+Admins may select any active operator to record work on their behalf. A member can record work only after an admin links their account to one operator; the server rejects a different operator in either the request header or batch body. Sign-in code requests return the same accepted response for invited and unknown addresses. Delivery runs after the response; check server logs if mail does not arrive. An invitation that creates an account but fails to send email appears in the admin list and can be resent there.
+
+Members may view and record observations in another operator's experiment. They may edit experiment metadata, including notes, only when that experiment belongs to their linked operator. Duplicating another operator's experiment creates a new experiment under the member's linked operator; the original is unchanged. Admins may edit and duplicate experiments for any operator.
+
 The API is not a TLS terminator. Production traffic must reach it through an HTTPS reverse proxy or private VPN, with the proxy enforcing the approved IP/CIDR allowlist. Set `IP_ALLOWLIST` as a second control when the API can be reached outside that proxy. Do not trust arbitrary forwarded headers from public clients.
+
+## Sign-in limits and recovery
+
+Incorrect usable-code verification is counted per email over the preceding 24 hours (rolling, persisted across workers). Reaching 15 failures locks code issuance and verification for 24 hours **from the last failure**, not from the first request. Successful sign-in resets the failure history. Requesting again retains the current usable code without resending it; wait for its ten-minute expiry or five incorrect attempts before requesting a replacement. Check spam if email is missing and contact an admin if locked. A failed SMTP delivery expires only the matching code and clears its resend cooldown, allowing an immediate retry; the hourly send cap still applies.
+
+An attacker who knows an account's email can deliberately trigger a lock. Maintain **at least two active, verified administrators**, with separate working email accounts, and confirm both can sign in before production. Alert delivery runs after the verification response, once on reaching the cap, to every active admin. Failed deliveries and locks without any active admin are logged. Background tasks are best effort and can be lost on process termination; check server logs during incidents.
+
+An admin with an existing session can use Members and access during an OTP lock, including unlocking their own account. The list shows the lock expiration and **Unlock account**. Verify the owner's identity before unlocking. `POST /api/v1/auth/admin/users/{user_id}/unlock` with JSON `{}` requires an authenticated admin and records an audit event. It clears failures and the email send quota, invalidates the old code, and allows a new request immediately. It does not reactivate disabled accounts or revoke existing sessions.
+
+If all admins lose access, the database owner can recover an administrator out of band. Stop public authentication traffic, confirm the exact account email and active admin role with the owner, then run this transaction on PostgreSQL or MySQL (replace the literal with that verified email):
+
+```sql
+BEGIN;
+SELECT id, email, role, active FROM auth_user WHERE email = 'verified-admin@ku.th' FOR UPDATE;
+DELETE FROM auth_login_challenge WHERE email = 'verified-admin@ku.th';
+DELETE FROM auth_login_failure WHERE email = 'verified-admin@ku.th';
+COMMIT;
+```
+
+Deleting the challenge invalidates the old code and clears its send quota; the next code request creates a fresh challenge. This recovery does not depend on the database session time zone.
+
+Record this emergency operation in the incident log, request a new code, establish a second verified admin, and investigate the attack before reopening traffic. Prefer the audited admin endpoint whenever a session remains available.
+
+Migration 000024 adds rolling failure history and an explicit lock deadline. Existing capped accounts keep their old deadline until expiration or admin unlock. Older partial counts are carried forward using their recorded window start because individual failure times were not stored. Rollback drops the new history; stop authentication traffic during rollback.
+
+The HTTP/IP request limiter is in memory **per API process**: multiple workers or replicas multiply its effective cap, and restarts reset it. Enforce a shared limit at the trusted reverse proxy for multi-worker deployments. Email OTP send limits and verification locks use shared database state. Do not trust unvalidated forwarded IP headers.
+
+## Admin and correction requests
+
+Admins open `/admin` directly or use the Admin link in the research workspace. Membership, invitations, roles, lab reference data, timing profiles, correction decisions, and audit history are in this area. Master and timing writes still require an active operator selected in the admin header for audit attribution.
+
+Members may directly correct a record they originally created for 24 hours. They may assign an empty embryo well, record a fish's previously unknown sex, and move a fish between eligible boxes as routine work. After the direct-edit window, they submit a correction from the saved experiment or observation while online. Each request changes one input field and includes a proposed value and reason. An admin approves to apply the value atomically or rejects with a reason. If the source record changed since submission, approval is blocked; the request shows related audit log links and must be rejected before the member submits a fresh request. A member can withdraw their own pending request. Direct cancellation by a member is limited to their latest observation within the 24-hour window.
+
+New requests email active verified admins. Decisions email the requester and, on approval, the account that originally created the record when known. Delivery failures are logged and do not roll back the recorded decision. Set `APP_BASE_URL` to the public web URL so the email links to `/admin` and the member request page resolve correctly.
 
 ## Build and deploy
 
@@ -64,6 +104,22 @@ curl http://localhost:5173/api/v1/health
 Compose binds the direct API ports (`8080` for PostgreSQL and `8081` for MySQL)
 to `127.0.0.1`. Network clients use the frontend proxy, which normalizes the
 forwarded client address before the API applies `IP_ALLOWLIST` and rate limits.
+
+If another load balancer or reverse proxy sits in front of the frontend nginx,
+configure nginx's `real_ip` module with **only that proxy's IP/CIDR** in the
+`server` block of `frontend/default.conf` before deploying, for example:
+
+```nginx
+set_real_ip_from 10.20.0.0/24; # replace with the actual trusted proxy CIDR
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+```
+
+The upstream proxy must append the original client IP to `X-Forwarded-For`.
+nginx then forwards its verified `$remote_addr` to the API. Without this setup,
+all users behind that proxy share the API's 120 requests/minute quota and an
+`IP_ALLOWLIST` entry for the proxy would apply to everyone. Never trust forwarded
+headers from arbitrary clients or expose the API container directly to the network.
 
 The MySQL compatibility stack is isolated in its own file and does not start PostgreSQL:
 

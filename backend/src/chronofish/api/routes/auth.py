@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Request, Response
 from pydantic import BaseModel, ConfigDict
 
-from ...runtime.errors import APIError
+from ...runtime.errors import APIError, error_response
 from ...runtime.values import utc_now
 from ...services.auth import SESSION_COOKIE, SESSION_COOKIE_MAX_AGE, AuthService
 
@@ -42,9 +42,10 @@ def build_auth_router(auth: AuthService) -> APIRouter:
     router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 
     @router.post("/request-code", status_code=202)
-    def request_code(body: dict[str, Any]) -> dict[str, str]:
-        auth.request_code(body)
-        return {"status": "If this account is active, a verification code has been sent."}
+    def request_code(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
+        email = auth.validate_code_request(body)
+        background_tasks.add_task(auth.deliver_code, email)
+        return {"status": "If this email is invited, check its inbox for a sign-in code."}
 
     @router.post("/register", status_code=202)
     def register(body: dict[str, Any]) -> dict[str, str]:
@@ -69,9 +70,24 @@ def build_auth_router(auth: AuthService) -> APIRouter:
         )
 
     @router.post("/verify-code")
-    def verify_code(request: Request, response: Response, body: dict[str, Any]) -> dict[str, Any]:
-        user, token = auth.verify_code(body, request.headers.get("X-Device-Id", ""))
-        set_session_cookie(response, token)
+    def verify_code(
+        request: Request, response: Response, body: dict[str, Any], background_tasks: BackgroundTasks
+    ) -> Any:
+        try:
+            user, token = auth.verify_code(body, request.headers.get("X-Device-Id", ""), background_tasks)
+        except APIError as error:
+            result = error_response(error)
+            result.background = background_tasks
+            return result
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=auth.config.session_cookie_secure,
+            samesite="lax",
+            path="/",
+        )
         return {"user": user}
 
     @router.get("/me")
@@ -121,7 +137,8 @@ def build_auth_router(auth: AuthService) -> APIRouter:
 
     @router.post("/admin/users", status_code=201)
     def invite_user(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-        return {"user": auth.invite(body, _actor(request))}
+        user, email_sent = auth.invite(body, _actor(request))
+        return {"user": user, "emailSent": email_sent}
 
     @router.post("/admin/users/{user_id}/invite", status_code=202)
     def resend_invitation(request: Request, user_id: str) -> dict[str, str]:
@@ -140,6 +157,11 @@ def build_auth_router(auth: AuthService) -> APIRouter:
             raise APIError(400, "invalid_update", "Provide at least one field to update")
         result = auth.repository.update_user(user_id, changes, _actor(request), utc_now())
         return {"user": auth.public_user(result)}
+
+    @router.post("/admin/users/{user_id}/unlock", status_code=204)
+    def unlock_user(request: Request, user_id: str) -> Response:
+        auth.repository.unlock_user(user_id, _actor(request), utc_now())
+        return Response(status_code=204)
 
     @router.get("/admin/users/{user_id}/sessions")
     def admin_list_sessions(request: Request, user_id: str) -> dict[str, Any]:

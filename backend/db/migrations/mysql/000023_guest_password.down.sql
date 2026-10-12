@@ -1,3 +1,9 @@
+-- ===========================================================================
+-- GENERATED FILE — do not edit by hand.
+-- Source: backend/db/migrations/postgres/000023_guest_password.down.sql
+-- Regenerate: python3 scripts/gen_mysql_migrations.py
+-- ===========================================================================
+
 -- Refuse rollback while guest accounts exist; do not delete accounts or grant access implicitly.
 ALTER TABLE auth_user DROP CHECK ck_auth_user_role;
 ALTER TABLE auth_user ADD CONSTRAINT ck_auth_user_role CHECK (role IN ('admin', 'member'));

@@ -16,6 +16,7 @@ def mutation_request(key: int) -> Request:
             "method": "POST",
             "path": "/api/v1/sites",
             "query_string": b"",
+            "state": {"user": {"role": "admin", "id": "test-admin"}},
             "headers": [
                 (b"x-operator-id", b"00000000-0000-7000-8000-000000000001"),
                 (b"x-device-id", b"pytest"),
