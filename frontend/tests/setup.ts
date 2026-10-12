@@ -10,6 +10,10 @@ beforeEach(async () => {
   if (typeof window !== "undefined") {
     Object.defineProperty(window, "indexedDB", { configurable: true, value: fakeIndexedDB });
     await resetBrowserState();
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "01900000-0000-7000-8000-000000000099", email: "tester@ku.th", role: "admin" }),
+    );
   }
   vi.stubGlobal("console", {
     ...console,

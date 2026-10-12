@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgeDistributionSummary,
   BoxCensusSummary,
-  ControlSummary,
   Dashboard,
   dashboardDataPath,
   FilterBar,
@@ -216,7 +215,7 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Bangkok time");
     expect(document.body.textContent).toContain("Timing profile version(s)");
     expect(document.body.textContent).toContain("Activated embryos");
-    expect(document.body.textContent).toContain("Experiment QC: IVF & NBD");
+    expect(document.body.textContent).not.toContain("Experiment QC: IVF & NBD");
     expect(document.body.textContent).not.toContain("SCNT / control comparison");
     expect(document.body.textContent).not.toContain("All fish in registry");
     expect(Array.from(document.querySelectorAll("h2")).every((heading) => !heading.textContent?.includes("(n="))).toBe(
@@ -233,10 +232,15 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).not.toContain("View attrition by checkpoint");
     expect(document.body.textContent).not.toContain("View abnormality onset");
     expect(document.body.textContent).toContain("individual embryo observations");
-    expect(document.body.textContent).toContain("including SCNT; aggregate control-arm counts");
     expect(document.body.textContent).toContain("Checks recorded; none abnormal");
     expect(document.querySelector("table caption")).not.toBeNull();
     expect(document.querySelector('[aria-label="Timing deviation from standard in hours"]')).toBeNull();
+
+    const primaryAction = document.querySelector<HTMLButtonElement>(".research-banner__action");
+    expect(primaryAction?.textContent).toContain("Check embryos");
+    expect(document.querySelectorAll(".action-grid .action-card")).toHaveLength(2);
+    await act(async () => primaryAction?.click());
+    expect(navigate).toHaveBeenLastCalledWith("due");
 
     const stage1Tab = document.getElementById("dashboard-tab-stage1") as HTMLButtonElement;
     await act(async () => {
@@ -256,7 +260,7 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Fish status in system");
     expect(document.body.textContent).toContain("Sex distribution of experimental fish");
     expect(document.body.textContent).not.toContain("Batches in scope");
-    expect(document.body.textContent).toContain("View supporting fish composition and cohort quality");
+    expect(document.body.textContent).toContain("Fish cohort profile");
     expect(document.body.textContent).toContain("1 fish have no recorded sex");
     expect(document.body.textContent).toContain("1 fish need a follow-up check");
     expect(document.body.textContent).toContain("Open daily fish check");
@@ -532,11 +536,8 @@ describe("analytics dashboard", () => {
       });
       expect(document.getElementById(`dashboard-panel-${tab}`)?.getAttribute("role")).toBe("tabpanel");
     }
-    const supporting = document.querySelector("details.supporting-analysis") as HTMLDetailsElement;
-    await act(async () => {
-      supporting.open = true;
-      supporting.dispatchEvent(new Event("toggle"));
-    });
+    const supporting = document.querySelector("section.supporting-analysis") as HTMLElement;
+    expect(supporting.closest("details")).toBeNull();
     expect(supporting.querySelectorAll(".supporting-analysis__section")).toHaveLength(4);
     expect(supporting.querySelectorAll(".composition__segment")).not.toHaveLength(0);
     const ageTableSummary = Array.from(supporting.querySelectorAll(".data-disclosure > summary")).find((summary) =>
@@ -632,7 +633,7 @@ describe("analytics dashboard", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Unknown complete.");
-    expect(document.body.textContent).toContain("View supporting fish composition and cohort quality");
+    expect(document.body.textContent).toContain("Fish cohort profile");
     expect(document.body.textContent).toContain("No composition data is available for this cohort.");
     expect(document.body.textContent).toContain("No fish ages are available for this cohort.");
     expect(document.body.textContent).toContain("No fish-box records are available for this cohort.");
@@ -803,7 +804,12 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Showing at most 4 series per site (4 of 5)");
     expect(document.body.textContent).toContain("Showing 4 of 5 groups");
     expect(document.body.textContent).toContain("Abnormality group");
-    expect(document.querySelector("svg.chart--funnel")?.getAttribute("viewBox")).toBe("0 0 560 300");
+    const lossRows = document.querySelectorAll(".loss-chart__row");
+    expect(lossRows).toHaveLength(9);
+    expect(lossRows[0].textContent).toContain("—");
+    expect(lossRows[0].textContent).toContain("0 / 0");
+    expect(lossRows[1].textContent).toContain("0.0%");
+    expect(lossRows[8].textContent).toContain("80.0%");
     const legendItems = document.querySelectorAll<HTMLButtonElement>("button.chart-legend__item");
     await act(async () => {
       legendItems[0].click();
@@ -850,7 +856,7 @@ describe("analytics dashboard", () => {
     root.unmount();
   });
 
-  it("connects coincident end labels to distinct collision-safe lane positions", async () => {
+  it("keeps coincident series identifiable with separate legend values and supports point inspection", async () => {
     const points = ["AB", "NHGRI", "TU"].map((strain) => ({
       stageOrder: 1,
       stageLabel: "1-cell",
@@ -866,14 +872,19 @@ describe("analytics dashboard", () => {
       root.render(<SurvivalChart points={points} />);
       await Promise.resolve();
     });
-    const labels = Array.from(document.querySelectorAll<SVGTextElement>(".chart-end-label"));
-    const leaders = Array.from(document.querySelectorAll<SVGLineElement>(".chart-end-leader"));
-    expect(labels).toHaveLength(3);
-    expect(new Set(labels.map((label) => label.getAttribute("y"))).size).toBe(3);
-    expect(new Set(labels.map((label) => label.getAttribute("x"))).size).toBe(1);
-    expect(leaders).toHaveLength(3);
-    expect(leaders.every((leader) => leader.getAttribute("x1") !== leader.getAttribute("x2"))).toBe(true);
-    expect(leaders.filter((leader) => leader.getAttribute("stroke-dasharray")).length).toBe(2);
+    const legends = Array.from(document.querySelectorAll<HTMLButtonElement>(".chart-legend__item"));
+    expect(legends.map((legend) => legend.querySelector("span")?.textContent)).toEqual(["AB", "NHGRI", "TU"]);
+    expect(legends.every((legend) => legend.querySelector("strong")?.textContent === "100.00%")).toBe(true);
+    expect(document.querySelector(".chart-end-label")).toBeNull();
+    const point = document.querySelector(".chart-point") as SVGCircleElement;
+    await act(async () => point.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(document.querySelector(".chart-point-selection")?.textContent).toContain(
+      "AB, 1-cell, survival 100.0%, risk set 5",
+    );
+    expect(point.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => point.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })));
+    await act(async () => legends[0].click());
+    expect(document.querySelector(".chart-point-selection")).toBeNull();
     root.unmount();
   });
 
@@ -961,6 +972,9 @@ describe("analytics dashboard", () => {
     });
     expect(document.body.textContent).toContain("เริ่มติดตาม");
     expect(document.body.textContent).toContain("จากก่อนหน้า 40.0%");
+    expect(document.querySelectorAll(".pipeline-summary__steps > li")).toHaveLength(2);
+    expect(document.querySelector(".pipeline-summary__row--lowest")?.textContent).toContain("เลื่อนเป็นปลาโคลน");
+    expect(document.body.textContent).toContain("อาจมีตัวอย่างที่ยังไม่ถึงขั้นนี้");
     root.unmount();
   });
 
@@ -1021,13 +1035,6 @@ describe("analytics dashboard", () => {
             meta={{ nBoxes: 1, emptyBoxes: 0 }}
             thai={false}
           />
-          <ControlSummary
-            points={[
-              { armType: "SCNT", stageOrder: 3, n: 4, nNormal: 3, pctNormal: 0.75 },
-              { armType: "IVF", stageOrder: 3, n: 0, nNormal: 0, pctNormal: null },
-            ]}
-            thai={false}
-          />
           <TimingSummary
             rows={[
               { stageOrder: 1, stageLabel: "1-cell", medianDeviationH: -1.2, q1DeviationH: -2, q3DeviationH: 0.25 },
@@ -1046,7 +1053,6 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("Alive 4");
     expect(document.body.textContent).toContain("Single-fish boxes");
     expect(document.body.textContent).toContain("Shared boxes (>1 fish)");
-    expect(document.body.textContent).toContain("Unknown (n=0)");
     expect(document.body.textContent).toContain("Median −1 hr 12 min");
     expect(document.body.textContent).toContain("อายุเป็นวัน ณ วันที่ติดตามล่าสุด");
     root.unmount();
@@ -1083,14 +1089,6 @@ describe("analytics dashboard", () => {
             ]}
             thai={false}
           />
-          <ControlSummary
-            points={[
-              { armType: "SCNT", stageOrder: 1, n: 6, pctNormal: 1.5 },
-              { armType: "IVF", stageOrder: 2, n: 5, pctNormal: -0.5 },
-              { armType: "WT", stageOrder: 3, n: 5, pctNormal: null },
-            ]}
-            thai={false}
-          />
           <PipelineSummary
             points={[
               { step: "Activated", count: 2, pctOfPrevious: null, pctOfStart: null },
@@ -1108,9 +1106,11 @@ describe("analytics dashboard", () => {
     expect(document.body.textContent).toContain("B9");
     expect(document.body.textContent).not.toContain("Showing 8 boxes");
     expect(document.body.textContent).toContain("No fish");
+    expect(document.body.textContent).toContain("Status not recorded");
     expect(document.body.textContent).toContain("Median Unknown · IQR Unknown–+1 hr");
-    expect(document.body.textContent).toContain("Unknown (n=5)");
     expect(document.body.textContent).toContain("Data quality: a downstream count exceeds its upstream count");
+    expect(document.querySelector(".pipeline-summary__row--lowest")).toBeNull();
+    expect(document.querySelector(".pipeline-summary__percent")?.textContent).toContain("— previous");
     root.unmount();
   });
 });

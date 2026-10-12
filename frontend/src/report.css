@@ -1,0 +1,296 @@
+/* Reports must retain their structure when the printer omits background colors. */
+.report-format-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 28px 0;
+  padding: 0;
+  border: 0;
+}
+.report-format-picker legend {
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+.report-format-picker label {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.report-format-picker label:has(:checked) {
+  border: 2px solid var(--primary);
+  padding: 17px;
+  background: var(--primary-soft);
+}
+.report-format-picker input {
+  width: 20px;
+  min-height: 20px;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+}
+.report-format-picker small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+.print-report {
+  max-width: 960px;
+  margin-inline: auto;
+  color: var(--ink);
+}
+.print-report .report-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #819691;
+  border-radius: 6px;
+}
+.print-report .report-panel h2 {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #819691;
+  font-size: 1.05rem;
+}
+.print-report .report-panel .table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+.print-report table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.print-report .report-panel table :is(th, td) {
+  padding: 8px 10px;
+  border: 1px solid #a3b3af;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.55;
+}
+.print-report th {
+  border-bottom: 2px solid #536c66;
+  background: #eaf0ed;
+  color: #173d3b;
+}
+.print-report .metric {
+  border: 1px solid #819691;
+  border-top: 3px solid var(--primary);
+  border-radius: 6px;
+}
+.print-report .fish-census-heading {
+  margin: 18px 0 10px;
+  font-size: 0.95rem;
+  break-after: avoid;
+}
+.meeting-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 20px 0 12px;
+}
+.meeting-section-heading > span {
+  color: var(--primary);
+  font-family: "Plex Mono", monospace;
+  font-weight: 600;
+}
+.meeting-section-heading h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.meeting-outcomes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.meeting-outcomes .report-panel {
+  min-width: 0;
+}
+.meeting-note,
+.meeting-intro,
+.meeting-method p {
+  margin: 8px 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #345653;
+}
+.meeting-method {
+  margin-top: 18px;
+  padding: 12px 16px;
+  border: 1px solid #819691;
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
+}
+.meeting-quality {
+  font-weight: 600;
+}
+.meeting-page-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+  padding-top: 10px;
+  border-top: 1px solid #819691;
+  font-size: 0.8rem;
+}
+.meeting-page--review {
+  margin-top: 36px;
+  padding-top: 16px;
+  border-top: 2px solid var(--primary);
+}
+.print-report--meeting table {
+  table-layout: fixed;
+}
+.print-report--meeting :is(th, td) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.print-report--meeting .report-panel th:first-child {
+  width: 40%;
+}
+.meeting-page--summary .report-panel :is(th, td):not(:first-child),
+.meeting-page--review .report-panel :is(th, td):nth-child(n + 3),
+.meeting-page--review .report-panel:nth-of-type(3) :is(th, td):nth-child(2) {
+  text-align: right;
+}
+@media (max-width: 699px) {
+  .report-format-picker,
+  .meeting-outcomes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .print-report .report-panel {
+    padding: 12px;
+  }
+  .print-report--meeting :is(th, td) {
+    padding: 6px;
+    font-size: 0.8rem;
+  }
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm 14mm;
+    @bottom-right {
+      content: "KUVACB / " counter(page);
+      font-family: sans-serif;
+      font-size: 8pt;
+      color: #345653;
+    }
+    @bottom-left {
+      content: "KUVACB AqLIMS";
+      font-family: sans-serif;
+      font-size: 8pt;
+      color: #345653;
+    }
+  }
+  .print-report {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    font-size: 9pt;
+    line-height: 1.45;
+  }
+  .print-report__header {
+    padding-bottom: 12px;
+  }
+  .print-report__logo {
+    width: 120px;
+    margin-bottom: 10px;
+  }
+  .print-report__header h1 {
+    margin: 6px 0;
+    font-size: 20pt;
+    line-height: 1.35;
+  }
+  .print-report__header p {
+    margin: 4px 0;
+    font-size: 9pt;
+  }
+  .print-report__meta {
+    margin-top: 8px;
+    gap: 12px 24px;
+  }
+  .print-report__meta :is(dt, dd) {
+    font-size: 8.5pt;
+  }
+  .print-report__meta dd {
+    margin-top: 3px;
+  }
+  .print-report .report-panel {
+    margin-top: 10px;
+    padding: 8px;
+    border: 1px solid #627b74;
+    break-inside: auto;
+  }
+  .print-report .report-panel h2 {
+    margin-bottom: 6px;
+    padding-bottom: 5px;
+    font-size: 10.5pt;
+    break-after: avoid;
+  }
+  .print-report .report-panel table :is(th, td) {
+    padding: 4px 6px;
+    border: 0.7pt solid #819691;
+    font-size: 8.5pt;
+    line-height: 1.45;
+  }
+  .print-report th {
+    border-bottom: 1.5pt solid #345653;
+  }
+  .print-report .metric {
+    min-height: 64px;
+    padding: 10px;
+    border: 1px solid #627b74;
+    border-top: 3px solid #006664;
+  }
+  .print-report .metric strong {
+    font-size: 21pt;
+  }
+  .print-report .metric span {
+    font-size: 8pt;
+  }
+  .meeting-outcomes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .meeting-section-heading {
+    margin: 14px 0 10px;
+  }
+  .meeting-section-heading h2 {
+    font-size: 12pt;
+  }
+  .meeting-note,
+  .meeting-intro,
+  .meeting-method p {
+    margin: 6px 0;
+    font-size: 8pt;
+    line-height: 1.5;
+  }
+  .meeting-method {
+    margin-top: 10px;
+    padding: 8px;
+    break-inside: avoid;
+  }
+  .meeting-page-footer {
+    display: none;
+  }
+  .meeting-page--review {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    break-before: page;
+  }
+  .print-report--meeting .report-panel {
+    break-inside: avoid;
+  }
+  .print-report--full .chart-risk-details {
+    display: none;
+  }
+  .print-report--full .chart-facet {
+    break-inside: avoid;
+  }
+  .print-report--full .report-support-metrics .metric {
+    border: 1px solid #819691;
+  }
+}

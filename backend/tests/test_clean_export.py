@@ -10,13 +10,17 @@ from chronofish.domain.state import State
 NS = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
-def test_clean_export_matches_client_workbook_and_validates_age_criteria(client):
+def test_clean_export_matches_client_workbook_and_validates_age_criteria(client, write_headers):
     reference = Path(__file__).parents[2] / "docs/examples/example_data/Experiment_Cloning_03_Clean table v1.xlsx"
     with ZipFile(reference) as archive:
         strings = ["".join(item.itertext()) for item in ET.fromstring(archive.read("xl/sharedStrings.xml"))]
         header = ET.fromstring(archive.read("xl/worksheets/sheet1.xml")).find("x:sheetData/x:row", NS)
         assert [strings[int(cell.find("x:v", NS).text)] for cell in header] == CLEAN_HEADERS
-    response = client.post("/api/v1/exports/excel", json={"format": "clean", "fishStageAgeDays": [7, 30, 90]})
+    response = client.post(
+        "/api/v1/exports/excel",
+        headers=write_headers,
+        json={"format": "clean", "fishStageAgeDays": [7, 30, 90]},
+    )
     assert response.status_code == 200
     with ZipFile(BytesIO(response.content)) as archive:
         workbook = ET.fromstring(archive.read("xl/workbook.xml"))
@@ -27,12 +31,19 @@ def test_clean_export_matches_client_workbook_and_validates_age_criteria(client)
     assert "fry7-juvenile30-adult90" in response.headers["content-disposition"]
     for ages in (None, [], [7, 30], [30, 7, 90], [7, 7, 90], [True, 30, 90], [-1, 30, 90], [7, 30.5, 90]):
         assert (
-            client.post("/api/v1/exports/excel", json={"format": "clean", "fishStageAgeDays": ages}).status_code == 422
+            client.post(
+                "/api/v1/exports/excel",
+                headers=write_headers,
+                json={"format": "clean", "fishStageAgeDays": ages},
+            ).status_code
+            == 422
         )
-    assert client.post("/api/v1/exports/excel", json={"format": "unknown"}).status_code == 422
+    assert client.post("/api/v1/exports/excel", headers=write_headers, json={"format": "unknown"}).status_code == 422
     assert (
         client.post(
-            "/api/v1/exports/excel", json={"format": "clean", "fishStageAgeDays": [7, 30, 90], "sheets": ["01_Batches"]}
+            "/api/v1/exports/excel",
+            headers=write_headers,
+            json={"format": "clean", "fishStageAgeDays": [7, 30, 90], "sheets": ["01_Batches"]},
         ).status_code
         == 422
     )

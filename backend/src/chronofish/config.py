@@ -17,6 +17,16 @@ class Config:
     migrations_dir: Path
     db_pool_size: int
     db_max_overflow: int
+    bootstrap_admin_email: str = "peerapas.c@ku.th"
+    auth_secret: str = "development-only-change-me"
+    session_cookie_secure: bool = True
+    app_base_url: str = "http://localhost:5173"
+    mail_smtp_host: str = ""
+    mail_smtp_port: int = 587
+    mail_smtp_username: str = ""
+    mail_smtp_password: str = ""
+    mail_sender_email: str = "peerapas.c@ku.th"
+    mail_use_ssl: bool = False
 
 
 def _integer(name: str, default: int, minimum: int = 0) -> int:
@@ -47,6 +57,9 @@ def load_config() -> Config:
         raise ValueError("DB_DRIVER must be memory, postgres, or mysql")
     if driver == "memory" and app_env not in {"dev", "development", "test"}:
         raise ValueError("DB_DRIVER=memory is only allowed for development or test")
+    auth_secret = os.getenv("AUTH_SECRET", "").strip()
+    if not auth_secret and app_env not in {"dev", "development", "test"}:
+        raise ValueError("AUTH_SECRET is required outside development and test")
     database_url = os.getenv("DATABASE_URL", "").strip()
     if driver != "memory" and not database_url:
         raise ValueError("DATABASE_URL is required when DB_DRIVER is not memory")
@@ -63,4 +76,14 @@ def load_config() -> Config:
         migrations_dir=Path(os.getenv("MIGRATIONS_DIR", migrations_default)),
         db_pool_size=_integer("DB_POOL_SIZE", 10, 1),
         db_max_overflow=_integer("DB_MAX_OVERFLOW", 5),
+        bootstrap_admin_email=os.getenv("BOOTSTRAP_ADMIN_EMAIL", "peerapas.c@ku.th").strip().lower(),
+        auth_secret=auth_secret or "development-only-change-me",
+        session_cookie_secure=os.getenv("SESSION_COOKIE_SECURE", "true").strip().lower() not in {"0", "false", "no"},
+        app_base_url=os.getenv("APP_BASE_URL", "http://localhost:5173").strip().rstrip("/"),
+        mail_smtp_host=os.getenv("MAIL_SMTP_HOST", "").strip(),
+        mail_smtp_port=_integer("MAIL_SMTP_PORT", 587, 1),
+        mail_smtp_username=os.getenv("MAIL_SMTP_USERNAME", "").strip(),
+        mail_smtp_password=os.getenv("MAIL_SMTP_PASSWORD", ""),
+        mail_sender_email=os.getenv("MAIL_SENDER_EMAIL", "peerapas.c@ku.th").strip().lower(),
+        mail_use_ssl=os.getenv("MAIL_USE_SSL", "false").strip().lower() in {"1", "true", "yes"},
     )

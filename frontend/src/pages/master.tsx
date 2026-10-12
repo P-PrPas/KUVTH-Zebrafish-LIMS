@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get } from "../api/client";
-import { Empty, ErrorMessage } from "../components";
+import { Empty, ErrorMessage, RecordingOperator } from "../components";
 import { putQueue, type QueuedWrite } from "../offline";
 import { type AppText, text } from "../types";
 
@@ -63,7 +63,7 @@ const masterConfig: Record<
     fields: [
       { key: "code", label: "Code", required: true },
       { key: "name", label: "Name" },
-      { key: "armType", label: "Arm type", options: ["SCNT", "NATURAL_BREEDING", "IVF"], required: true },
+      { key: "armType", label: "Arm type", options: ["SCNT"], required: true },
     ],
   },
   "fish-boxes": {
@@ -204,7 +204,7 @@ export function Master({ t }: { t: AppText }) {
     }
   };
   return (
-    <section>
+    <section className="work-screen master-workspace">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "ข้อมูลอ้างอิงของห้องแล็บ" : "LAB REFERENCE DATA"}</p>
@@ -228,19 +228,23 @@ export function Master({ t }: { t: AppText }) {
               </p>
             </div>
           </div>
-          <form className="form-card form-card--inline" onSubmit={submit}>
-            <label>
-              {thai ? "รหัสสถานที่" : "Site code"}
-              <input required value={code} onChange={(e) => setCode(e.target.value)} />
-            </label>
-            <label>
-              {thai ? "ชื่อสถานที่" : "Site name"}
-              <input required value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <button className="button button--primary" type="submit">
-              {t.save}
-            </button>
-          </form>
+          <details className="management-create">
+            <summary>{thai ? "เพิ่มสถานที่ปฏิบัติงาน" : "Add lab location"}</summary>
+            <form className="form-card form-card--inline" onSubmit={submit}>
+              <label>
+                {thai ? "รหัสสถานที่" : "Site code"}
+                <input required value={code} onChange={(e) => setCode(e.target.value)} />
+              </label>
+              <label>
+                {thai ? "ชื่อสถานที่" : "Site name"}
+                <input required value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <RecordingOperator />
+              <button className="button button--primary" type="submit">
+                {t.save}
+              </button>
+            </form>
+          </details>
           {editing && (
             <form className="form-card form-card--inline" onSubmit={editSite}>
               <label>
@@ -259,6 +263,7 @@ export function Master({ t }: { t: AppText }) {
                   onChange={(e) => setEditing({ ...editing, name: e.target.value })}
                 />
               </label>
+              <RecordingOperator />
               <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save changes"}</button>
               <button className="button button--secondary" type="button" onClick={() => setEditing(null)}>
                 {thai ? "ยกเลิก" : "Cancel"}
@@ -270,14 +275,14 @@ export function Master({ t }: { t: AppText }) {
               {message}
             </p>
           )}
-          {error && <ErrorMessage message={error} />}
+          {error && <ErrorMessage message={error} toast />}
           {loading ? (
             <p className="notice" role="status">
               {thai ? "กำลังโหลดสถานที่…" : "Loading sites…"}
             </p>
           ) : loadFailed ? (
             <button className="button button--secondary" type="button" onClick={load}>
-              Retry
+              {thai ? "\u0e25\u0e2d\u0e07\u0e2d\u0e35\u0e01\u0e04\u0e23\u0e31\u0e49\u0e07" : "Retry"}
             </button>
           ) : sites.length === 0 ? (
             <Empty message={t.empty} />
@@ -492,100 +497,119 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
             : "Choose one data type to add, edit or retire without deleting historical records."}
         </p>
       </div>
-      <nav className="admin-toolbar" aria-label={thai ? "ประเภทข้อมูล" : "Data type"}>
-        {(Object.keys(masterConfig) as MasterResource[]).map((key) => (
-          <button
-            type="button"
-            key={key}
-            aria-pressed={resource === key}
-            className={resource === key ? "tab tab--active" : "tab"}
-            onClick={() => setResource(key)}
-          >
-            {thai ? thaiResource[key] : masterConfig[key].label}
-          </button>
-        ))}
-      </nav>
-      <form className="form-card form-card--inline" onSubmit={submit}>
-        {config.fields.map((field) => (
-          <label key={field.key}>
-            {label(field)}
-            {fieldEditor(field, form[field.key] ?? "", (value) => setForm({ ...form, [field.key]: value }))}
-            {formatHint(field)}
-          </label>
-        ))}
-        <button className="button button--primary" type="submit">
-          {thai ? `เพิ่ม${thaiResource[resource]}` : "Save"}
-        </button>
-      </form>
-      {editing && (
-        <form className="form-card" onSubmit={saveEdit}>
-          <h3>{thai ? `แก้ไข${thaiResource[resource]}` : `Edit ${config.label}`}</h3>
-          {config.fields.map((field) => (
-            <label key={field.key}>
-              {label(field)}
-              {fieldEditor(field, String(editing[field.key] ?? ""), (value) =>
-                setEditing({ ...editing, [field.key]: value }),
-              )}
-              {formatHint(field)}
-            </label>
-          ))}
-          <div className="button-row">
-            <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save changes"}</button>
-            <button className="button button--secondary" type="button" onClick={() => setEditing(null)}>
-              {thai ? "ยกเลิก" : "Cancel"}
+      <div className="master-catalog__layout">
+        <label className="master-category-select">
+          {thai ? "ประเภทข้อมูล" : "Data type"}
+          <select value={resource} onChange={(event) => setResource(event.target.value as MasterResource)}>
+            {(Object.keys(masterConfig) as MasterResource[]).map((key) => (
+              <option key={key} value={key}>
+                {thai ? thaiResource[key] : masterConfig[key].label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <nav className="admin-toolbar" aria-label={thai ? "ประเภทข้อมูล" : "Data type"}>
+          {(Object.keys(masterConfig) as MasterResource[]).map((key) => (
+            <button
+              type="button"
+              key={key}
+              aria-pressed={resource === key}
+              className={resource === key ? "tab tab--active" : "tab"}
+              onClick={() => setResource(key)}
+            >
+              {thai ? thaiResource[key] : masterConfig[key].label}
             </button>
-          </div>
-        </form>
-      )}
-      {message && (
-        <p className="notice" role="status">
-          {message}
-        </p>
-      )}
-      {error && <ErrorMessage message={error} />}
-      {loading ? (
-        <p className="notice" role="status">
-          {thai ? "กำลังโหลดข้อมูล…" : "Loading master data…"}
-        </p>
-      ) : loadFailed ? (
-        <button className="button button--secondary" type="button" onClick={load}>
-          Retry
-        </button>
-      ) : items.length === 0 ? (
-        <Empty message={thai ? "ยังไม่มีรายการในหมวดนี้" : "No master records"} />
-      ) : (
-        <div className="list">
-          {items.map((item) => (
-            <div className="list-row" key={String(item.id)}>
-              <span>
-                <strong>
-                  {String(item.name ?? item.code ?? item.label ?? item.lotCode ?? item.boxCode ?? item.strain)}
-                </strong>
-                <small>
-                  {config.fields.map((field) => `${label(field)}: ${String(item[field.key] ?? "—")}`).join(" · ")}
-                </small>
-              </span>
-              <span>
-                <span className="pill">
-                  {item.active === false ? (thai ? "เลิกใช้แล้ว" : "inactive") : thai ? "กำลังใช้งาน" : "active"}
-                </span>
-                <button className="inline-action" type="button" onClick={() => setEditing(item)}>
-                  {thai ? "แก้ไข" : "Edit"}
-                </button>
-                {item.active !== false && (
-                  <button
-                    className="inline-action inline-action--danger"
-                    type="button"
-                    onClick={() => void inactivate(item)}
-                  >
-                    {thai ? "เลิกใช้" : "Inactivate"}
-                  </button>
-                )}
-              </span>
-            </div>
           ))}
+        </nav>
+        <div className="master-catalog__content">
+          <details className="management-create">
+            <summary>{thai ? `เพิ่ม${thaiResource[resource]}` : `Add ${config.label}`}</summary>
+            <form className="form-card form-card--inline" onSubmit={submit}>
+              {config.fields.map((field) => (
+                <label key={field.key}>
+                  {label(field)}
+                  {fieldEditor(field, form[field.key] ?? "", (value) => setForm({ ...form, [field.key]: value }))}
+                  {formatHint(field)}
+                </label>
+              ))}
+              <RecordingOperator />
+              <button className="button button--primary" type="submit">
+                {thai ? `เพิ่ม${thaiResource[resource]}` : "Save"}
+              </button>
+            </form>
+          </details>
+          {editing && (
+            <form className="form-card" onSubmit={saveEdit}>
+              <h3>{thai ? `แก้ไข${thaiResource[resource]}` : `Edit ${config.label}`}</h3>
+              {config.fields.map((field) => (
+                <label key={field.key}>
+                  {label(field)}
+                  {fieldEditor(field, String(editing[field.key] ?? ""), (value) =>
+                    setEditing({ ...editing, [field.key]: value }),
+                  )}
+                  {formatHint(field)}
+                </label>
+              ))}
+              <div className="button-row">
+                <RecordingOperator />
+                <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save changes"}</button>
+                <button className="button button--secondary" type="button" onClick={() => setEditing(null)}>
+                  {thai ? "ยกเลิก" : "Cancel"}
+                </button>
+              </div>
+            </form>
+          )}
+          {message && (
+            <p className="notice" role="status">
+              {message}
+            </p>
+          )}
+          {error && <ErrorMessage message={error} toast />}
+          {loading ? (
+            <p className="notice" role="status">
+              {thai ? "กำลังโหลดข้อมูล…" : "Loading master data…"}
+            </p>
+          ) : loadFailed ? (
+            <button className="button button--secondary" type="button" onClick={load}>
+              {thai ? "ลองอีกครั้ง" : "Retry"}
+            </button>
+          ) : items.length === 0 ? (
+            <Empty message={thai ? "ยังไม่มีรายการในหมวดนี้" : "No master records"} />
+          ) : (
+            <div className="list">
+              {items.map((item) => (
+                <div className="list-row" key={String(item.id)}>
+                  <span>
+                    <strong>
+                      {String(item.name ?? item.code ?? item.label ?? item.lotCode ?? item.boxCode ?? item.strain)}
+                    </strong>
+                    <small>
+                      {config.fields.map((field) => `${label(field)}: ${String(item[field.key] ?? "—")}`).join(" · ")}
+                    </small>
+                  </span>
+                  <span>
+                    <span className="pill">
+                      {item.active === false ? (thai ? "เลิกใช้แล้ว" : "inactive") : thai ? "กำลังใช้งาน" : "active"}
+                    </span>
+                    <button className="inline-action" type="button" onClick={() => setEditing(item)}>
+                      {thai ? "แก้ไข" : "Edit"}
+                    </button>
+                    {item.active !== false && (
+                      <button
+                        className="inline-action inline-action--danger"
+                        type="button"
+                        onClick={() => void inactivate(item)}
+                      >
+                        {thai ? "เลิกใช้" : "Inactivate"}
+                      </button>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 }

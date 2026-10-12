@@ -47,7 +47,7 @@ def test_fastapi_registers_every_openapi_operation(client):
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 74
+    assert len(expected) == 92
 
 
 def test_r_export_has_stable_30_column_shape(client):
@@ -59,7 +59,7 @@ def test_r_export_has_stable_30_column_shape(client):
     assert len(header) == 30
 
 
-def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_headers):
+def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_headers):
     batch, lot, _embryo, _activated = setup_embryo(client, write_headers)
     manual = client.post(
         "/api/v1/fish",
@@ -103,7 +103,7 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
         store.state.entities["recipient-egg-lots"][batch["recipientEggLotId"]]["donorFishCode"] = "EGG-DONOR-1"
     idempotency_before_export = set(store.idempotency)
 
-    response = client.post("/api/v1/exports/excel", json={"filters": {}})
+    response = client.post("/api/v1/exports/excel", headers=write_headers, json={"filters": {}})
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="kuvth-zebrafish-lims-export.xlsx"'
     assert set(store.idempotency) == idempotency_before_export
@@ -117,10 +117,10 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
         fish_observations = worksheet_rows(archive.read("xl/worksheets/sheet8.xml"))
         embryo_matrix = archive.read("xl/worksheets/sheet4.xml").decode()
         stage_counts = archive.read("xl/worksheets/sheet5.xml").decode()
-        summary = worksheet_rows(archive.read("xl/worksheets/sheet12.xml"))
-        r_table = archive.read("xl/worksheets/sheet13.xml").decode()
-        timing = worksheet_rows(archive.read("xl/worksheets/sheet14.xml"))
-    assert len(worksheet_names) == 14
+        summary = worksheet_rows(archive.read("xl/worksheets/sheet11.xml"))
+        r_table = archive.read("xl/worksheets/sheet12.xml").decode()
+        timing = worksheet_rows(archive.read("xl/worksheets/sheet13.xml"))
+    assert len(worksheet_names) == 13
     assert re.findall(r'<sheet name="([^"]+)"', workbook) == [
         "00_Metadata",
         "01_Batches",
@@ -131,7 +131,6 @@ def test_excel_export_is_read_only_valid_14_sheet_xlsx(client, store, write_head
         "06_Fish_Register",
         "07_Fish_Observations",
         "08_Fish_Matrix",
-        "09_Control_Arms",
         "10_Specimens",
         "11_Summary",
         "12_R_Analysis_Table",
@@ -206,8 +205,10 @@ def test_excel_export_can_select_flat_sheets(client, write_headers, monkeypatch)
     assert "row_count.12_R_Analysis_Table" in metadata
 
 
-def test_excel_export_rejects_unknown_analytics_filters(client):
-    response = client.post("/api/v1/exports/excel", json={"filters": {"status": "DEAD"}})
+def test_excel_export_rejects_unknown_analytics_filters(client, write_headers):
+    response = client.post(
+        "/api/v1/exports/excel", headers=write_headers, json={"filters": {"status": "DEAD"}}
+    )
     assert response.status_code == 422
 
 

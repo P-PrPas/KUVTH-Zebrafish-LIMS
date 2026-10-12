@@ -66,7 +66,7 @@ api/openapi.yaml ──────────── single source of truth (52
 
 ### 2.1 คุณสมบัติที่มีความเสี่ยงสูงเป็นพิเศษ
 
-1. **ไม่มีระบบ login** — ตัวตนของผู้บันทึกมาจาก `X-Operator-Id` / `X-Device-Id` เท่านั้น (CON-01) จึงต้องทดสอบ write-context validation ทุกเส้นทาง
+1. **ตัวตนผู้บันทึกแยกเป็นสองส่วน** — account actor มาจาก session cookie ส่วนผู้ปฏิบัติงานทดลองมาจาก `X-Operator-Id`; ทดสอบ authorization และ write-context validation ทุกเส้นทาง
 2. **Idempotency** — ทุก mutation ต้อง replay ได้ปลอดภัย ทั้งชั้น HTTP (`X-Idempotency-Key`) และชั้น payload (`clientUuid`)
 3. **Offline-first** — คิว IndexedDB ต้องไม่ทำข้อมูลหาย แม้ปิดแท็บระหว่าง fetch
 4. **เวลาและเขตเวลา** — เก็บ UTC แสดง `Asia/Bangkok`; อายุปลานับเป็น "วันตามปฏิทินกรุงเทพ" ไม่ใช่ 24 ชม.

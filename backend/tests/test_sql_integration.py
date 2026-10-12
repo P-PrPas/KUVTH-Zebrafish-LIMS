@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 
 from chronofish.app import create_app
 from chronofish.config import Config
 from chronofish.domain.state import DEMO_OPERATOR_ID, PROTOCOL_ID
 from chronofish.runtime.values import uuid7
+from chronofish.services.mail import RecordingMailer
 from chronofish.store.sql import SQLStore
 
 DRIVER = os.getenv("CHRONOFISH_TEST_DATABASE_DRIVER")
@@ -19,7 +22,73 @@ DATABASE_URL = os.getenv("CHRONOFISH_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DRIVER or not DATABASE_URL, reason="integration database is not configured")
 
 
-def _config() -> Config:
+_actor_id: str | None = None
+_bootstrap_email: str | None = None
+
+
+def test_sql_guest_password_persists_roles_lockout_and_reset():
+    bootstrap_email = f"sql-admin-{uuid7()}@ku.th"
+    config = _config(bootstrap_email)
+    store = SQLStore(config)
+    admin = _client(store, bootstrap_email)
+    guest = TestClient(admin.app)
+    email = f"sql-guest-{uuid7()}@ku.th"
+    password = "a secure sql test password"
+    headers = {"X-Device-Id": "sql-guest-device"}
+    assert guest.post("/api/v1/auth/register", json={"email": email, "password": password}).status_code == 202
+    code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    verified = guest.post(
+        "/api/v1/auth/verify-code", headers=headers, json={"email": email, "password": password, "code": code}
+    )
+    assert verified.status_code == 200, verified.text
+    user = verified.json()["user"]
+    assert user["role"] == "guest"
+    assert guest.get("/api/v1/analytics/guest-dashboard").status_code == 200
+    assert guest.get("/api/v1/batches").status_code == 403
+    other_store = SQLStore(config)
+    other = TestClient(create_app(config, other_store, RecordingMailer()))
+    body = {"email": email, "password": password}
+    login = other.post("/api/v1/auth/login", headers=headers, json=body)
+    assert login.status_code == 200, login.text
+    assert "password_hash" not in admin.get("/api/v1/auth/admin/users").text
+    assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
+    assert other.get("/api/v1/batches").status_code == 200
+    for _ in range(5):
+        assert (
+            other.post(
+                "/api/v1/auth/login", headers=headers, json={"email": email, "password": "wrong sql password"}
+            ).status_code
+            == 401
+        )
+    assert guest.post("/api/v1/auth/login", headers=headers, json=body).status_code == 429
+    with store.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE auth_user SET password_locked_until = :past WHERE id = :id"),
+            {"past": datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1), "id": user["id"]},
+        )
+        connection.execute(
+            text("UPDATE auth_login_challenge SET last_sent_at = :past WHERE email = :email"),
+            {"past": datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=2), "email": email},
+        )
+    assert guest.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
+    body["password"] = "another secure sql password"
+    assert guest.post("/api/v1/auth/register", json=body).status_code == 202
+    code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    reset = guest.post("/api/v1/auth/verify-code", headers=headers, json={**body, "code": code})
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["user"]["role"] == "member"
+    assert other.get("/api/v1/auth/me").status_code == 401
+    assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
+    assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "guest"}).status_code == 200
+    assert other.get("/api/v1/batches").status_code == 403
+    guest.close()
+    other.close()
+    other_store.close()
+    admin.close()
+    store.close()
+
+
+def _config(bootstrap_email: str) -> Config:
     return Config(
         8080,
         "test",
@@ -30,21 +99,48 @@ def _config() -> Config:
         Path(__file__).parents[1] / "db" / "migrations" / str(DRIVER),
         3,
         1,
+        bootstrap_admin_email=bootstrap_email,
+        session_cookie_secure=False,
     )
 
 
+def _client(store: SQLStore, bootstrap_email: str | None = None, session_token: str | None = None) -> TestClient:
+    global _actor_id, _bootstrap_email
+    bootstrap_email = bootstrap_email or f"sql-{uuid7()}@ku.th"
+    mailer = RecordingMailer()
+    client = TestClient(create_app(_config(bootstrap_email), store, mailer))
+    if session_token:
+        client.cookies.set("chronofish_session", session_token)
+    else:
+        requested = client.post("/api/v1/auth/request-code", json={"email": bootstrap_email})
+        assert requested.status_code == 202, requested.text
+        code = re.search(r"\b\d{6}\b", mailer.messages[-1][2])
+        assert code
+        verified = client.post(
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "pytest-sql"},
+            json={"email": bootstrap_email, "code": code.group()},
+        )
+        assert verified.status_code == 200, verified.text
+    _bootstrap_email = bootstrap_email
+    _actor_id = client.app.state.auth.repository.user_by_email(bootstrap_email)["id"]
+    return client
+
+
 def _headers() -> dict[str, str]:
+    assert _actor_id, "Create an authenticated SQL test client before building write headers"
     return {
         "X-Operator-Id": DEMO_OPERATOR_ID,
         "X-Device-Id": "pytest-sql",
         "X-Idempotency-Key": uuid7(),
+        "X-Actor-User-Id": _actor_id,
     }
 
 
 def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     suffix = uuid7()[-12:]
-    first_store = SQLStore(_config())
-    first = TestClient(create_app(_config(), first_store))
+    first_store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    first = _client(first_store)
     site_headers = _headers()
     site_body = {"code": f"SQL-{suffix}", "name": f"SQL site {suffix}"}
     site_response = first.post("/api/v1/sites", headers=site_headers, json=site_body)
@@ -126,8 +222,8 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
     duplicated_id = duplicated.json()["id"]
     first_store.close()
 
-    second_store = SQLStore(_config())
-    second = TestClient(create_app(_config(), second_store))
+    second_store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    second = _client(second_store, _bootstrap_email, first.cookies.get("chronofish_session"))
     assert (
         next(item for item in second.get("/api/v1/experiment-groups").json()["items"] if item["id"] == group_id)["name"]
         == "Cloning programme"
@@ -153,8 +249,8 @@ def test_sql_store_persists_workflow_idempotency_and_audit_across_instances():
 
 
 def test_concurrent_timing_versions_are_serialized_with_one_current_profile():
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
 
     def create_profile(expected_hpa: float):
         return client.post(
@@ -181,8 +277,8 @@ def test_concurrent_timing_versions_are_serialized_with_one_current_profile():
 
 def test_concurrent_batch_codes_and_live_wells_remain_unique():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     site = client.post(
         "/api/v1/sites", headers=_headers(), json={"code": f"W-{suffix}", "name": f"Well site {suffix}"}
     ).json()
@@ -239,8 +335,8 @@ def test_concurrent_batch_codes_and_live_wells_remain_unique():
 
 def test_concurrent_promotions_allocate_unique_fish_numbers():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     try:
         site = client.post(
             "/api/v1/sites", headers=_headers(), json={"code": f"F-{suffix}", "name": f"Fish site {suffix}"}
@@ -314,8 +410,8 @@ def test_concurrent_promotions_allocate_unique_fish_numbers():
 
 def test_concurrent_observation_save_correction_and_soft_delete_are_consistent():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     site = client.post(
         "/api/v1/sites", headers=_headers(), json={"code": f"O-{suffix}", "name": f"Observation site {suffix}"}
     ).json()
@@ -391,8 +487,8 @@ def test_concurrent_observation_save_correction_and_soft_delete_are_consistent()
 
 def test_sql_store_round_trips_feedback_fields():
     suffix = uuid7()[-12:]
-    store = SQLStore(_config())
-    client = TestClient(create_app(_config(), store))
+    store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
+    client = _client(store)
     try:
         donor_response = client.post(
             "/api/v1/donor-cell-lines",
@@ -489,7 +585,7 @@ def test_sql_store_round_trips_feedback_fields():
         observation_id = observation_response.json()["results"][0]["id"]
 
         store.close()
-        store = SQLStore(_config())
+        store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
         reloaded = store.snapshot()
         assert reloaded.entities["donor-cell-lines"][donor["id"]]["preservation"] == "CRYOPRESERVED"
         assert reloaded.entities["donor-cell-lines"][donor["id"]]["sampleInfo"] == f"Cryovial details {suffix}"
