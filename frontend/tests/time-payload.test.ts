@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { dateTimeLocalToRFC3339, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../src/time";
+import { dateTimeLocalToRFC3339, formatBangkokDate, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../src/time";
 
 describe("Bangkok datetime payloads", () => {
+  it("keeps observation dates and timestamp dates in the same Bangkok display", () => {
+    expect(formatBangkokDate("2026-10-12")).toBe("12/10/2026");
+    expect(formatBangkokDate("2026-10-11T17:30:00Z")).toBe("12/10/2026");
+    expect(formatBangkokDate("")).toBe("");
+  });
   it("submits datetime-local with an explicit +07:00 offset", () => {
     expect(dateTimeLocalToRFC3339("2026-08-21T09:30")).toBe("2026-08-21T09:30:00+07:00");
   });

@@ -21,14 +21,27 @@ describe("accessibility tokens", () => {
       ["primary", "primary-soft"],
       ["danger", "danger-soft"],
       ["accent", "accent-soft"],
+      ["abnormal", "abnormal-soft"],
       ["info", "info-soft"],
       ["sidebar-text", "sidebar"],
       ["ink", "brand-lime"],
+      ["ink", "surface-soft"],
+      ["muted", "surface-soft"],
+      ["ink", "hero-surface"],
+      ["muted", "hero-surface"],
+      ["ink", "nav-active"],
+      ["ink", "nav-active-hover"],
     ]) {
       const values = [luminance(token(foreground)), luminance(token(background))].sort((a, b) => b - a);
       expect((values[0] + 0.05) / (values[1] + 0.05), `${foreground} on ${background}`).toBeGreaterThanOrEqual(4.5);
     }
     expect(1.05 / (luminance(token("primary")) + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+  it("loads the institutional Thai families locally with a readable fallback", () => {
+    expect(styles).toMatch(/--font-body: "Noto Sans Thai"/);
+    expect(styles).toMatch(/--font-heading: "Prompt"/);
+    expect(styles).not.toContain("fonts.googleapis.com");
+    expect(styles).toContain("font-display: swap");
   });
   it("keeps strong UI boundaries at 3:1 contrast against white", () => {
     const color = styles.match(/--line-strong:\s*(#[a-f\d]{6})/i)?.[1];

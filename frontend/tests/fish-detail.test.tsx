@@ -26,7 +26,7 @@ describe("fish record detail", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens a registry record, traverses accessible tabs, and saves a specimen", async () => {
+  it("opens a registry record, traverses accessible tabs, and saves fish details", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path.endsWith("/fish?includeInactive=true"))
@@ -54,7 +54,6 @@ describe("fish record detail", () => {
           observations: [{ id: "observation-1", observedOn: "2026-09-01", outcome: "ALIVE", condition: "NORMAL" }],
           specimens: [],
         });
-      if (path.endsWith("/fish/fish-1/specimens") && init?.method === "POST") return json({ id: "specimen-1" });
       if (path.includes("/fish/roll-call")) return json({ items: [] });
       if (path.endsWith("/fish-boxes")) return json({ items: [{ id: "box-1", boxCode: "A-01" }] });
       return json({ items: [] });
@@ -140,35 +139,21 @@ describe("fish record detail", () => {
       fetchMock.mock.calls.some(([input, init]) => String(input).endsWith("/fish/fish-1") && init?.method === "PATCH"),
     ).toBe(true);
 
+    expect(document.querySelectorAll('[id^="fish-detail-tab-"]')).toHaveLength(2);
+    expect(document.getElementById("fish-detail-tab-specimens")).toBeNull();
+    expect(document.body.textContent).not.toContain("Tissue & DNA samples");
     await act(async () => {
-      (document.getElementById("fish-detail-tab-specimens") as HTMLButtonElement).click();
+      document
+        .getElementById("fish-detail-tab-details")
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
       await settle();
     });
-    expect(document.body.textContent).toContain("No samples from this fish");
+    expect(history.getAttribute("aria-selected")).toBe("true");
     await act(async () => {
-      Array.from(document.querySelectorAll("button"))
-        .find((button) => button.textContent === "Add specimen")
-        ?.click();
+      history.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
       await settle();
     });
-    const specimenCode = Array.from(document.querySelectorAll("label"))
-      .find((label) => label.textContent?.startsWith("Specimen code"))
-      ?.querySelector("input") as HTMLInputElement;
-    await act(async () => {
-      setValue?.call(specimenCode, "CL-F-001");
-      specimenCode.dispatchEvent(new Event("input", { bubbles: true }));
-      specimenCode.closest("form")?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
-      await settle();
-    });
-
-    expect(document.body.textContent).toContain("CL-F-001");
-    const post = fetchMock.mock.calls.find(
-      ([input, init]) => String(input).endsWith("/fish/fish-1/specimens") && init?.method === "POST",
-    );
-    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
-      specimenCode: "CL-F-001",
-      specimenType: "CAUDAL_FIN_CLIP",
-    });
+    expect(document.getElementById("fish-detail-tab-details")?.getAttribute("aria-selected")).toBe("true");
     root.unmount();
   });
 
@@ -331,11 +316,9 @@ describe("fish record detail", () => {
     });
     expect(document.body.textContent).toContain("เลือกผลที่ถูกต้อง: มีชีวิตหรือตาย");
 
-    await act(async () => {
-      (document.getElementById("fish-detail-tab-specimens") as HTMLButtonElement).click();
-      await Promise.resolve();
-    });
-    expect(document.body.textContent).toContain("CL-F-001");
+    expect(document.querySelectorAll('[id^="fish-detail-tab-"]')).toHaveLength(2);
+    expect(document.getElementById("fish-detail-tab-specimens")).toBeNull();
+    expect(document.body.textContent).not.toContain("CL-F-001");
     expect(document.body.textContent).toContain("A-01");
     root.unmount();
   });

@@ -30,6 +30,11 @@ describe("master data form", () => {
     });
 
     const form = document.querySelector<HTMLFormElement>(".master-catalog form");
+    const create = form?.closest<HTMLDetailsElement>("details");
+    expect(create?.open).toBe(false);
+    await act(async () => {
+      if (create) create.open = true;
+    });
     expect(form?.checkValidity()).toBe(false);
     expect(document.querySelectorAll('.admin-toolbar [aria-pressed="true"]')).toHaveLength(1);
     root.unmount();
@@ -352,7 +357,16 @@ describe("master data form", () => {
         ?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(document.querySelectorAll(".master-catalog select")).toHaveLength(1);
+    expect(document.querySelectorAll(".master-catalog__content select")).toHaveLength(1);
+    const category = document.querySelector<HTMLSelectElement>(".master-category-select select")!;
+    expect(category.options).toHaveLength(7);
+    expect(category.value).toBe("treatment-groups");
+    await act(async () => {
+      category.value = "operators";
+      category.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('.admin-toolbar button[aria-pressed="true"]')?.textContent).toBe("ผู้ปฏิบัติงาน");
     root.unmount();
   });
 });

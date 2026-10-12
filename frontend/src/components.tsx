@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useEffect } from "react";
+import { notify } from "./notifications";
 import { text } from "./types";
+
+export const RecordingOperatorContext = createContext<string | null>(null);
+
+export function RecordingOperator() {
+  const label = useContext(RecordingOperatorContext);
+  return label ? <small className="recording-operator">{label}</small> : null;
+}
 
 // Sentinel codes thrown by the API client are not user-facing copy. Mapping
 // them here covers every page at once, and <html lang> already carries the
@@ -148,9 +156,12 @@ export function Empty({
   );
 }
 
-export function ErrorMessage({ message }: { message: string }) {
+export function ErrorMessage({ message, toast = false }: { message: string; toast?: boolean }) {
   const key = errorCopy[message];
   const copy = key ? text[document.documentElement.lang === "en" ? "en" : "th"][key] : message;
+  useEffect(() => {
+    if (toast) notify(copy, "danger");
+  }, [copy, toast]);
   return (
     <p className="error" role="alert" tabIndex={-1} autoFocus>
       {copy}
@@ -213,6 +224,12 @@ const iconPaths: Record<string, ReactNode> = {
     <>
       <path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4" />
       <path d="m4 5 2 2" />
+    </>
+  ),
+  people: (
+    <>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3 20c.5-3.5 2.5-5 6-5s5.5 1.5 6 5M16 5.5a3 3 0 0 1 0 5.8M18 15c1.8.6 2.8 2 3 4" />
     </>
   ),
   export: (

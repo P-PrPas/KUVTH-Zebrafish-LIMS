@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { saveObservationDraft, saveObservationLocation } from "../src/observation-draft";
 import * as offline from "../src/offline";
 import { Due, nextCheckpoints } from "../src/pages/due";
+import { ActionToasts } from "../src/toast";
 import { text } from "../src/types";
 import { withoutIndexedDB } from "./helpers";
 
@@ -72,6 +73,10 @@ describe("due and checkpoint workflows", () => {
   beforeEach(() => {
     withoutIndexedDB();
     localStorage.clear();
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "01900000-0000-7000-8000-000000000099", email: "researcher@ku.th", role: "admin" }),
+    );
     sessionStorage.setItem("chronofish.operator_id", "operator-1");
   });
   afterEach(() => {
@@ -145,6 +150,9 @@ describe("due and checkpoint workflows", () => {
 
     expect(document.body.textContent).toContain("Late 25 min");
     expect(document.body.textContent).toContain("Due in 10 min");
+    expect(document.querySelectorAll(".due-group")).toHaveLength(2);
+    expect(document.querySelector("#due-group-true")?.textContent).toBe("Overdue checks");
+    expect(document.querySelector("#due-group-false")?.textContent).toBe("Due and upcoming");
     const site = Array.from(document.querySelectorAll("label"))
       .find((label) => label.textContent?.startsWith("Site"))
       ?.querySelector("select") as HTMLSelectElement;
@@ -304,6 +312,7 @@ describe("due and checkpoint workflows", () => {
     expect(document.querySelectorAll(".checkpoint-grid [data-well]")).toHaveLength(1);
     const abnormalWell = document.querySelector(".checkpoint-grid [data-well]") as HTMLButtonElement;
     expect(abnormalWell.getAttribute("data-well")).toBe("A2");
+    expect(abnormalWell.classList.contains("well-cell--abnormal")).toBe(true);
     await act(async () => {
       abnormalWell.click();
       await Promise.resolve();
@@ -318,12 +327,29 @@ describe("due and checkpoint workflows", () => {
       await Promise.resolve();
     });
     expect(abnormalWell.classList.contains("well-cell--exception")).toBe(true);
+    expect(abnormalWell.classList.contains("well-cell--abnormal")).toBe(true);
+    expect(abnormalWell.getAttribute("aria-label")).toContain("Alive, Abnormal");
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("chronofish:queue-drained", {
+          detail: {
+            path: "/observations/embryo",
+            body: { observations: [{ embryoId: "embryo-2", stageCode: "stage_03_4C" }] },
+            result: { results: [{ id: "obs-abnormal", status: "created" }] },
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(abnormalWell.classList.contains("well-cell--saved")).toBe(true);
+    expect(abnormalWell.classList.contains("well-cell--abnormal")).toBe(true);
     await act(async () => {
       setSelect?.call(outcome, "DEAD");
       outcome.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
     expect(abnormalWell.classList.contains("well-cell--dead")).toBe(true);
+    expect(abnormalWell.classList.contains("well-cell--abnormal")).toBe(false);
     root.unmount();
   });
 
@@ -376,6 +402,11 @@ describe("due and checkpoint workflows", () => {
     });
     expect(performance.now() - openedAt).toBeLessThan(1_000);
 
+    const bulkTools = document.querySelector<HTMLDetailsElement>(".checkpoint-bulk-tools")!;
+    expect(bulkTools.open).toBe(false);
+    await act(async () => {
+      bulkTools.open = true;
+    });
     const bulkStage = document.querySelector("#bulk-stage") as HTMLSelectElement;
     const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
     await act(async () => {
@@ -447,7 +478,13 @@ describe("due and checkpoint workflows", () => {
     document.body.append(rootElement);
     const root = createRoot(rootElement);
     await act(async () => {
-      root.render(<Due t={text.en} />);
+      document.documentElement.lang = "en";
+      root.render(
+        <>
+          <Due t={text.en} />
+          <ActionToasts />
+        </>,
+      );
       await Promise.resolve();
     });
     await act(async () => {
@@ -484,6 +521,7 @@ describe("due and checkpoint workflows", () => {
         observedAt: "2026-08-23T02:05:00.000Z",
       }),
     ]);
+    expect(document.querySelector(".member-toast--success")?.textContent).toContain("saved successfully");
     root.unmount();
     vi.useRealTimers();
   });
@@ -524,6 +562,10 @@ describe("due and checkpoint workflows", () => {
     await act(async () => {
       (document.querySelector(".list-row") as HTMLButtonElement).click();
       await Promise.resolve();
+    });
+    const bulkTools = document.querySelector<HTMLDetailsElement>(".checkpoint-bulk-tools")!;
+    await act(async () => {
+      bulkTools.open = true;
     });
     const bulkStage = document.querySelector("#bulk-stage") as HTMLSelectElement;
     const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;

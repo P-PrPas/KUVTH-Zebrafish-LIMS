@@ -18,6 +18,19 @@ def build_analytics_router(store: Store) -> APIRouter:
     def service(request: Request) -> Analytics:
         return Analytics(store.snapshot(), query_dict(request))
 
+    @router.get("/guest-dashboard")
+    def guest_dashboard() -> dict[str, Any]:
+        # Only unfiltered totals; guests cannot drill into records or operator comparisons.
+        kpi = Analytics(store.snapshot(), {}).kpi()
+        return {
+            "nBatches": kpi["stage1"]["nBatches"],
+            "nActivated": kpi["stage1"]["nActivated"],
+            "nPromoted": kpi["stage1"]["nPromoted"],
+            "nFish": kpi["stage2"]["nFish"],
+            "nAlive": kpi["stage2"]["nAlive"],
+            "nDead": kpi["stage2"]["nDead"],
+        }
+
     @router.get("/dashboard")
     def dashboard(
         request: Request,

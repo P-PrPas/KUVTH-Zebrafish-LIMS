@@ -1,10 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
-import { Empty, ErrorMessage } from "../components";
+import { Empty, ErrorMessage, RecordingOperator } from "../components";
 import { parseFilters, withFilters } from "../filters";
+import { notify } from "../notifications";
 import { saveObservationLocation } from "../observation-draft";
 import { putQueue, type QueuedWrite } from "../offline";
-import { dateTimeLocalToRFC3339, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
+import { dateTimeLocalToRFC3339, formatBangkokDate, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
 import { type AppText, text } from "../types";
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
@@ -101,7 +102,7 @@ export function Batches({ t }: { t: AppText }) {
       </section>
     );
   return (
-    <section>
+    <section className="work-screen experiment-worklist">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "สมุดงานวิจัย" : "RESEARCH WORKSPACE"}</p>
@@ -182,14 +183,17 @@ export function Batches({ t }: { t: AppText }) {
             <button className="list-row" key={String(item.id)} onClick={() => setSelected(item)}>
               <span>
                 <strong>{String(item.batchCode)}</strong>
-                <small>
-                  {masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่เชื่อมโยง" : "Ungrouped")} ·{" "}
-                  {String(item.experimentDate)} · {thai ? "โปรไฟล์เวลา" : "profile"}{" "}
-                  {item.timingProfileVersion != null
-                    ? String(item.timingProfileVersion)
-                    : thai
-                      ? "ที่ตรึงไว้กับรอบนี้"
-                      : "pinned to this experiment"}
+                <small className="record-meta">
+                  <span>{masterName(groups, item.experimentGroupId) || (thai ? "ยังไม่เชื่อมโยง" : "Ungrouped")}</span>
+                  <span>{formatBangkokDate(String(item.experimentDate ?? "")) || "—"}</span>
+                  <span>
+                    {thai ? "โปรไฟล์เวลา" : "profile"}{" "}
+                    {item.timingProfileVersion != null
+                      ? String(item.timingProfileVersion)
+                      : thai
+                        ? "ที่ตรึงไว้กับรอบนี้"
+                        : "pinned to this experiment"}
+                  </span>
                 </small>
               </span>
               <span className="pill">
@@ -469,8 +473,9 @@ function BatchForm({
           </div>
         </div>
       </details>
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       <div className="form-actions">
+        <RecordingOperator />
         <button className="button button--primary" type="submit">
           {batch ? (thai ? "บันทึกการแก้ไข" : "Save changes") : thai ? "สร้างรอบทดลอง" : "Save batch"}
         </button>
@@ -579,23 +584,24 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       load();
     } catch (e) {
       setMessage((e as Error).message);
+      notify((e as Error).message, "danger");
     }
   };
   const createLot = async (event: FormEvent) => {
     event.preventDefault();
     const nActivated = Number(lot.nActivated);
     const optimisticId = templateId ?? `queued-lot-${Date.now()}`;
-    const optimistic = {
-      ...lot,
-      lotNo: currentLotNo,
-      id: optimisticId,
-      batchId: batch.id,
-      nActivated,
-      activatedAt: dateTimeLocalToRFC3339(lot.activatedAt),
-      queued: true,
-    };
     const previousDetail = detail;
     try {
+      const optimistic = {
+        ...lot,
+        lotNo: currentLotNo,
+        id: optimisticId,
+        batchId: batch.id,
+        nActivated,
+        activatedAt: dateTimeLocalToRFC3339(lot.activatedAt),
+        queued: true,
+      };
       const lotFields: Record<string, string> = { ...lot };
       delete lotFields.lotNo;
       const payload = {
@@ -656,6 +662,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     } catch (e) {
       setDetail(previousDetail);
       setMessage((e as Error).message);
+      notify((e as Error).message, "danger");
     }
   };
   const useTemplate = (item: ApiItem) => {
@@ -683,6 +690,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       setMessage(
         thai ? "ชุดนี้ยังไม่ซิงก์ รอสักครู่แล้วลองใหม่" : "This lot has not synced yet; try again once it clears the queue.",
       );
+      notify(
+        thai ? "ชุดนี้ยังไม่ซิงก์ รอสักครู่แล้วลองใหม่" : "This lot has not synced yet; try again once it clears the queue.",
+        "warning",
+      );
       return;
     }
     const previous = embryos[lotId] ?? [];
@@ -708,6 +719,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     } catch (e) {
       setEmbryos((current) => ({ ...current, [lotId]: previous }));
       setMessage((e as Error).message);
+      notify((e as Error).message, "danger");
     }
   };
   const updateWell = async (embryo: ApiItem, wellPosition: string | null) => {
@@ -725,6 +737,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     } catch (e) {
       setEmbryos((current) => ({ ...current, [lotId]: previous }));
       setMessage((e as Error).message);
+      notify((e as Error).message, "danger");
     }
   };
   const deleteEmbryo = async (embryo: ApiItem) => {
@@ -746,6 +759,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
     } catch (e) {
       setEmbryos((current) => ({ ...current, [lotId]: previous }));
       setMessage((e as Error).message);
+      notify((e as Error).message, "danger");
     }
   };
   const preview = Array.from(
@@ -768,7 +782,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
   const displayMaster = (items: ApiItem[] | undefined, id: unknown) =>
     masterName(items, id) || (items ? "—" : thai ? "กำลังโหลด…" : "Loading…");
   return (
-    <section>
+    <section className="work-screen experiment-detail">
       <button className="back" onClick={onBack}>
         ← {thai ? "การทดลองทั้งหมด" : "Experiments"}
       </button>
@@ -777,7 +791,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           <p className="eyebrow">{thai ? "บันทึกการทดลอง" : "EXPERIMENT RECORD"}</p>
           <h1>{String(detail?.batchCode ?? batch.batchCode)}</h1>
           <p className="muted">
-            {String(detail?.experimentDate ?? batch.experimentDate)} ·{" "}
+            {formatBangkokDate(String(detail?.experimentDate ?? batch.experimentDate ?? "")) || "—"} ·{" "}
             {displayMaster(masters.sites, detail?.siteId ?? batch.siteId)} ·{" "}
             {displayMaster(masters.operators, detail?.operatorId ?? batch.operatorId)} ·{" "}
             {displayMaster(masters["treatment-groups"], detail?.treatmentGroupId ?? batch.treatmentGroupId)}
@@ -816,7 +830,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
         </div>
         <div className="record-fact">
           <span>{thai ? "วันที่ทดลอง" : "Experiment date"}</span>
-          <strong>{String(detail?.experimentDate ?? batch.experimentDate ?? "—")}</strong>
+          <strong>{formatBangkokDate(String(detail?.experimentDate ?? batch.experimentDate ?? "")) || "—"}</strong>
         </div>
         <div className="record-fact">
           <span>{thai ? "สถานที่" : "Site"}</span>
@@ -827,7 +841,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           <strong>{displayMaster(masters.operators, detail?.operatorId ?? batch.operatorId)}</strong>
         </div>
         <div className="record-fact">
-          <span>{thai ? "กลุ่มเปรียบเทียบ" : "Comparison group"}</span>
+          <span>{thai ? "กลุ่มการทดลอง" : "Treatment group"}</span>
           <strong>
             {displayMaster(masters["treatment-groups"], detail?.treatmentGroupId ?? batch.treatmentGroupId)}
           </strong>
@@ -982,6 +996,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
               </label>
             </div>
           </fieldset>
+          <RecordingOperator />
           <button className="button button--primary" type="submit">
             {templateId ? (thai ? "เปิดใช้งานแม่แบบ" : "Activate template") : thai ? "สร้าง lot" : "Create lot"}
           </button>
