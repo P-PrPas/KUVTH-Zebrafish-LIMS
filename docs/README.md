@@ -3,14 +3,13 @@
 เอกสารโครงการถูกแบ่งตามหน้าที่เพื่อให้ค้นหาและดูแลได้ง่าย:
 
 - [`requirements/`](requirements/) — SRS และการวิเคราะห์ความต้องการ
-- [`architecture/`](architecture/) — Architecture Decision Records (ADR) และ [database schema](architecture/database/)
-- [`planning/`](planning/) — แผน implementation, สถานะการพัฒนา และ [CSV import (ร่าง)](planning/csv-import/)
+- [`architecture/`](architecture/) — Architecture Decision Records (ADR)
+- [`planning/`](planning/) — แผน implementation และสถานะการพัฒนา
 - [`testing/`](testing/) — test plan, test cases และ UAT
 - [`design/`](design/) — UX/UI audit และรายงาน redesign
 - [`operations/`](operations/) — deployment, backup/restore และ runbook
 - [`guides/`](guides/) — คู่มือสำหรับผู้ใช้งาน/นักวิจัย
 - [`examples/`](examples/) — ข้อมูลตัวอย่างและไฟล์ประกอบการทดลอง
-- [`business/`](business/) — การประเมินโครงการ, cost breakdown และการตั้งราคา
 
 เอกสารหลักที่ใช้เป็นแหล่งอ้างอิง:
 

@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./motion.css";
 import "./workspaces.css";
+import "./admin.css";
 import "./report.css";
 
 createRoot(document.getElementById("root")!).render(

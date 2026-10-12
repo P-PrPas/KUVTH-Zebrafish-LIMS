@@ -41,6 +41,8 @@ describe("audit history", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(document.querySelector(".audit-diff tbody")?.textContent).toContain("BeforeAfter");
+    expect(document.querySelector<HTMLDetailsElement>(".audit-raw")?.open).toBe(false);
     expect(document.body.textContent).toContain("24/08/2026 10:00");
     expect(document.body.textContent).not.toContain("2026-08-24T03:00:00Z");
 

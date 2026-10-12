@@ -66,6 +66,8 @@ async function enterValue(input: HTMLInputElement | HTMLSelectElement, value: st
 
 async function click(button: HTMLButtonElement | null) {
   await act(async () => {
+    const details = button?.closest<HTMLDetailsElement>(".member-details");
+    if (details) details.open = true;
     button?.click();
     await Promise.resolve();
   });
@@ -121,6 +123,8 @@ describe("admin member management", () => {
   it("loads member states, pending-sync warnings, sender settings, and unconfigured SMTP notice", async () => {
     const rendered = await renderPage(<Members language="en" />);
     await settle();
+    expect(rendered.element.querySelector<HTMLDetailsElement>(".member-details")?.open).toBe(false);
+    expect(rendered.element.querySelector(".member-summary")?.textContent).toContain("2 pending offline items");
     expect(rendered.element.textContent).toContain("Email verification pending");
     expect(rendered.element.textContent).toContain("A recently reported device still has pending work.");
     expect(card("active@ku.th").textContent).toContain("device-r · 2 items");
@@ -134,6 +138,10 @@ describe("admin member management", () => {
     const rendered = await renderPage(<Members language="en" />);
     await settle();
     const invite = rendered.element.querySelector<HTMLInputElement>("#invite-email")!;
+    const invitationPanel = rendered.element.querySelector<HTMLElement>("#member-invitation")!;
+    expect(invitationPanel.hidden).toBe(true);
+    await click(rendered.element.querySelector<HTMLButtonElement>('[aria-controls="member-invitation"]')!);
+    expect(invitationPanel.hidden).toBe(false);
     await enterValue(invite, " New.Member@KU.TH ");
     await act(async () => {
       rendered.element
@@ -146,6 +154,7 @@ describe("admin member management", () => {
       body: JSON.stringify({ email: "new.member@ku.th" }),
     });
     expect(rendered.element.querySelector<HTMLInputElement>("#invite-email")?.value).toBe("");
+    expect(invitationPanel.hidden).toBe(true);
     expect(rendered.element.textContent).toContain("Invitation email sent.");
 
     await enterValue(rendered.element.querySelector<HTMLInputElement>("#sender-email")!, "lab@ku.th");

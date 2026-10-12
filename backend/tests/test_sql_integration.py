@@ -95,6 +95,64 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
     store.close()
 
 
+def test_sql_operator_request_and_account_update_roll_back_together(monkeypatch):
+    from chronofish.runtime.errors import APIError
+
+    email = f"operator-admin-{uuid7()}@ku.th"
+    store = SQLStore(_config(email))
+    admin = _client(store, email)
+    member_email = f"operator-member-{uuid7()}@ku.th"
+    assert admin.post("/api/v1/auth/admin/users", json={"email": member_email}).status_code == 201
+    member = _client(store, member_email)
+    admin_id = admin.get("/api/v1/auth/me").json()["user"]["id"]
+    member_id = member.get("/api/v1/auth/me").json()["user"]["id"]
+
+    def headers(actor):
+        return {"X-Actor-User-Id": actor, "X-Device-Id": "operator-sql", "X-Idempotency-Key": uuid7()}
+
+    operator = admin.post(
+        "/api/v1/operators",
+        headers={**headers(admin_id), "X-Operator-Id": DEMO_OPERATOR_ID},
+        json={"name": f"SQL requested operator {uuid7()}"},
+    )
+    assert operator.status_code == 201, operator.text
+    created = member.post(
+        "/api/v1/corrections",
+        headers=headers(member_id),
+        json={
+            "targetTable": "auth_user",
+            "targetId": member_id,
+            "fieldName": "operatorId",
+            "proposedValue": operator.json()["id"],
+            "reason": "Research assignment",
+        },
+    )
+    assert created.status_code == 201, created.text
+    request_id = created.json()["id"]
+    persist = store._persist
+
+    def failing_persist(connection, before, after):
+        persist(connection, before, after)
+        raise APIError(409, "injected_failure", "Simulated persistence failure")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "_persist", failing_persist)
+        failed = admin.post(
+            f"/api/v1/corrections/{request_id}/decide", headers=headers(admin_id), json={"decision": "approve"}
+        )
+        assert failed.status_code == 409, failed.text
+    assert member.get("/api/v1/auth/me").json()["user"]["operatorId"] is None
+    assert admin.get(f"/api/v1/corrections/{request_id}").json()["status"] == "pending"
+    decided = admin.post(
+        f"/api/v1/corrections/{request_id}/decide", headers=headers(admin_id), json={"decision": "approve"}
+    )
+    assert decided.status_code == 200, decided.text
+    assert member.get("/api/v1/auth/me").json()["user"]["operatorId"] == operator.json()["id"]
+    assert admin.get(f"/api/v1/corrections/{request_id}").json()["status"] == "approved"
+    member.close()
+    admin.close()
+
+
 def _config(bootstrap_email: str) -> Config:
     return Config(
         8080,

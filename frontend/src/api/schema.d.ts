@@ -1906,7 +1906,10 @@ export interface paths {
         /** List own correction requests or all requests for an admin */
         get: operations["listCorrections"];
         put?: never;
-        /** Submit a single-field correction request */
+        /**
+         * Submit a single-field correction request
+         * @description Members may also request a linked operator change using targetTable auth_user, their own account id, fieldName operatorId, and an active unassigned operator. Only an admin may approve; the account change, request decision and audits commit together. This does not allow members to change their role or another account.
+         */
         post: operations["createCorrection"];
         delete?: never;
         options?: never;

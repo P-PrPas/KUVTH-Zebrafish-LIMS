@@ -78,9 +78,20 @@ describe("browser shell workflows", () => {
       window.history.replaceState(null, "", role === "member" ? "/#members" : "/#export");
       const fetch = vi.fn(
         async (url: string) =>
-          new Response(JSON.stringify(url.endsWith("/auth/me") ? { user } : { items: [] }), {
-            headers: { "Content-Type": "application/json" },
-          }),
+          new Response(
+            JSON.stringify(
+              url.endsWith("/auth/me")
+                ? { user }
+                : {
+                    items: url.endsWith("/operators")
+                      ? [{ id: user.operatorId, name: user.operatorId === "operator-1" ? "Jan" : "New researcher" }]
+                      : [],
+                  },
+            ),
+            {
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
       );
       vi.stubGlobal("fetch", fetch);
       const element = document.createElement("div");
@@ -91,7 +102,9 @@ describe("browser shell workflows", () => {
           root.render(<App />);
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
-        expect(element.querySelector(".account-menu > summary")?.textContent).toContain("Account");
+        expect(element.querySelector(".account-menu > summary")?.getAttribute("aria-label")).toBe(
+          "Account and profile",
+        );
         expect(element.querySelector(".account-menu .account-badge")?.textContent).toContain(user.email);
         expect(element.querySelectorAll(".nav-label--compact")).toHaveLength(4);
         if (role === "member")
@@ -100,9 +113,42 @@ describe("browser shell workflows", () => {
           expect(label.closest("button")?.getAttribute("aria-label")).toContain(label.textContent);
         }
         expect(element.querySelector('a[href="/admin"]') !== null).toBe(role === "admin");
+        expect(element.querySelector("#operator-select")).toBeNull();
+        expect(element.querySelector(".account-menu__panel")?.textContent).toContain("My profile");
         await act(async () => element.querySelector<HTMLButtonElement>(".language")?.click());
-        expect(element.querySelector(".account-menu > summary")?.textContent).toContain("บัญชี");
+        expect(element.querySelector(".account-menu > summary")?.getAttribute("aria-label")).toBe("บัญชีและโปรไฟล์");
         expect(element.querySelector(".nav-label--compact")?.textContent).toBe("สรุปผล");
+        await act(async () => {
+          Array.from(element.querySelectorAll<HTMLButtonElement>(".account-menu button"))
+            .find((button) => button.textContent === "โปรไฟล์ของฉัน")
+            ?.click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(location.hash).toBe("#profile");
+        expect(element.querySelector(".profile-page h1")?.textContent).toBe("โปรไฟล์ของฉัน");
+        expect(element.querySelector<HTMLFieldSetElement>(".page-gate")?.disabled).toBe(false);
+        expect(element.querySelector("#operator-select")).toBeNull();
+        await act(async () => {
+          window.location.hash = "#dashboard";
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(element.querySelector(".profile-page")).toBeNull();
+        await act(async () => {
+          window.location.hash = "#profile";
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(element.querySelector(".profile-page")).not.toBeNull();
+        if (role === "member") {
+          user.operatorId = "operator-2";
+          await act(async () => {
+            window.dispatchEvent(new Event("chronofish:auth-refresh"));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          });
+          expect(element.querySelector(".profile-page dl")?.textContent).toContain("New researcher");
+          expect(element.querySelector(".account-menu > summary")?.textContent).toContain("New researcher");
+        }
         await act(async () => element.querySelector<HTMLButtonElement>(".logout-button")?.click());
         expect(fetch).toHaveBeenCalledWith("/api/v1/auth/logout", expect.objectContaining({ method: "POST" }));
         expect(localStorage.getItem("chronofish.auth_user")).toBeNull();
@@ -144,6 +190,51 @@ describe("browser shell workflows", () => {
     expect(document.querySelector("nav")?.textContent).toContain("New experiment");
     expect(document.querySelector("nav")?.textContent).toContain("Longitudinal tracking");
     root.unmount();
+  });
+
+  it.each([
+    ["admin", "/#audit", true],
+    ["admin", "/admin?auditRecordId=batch-1#audit", true],
+    ["member", "/#audit", false],
+  ] as const)("keeps audit navigation authorized for %s at %s", async (role, url, allowed) => {
+    const user = { id: "account-1", email: "researcher@ku.th", role, operatorId: "operator-1" };
+    localStorage.setItem("chronofish.auth_user", JSON.stringify(user));
+    localStorage.setItem("chronofish.language", "en");
+    window.history.replaceState(null, "", url);
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL) =>
+        new Response(JSON.stringify(String(input).endsWith("/auth/me") ? { user } : { items: [] })),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    try {
+      await act(async () => {
+        root.render(<App />);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const system = Array.from(element.querySelectorAll("nav details")).find((group) =>
+        group.querySelector("summary")?.textContent?.includes("Reference & system"),
+      );
+      expect(Boolean(system)).toBe(allowed);
+      expect(system?.textContent?.includes(text.en.audit) ?? false).toBe(allowed);
+      expect(fetch.mock.calls.some(([input]) => String(input).includes("/audit-log"))).toBe(allowed);
+      if (allowed) {
+        expect(element.querySelector('nav button[aria-current="page"]')?.textContent).toContain(text.en.audit);
+        await act(async () => {
+          window.location.hash = url.startsWith("/admin") ? "#admin" : "#my-requests";
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          await Promise.resolve();
+          window.location.hash = "#audit";
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          await Promise.resolve();
+        });
+        expect(document.title).toContain(text.en.audit);
+      } else expect(document.title).toContain(text.en.dashboard);
+    } finally {
+      await act(async () => root.unmount());
+    }
   });
 
   it("opens a separate administrator workspace with its own navigation", async () => {

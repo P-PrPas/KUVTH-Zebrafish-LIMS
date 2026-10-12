@@ -17,7 +17,7 @@ from ..config import Config
 from ..domain.state import State
 from ..runtime.errors import APIError
 from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context
-from ..runtime.values import uuid7
+from ..runtime.values import parse_datetime, uuid7
 from .base import Mutation
 from .database import create_database_engine
 from .migrations import migrate
@@ -383,6 +383,37 @@ class SQLStore:
                 )
 
     def _persist(self, connection: Connection, before: State, after: State) -> None:
+        for user_id, change in after.operator_changes.items():
+            operator = connection.execute(
+                text("SELECT id FROM operator WHERE id = :id AND active = :active AND deleted_at IS NULL FOR UPDATE"),
+                {"id": change["operatorId"], "active": True},
+            ).first()
+            if not operator:
+                raise APIError(422, "invalid_operator", "Choose an active existing operator")
+            linked = connection.execute(
+                text("SELECT id FROM auth_user WHERE operator_id = :operator AND id <> :id"),
+                {"operator": change["operatorId"], "id": user_id},
+            ).first()
+            if linked:
+                raise APIError(409, "operator_already_linked", "This operator is already linked to another account")
+            updated = connection.execute(
+                text(
+                    "UPDATE auth_user SET operator_id = :operator, updated_at = :updated "
+                    "WHERE id = :id AND role = :role AND active = :active AND updated_at = :expected_at "
+                    "AND (operator_id = :expected_operator OR (operator_id IS NULL AND :expected_operator IS NULL))"
+                ),
+                {
+                    "operator": change["operatorId"],
+                    "updated": parse_datetime(change["updatedAt"]).replace(tzinfo=None),
+                    "id": user_id,
+                    "role": "member",
+                    "active": True,
+                    "expected_at": parse_datetime(change["expectedUpdatedAt"]).replace(tzinfo=None),
+                    "expected_operator": change["expectedOperatorId"],
+                },
+            )
+            if updated.rowcount != 1:
+                raise APIError(409, "source_changed", "The account changed. Review a new request")
         stage_ids = self._stage_ids(connection)
         self._sync_collection(
             connection,
