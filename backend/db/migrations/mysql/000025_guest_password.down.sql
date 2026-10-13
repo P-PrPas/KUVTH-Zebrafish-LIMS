@@ -1,6 +1,6 @@
 -- ===========================================================================
 -- GENERATED FILE — do not edit by hand.
--- Source: backend/db/migrations/postgres/000023_guest_password.down.sql
+-- Source: backend/db/migrations/postgres/000025_guest_password.down.sql
 -- Regenerate: python3 scripts/gen_mysql_migrations.py
 -- ===========================================================================
 

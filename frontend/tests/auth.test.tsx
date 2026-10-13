@@ -26,6 +26,9 @@ afterEach(async () => {
 });
 
 async function input(id: string, value: string) {
+  if (id === "login-password" && !container.querySelector("#login-password")) {
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-login-mode="login"]')?.click());
+  }
   const element = container.querySelector<HTMLInputElement>(`#${id}`);
   expect(element).not.toBeNull();
   await act(async () => {
@@ -119,10 +122,10 @@ describe("KU authentication", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ status: "sent" })));
     await act(async () => root.render(<Login onLogin={vi.fn()} />));
     expect(container.querySelector(".auth-intro")?.getAttribute("aria-labelledby")).toBe("auth-intro-title");
-    expect(container.querySelector("#login-title")?.textContent).toBe(
-      th ? "เข้าสู่ระบบห้องปฏิบัติการ" : "Sign in to your lab",
-    );
-    await click(th ? "ลืมรหัสผ่าน / บัญชีเดิมยังไม่มีรหัสผ่าน" : "Forgot password / Set your first password");
+    expect(container.querySelector("#login-password")).toBeNull();
+    await click(th ? "Guest: เข้าสู่ระบบด้วยรหัสผ่าน" : "Guest sign in with password");
+    expect(container.querySelector("#login-title")?.textContent).toBe(th ? "เข้าสู่ระบบสำหรับ Guest" : "Guest sign in");
+    await click(th ? "ลืมรหัสผ่าน Guest" : "Forgot Guest password");
     expect(container.querySelector("#login-title")?.textContent).toBe(
       th ? "ตั้งหรือรีเซ็ตรหัสผ่าน" : "Set or reset your password",
     );
@@ -178,6 +181,7 @@ describe("KU authentication", () => {
     vi.stubGlobal("fetch", fetch);
     const onLogin = vi.fn();
     await act(async () => root.render(<Login onLogin={onLogin} />));
+    await click("Guest sign in with password");
     await click("Create an account");
     expect(container.querySelector<HTMLInputElement>("#login-password")?.minLength).toBe(8);
     expect(container.querySelector<HTMLInputElement>("#confirm-password")?.minLength).toBe(8);

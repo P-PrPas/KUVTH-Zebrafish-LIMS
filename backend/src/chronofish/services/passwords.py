@@ -1,10 +1,21 @@
 import hashlib
 import hmac
 import secrets
+import threading
 
 from ..runtime.errors import APIError
 
 ITERATIONS = 600_000
+PASSWORD_WORK = threading.BoundedSemaphore(2)
+
+
+def _derive(password: str, salt: bytes, iterations: int) -> str:
+    if not PASSWORD_WORK.acquire(blocking=False):
+        raise APIError(503, "authentication_busy", "Sign-in is busy. Try again shortly")
+    try:
+        return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, iterations).hex()
+    finally:
+        PASSWORD_WORK.release()
 
 
 def validate_password(value: object) -> str:
@@ -15,7 +26,7 @@ def validate_password(value: object) -> str:
 
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), ITERATIONS).hex()
+    digest = _derive(password, bytes.fromhex(salt), ITERATIONS)
     return f"pbkdf2_sha256${ITERATIONS}${salt}${digest}"
 
 
@@ -23,5 +34,5 @@ def check_password(password: str, encoded: str | None) -> bool:
     # Spend the same work on accounts without credentials to avoid an email timing oracle.
     fallback = f"pbkdf2_sha256${ITERATIONS}${'00' * 16}${'00' * 32}"
     algorithm, iterations, salt, expected = (encoded or fallback).split("$")
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations)).hex()
+    digest = _derive(password, bytes.fromhex(salt), int(iterations))
     return algorithm == "pbkdf2_sha256" and hmac.compare_digest(digest, expected) and encoded is not None

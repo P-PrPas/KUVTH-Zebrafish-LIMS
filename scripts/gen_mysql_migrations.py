@@ -133,6 +133,20 @@ def convert(sql: str, upgrade: bool) -> str:
     sql = re.sub(r"TIMESTAMP\s+('(?:[^']*)')", r"\1", sql)
     # 1. TIMESTAMP column type -> DATETIME(3)
     sql = re.sub(r"\bTIMESTAMP\b(?!\s*\()", "DATETIME(3)", sql)
+    # MySQL 8 has no ADD COLUMN IF NOT EXISTS; inspect the current schema before DDL.
+    def optional_column(match):
+        table, column, definition = match.groups()
+        ddl = f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        return (
+            "SET @column_ddl = (SELECT IF(COUNT(*) = 0, "
+            f"'{ddl}', 'SELECT 1') FROM information_schema.columns "
+            f"WHERE table_schema = DATABASE() AND table_name = '{table}' AND column_name = '{column}');\n"
+            "PREPARE column_statement FROM @column_ddl;\n"
+            "EXECUTE column_statement;\n"
+            "DEALLOCATE PREPARE column_statement;"
+        )
+
+    sql = re.sub(r"ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+) ([^;]+);", optional_column, sql)
     # 3. constraint drop syntax
     sql = re.sub(
         r"ALTER TABLE (\w+) DROP CONSTRAINT IF EXISTS (\w+);",

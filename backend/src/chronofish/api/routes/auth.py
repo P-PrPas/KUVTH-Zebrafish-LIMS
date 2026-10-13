@@ -48,8 +48,9 @@ def build_auth_router(auth: AuthService) -> APIRouter:
         return {"status": "If this email is invited, check its inbox for a sign-in code."}
 
     @router.post("/register", status_code=202)
-    def register(body: dict[str, Any]) -> dict[str, str]:
-        auth.register(body)
+    def register(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
+        email = auth.validate_registration(body)
+        background_tasks.add_task(auth.register, email)
         return {"status": "If this account is active, a verification code has been sent."}
 
     @router.post("/login")
