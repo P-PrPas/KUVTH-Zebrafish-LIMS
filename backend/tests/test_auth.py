@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from chronofish.runtime.values import utc_now
@@ -409,3 +410,257 @@ def test_last_active_admin_cannot_be_disabled(client):
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "last_admin"
+
+
+PASSWORD = "correct horse battery staple"
+
+
+def _register(client, email="new.guest@ku.th", password=PASSWORD):
+    browser = TestClient(client.app)
+    result = browser.post("/api/v1/auth/register", json={"email": email, "password": password, "role": "admin"})
+    assert result.status_code == 202, result.text
+    verified = browser.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "guest-browser"},
+        json={"email": email, "code": _code(client.app.state.auth.mailer), "password": password},
+    )
+    assert verified.status_code == 200, verified.text
+    return browser, verified.json()["user"]
+
+
+def test_guest_registration_password_and_admin_grant(client):
+    guest, user = _register(client)
+    assert user["role"] == "guest"
+    assert "password" not in str(user)
+    assert guest.get("/api/v1/auth/me").json()["user"]["role"] == "guest"
+    totals = guest.get("/api/v1/analytics/guest-dashboard?operatorId=secret").json()
+    assert set(totals) == {"nBatches", "nActivated", "nPromoted", "nFish", "nAlive", "nDead"}
+    assert totals == guest.get("/api/v1/analytics/guest-dashboard").json()
+    for path in ["batches", "fish", "operators", "audit-log", "analytics/dashboard", "auth/admin/users", "export"]:
+        assert guest.get(f"/api/v1/{path}").status_code == 403, path
+    assert guest.post("/api/v1/batches", json={}, headers={"X-Actor-User-Id": user["id"]}).status_code == 403
+    assert guest.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 403
+    stored = client.app.state.auth.repository.user_by_email(user["email"])
+    assert stored["password_hash"] != PASSWORD
+    assert stored["password_hash"].startswith("pbkdf2_sha256$600000$")
+    assert "password_hash" not in client.get("/api/v1/auth/admin/users").text
+    guest.post("/api/v1/auth/logout")
+    login = guest.post(
+        "/api/v1/auth/login",
+        headers={"X-Device-Id": "guest-browser"},
+        json={"email": user["email"].upper(), "password": PASSWORD},
+    )
+    assert login.status_code == 200
+    assert "HttpOnly" in login.headers["set-cookie"] and "SameSite=lax" in login.headers["set-cookie"]
+    granted = client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"})
+    assert granted.status_code == 200
+    assert guest.get("/api/v1/batches").status_code == 200
+    assert guest.get("/api/v1/auth/admin/users").status_code == 403
+    assert client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "guest"}).status_code == 200
+    assert guest.get("/api/v1/batches").status_code == 403
+    guest.close()
+
+
+@pytest.mark.parametrize("email", ["user@gmail.com", "user@evilku.th", "user@ku.th.evil", "@ku.th", "a..b@ku.th"])
+def test_registration_rejects_non_ku_and_invalid_emails(client, email):
+    response = client.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD})
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize("password", [None, "short", "a" * 7, "a" * 129, 123])
+def test_registration_rejects_invalid_password(client, password):
+    assert client.post("/api/v1/auth/register", json={"email": "valid@ku.th", "password": password}).status_code == 400
+    assert client.app.state.auth.repository.user_by_email("valid@ku.th") is None
+
+
+def test_eight_character_password_can_register_and_login(client):
+    browser, user = _register(client, password="abcd1234")
+    assert browser.post("/api/v1/auth/logout").status_code == 204
+    login = browser.post(
+        "/api/v1/auth/login",
+        headers={"X-Device-Id": "eight-character-browser"},
+        json={"email": user["email"], "password": "abcd1234"},
+    )
+    assert login.status_code == 200
+    browser.close()
+
+
+def test_password_is_set_only_after_email_verification_and_code_cannot_be_reused(client):
+    browser = TestClient(client.app)
+    body = {"email": "unverified@ku.th", "password": PASSWORD}
+    assert browser.post("/api/v1/auth/register", json=body).status_code == 202
+    code = _code(client.app.state.auth.mailer)
+    headers = {"X-Device-Id": "browser"}
+    assert browser.post("/api/v1/auth/login", json=body, headers=headers).status_code == 401
+    assert (
+        browser.post(
+            "/api/v1/auth/verify-code", json={"email": body["email"], "code": code}, headers=headers
+        ).status_code
+        == 400
+    )
+    assert (
+        browser.post("/api/v1/auth/verify-code", json={**body, "code": "not-code"}, headers=headers).status_code == 400
+    )
+    assert browser.post("/api/v1/auth/verify-code", json={**body, "code": code}, headers=headers).status_code == 200
+    assert browser.post("/api/v1/auth/verify-code", json={**body, "code": code}, headers=headers).status_code == 401
+    browser.close()
+
+
+def test_password_attempt_limit_expires_and_disabled_accounts_cannot_login(client):
+    browser, user = _register(client)
+    path = "/api/v1/auth/login"
+    headers = {"X-Device-Id": "browser"}
+    for _ in range(5):
+        assert (
+            browser.post(
+                path, headers=headers, json={"email": user["email"], "password": "wrong password!"}
+            ).status_code
+            == 401
+        )
+    assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 401
+    stored = client.app.state.store.auth_users[user["id"]]
+    stored["password_locked_until"] = utc_now() - timedelta(seconds=1)
+    assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 200
+    assert (
+        client.patch(
+            f"/api/v1/auth/admin/users/{user['id']}", json={"active": False, "acknowledgePendingDataRisk": True}
+        ).status_code
+        == 200
+    )
+    assert browser.get("/api/v1/auth/me").status_code == 401
+    assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 401
+    browser.close()
+
+
+def test_password_reset_keeps_role_and_requires_otp_before_revoking_sessions(client):
+    browser, user = _register(client)
+    recovery = TestClient(client.app)
+    challenge = client.app.state.store.auth_challenges[user["email"]]
+    challenge["last_sent_at"] = utc_now() - timedelta(minutes=2)
+    new_password = "a different secure password"
+    body = {"email": user["email"], "password": new_password}
+    assert recovery.post("/api/v1/auth/register", json=body).status_code == 202
+    assert browser.get("/api/v1/auth/me").status_code == 200
+    headers = {"X-Device-Id": "recovery-browser"}
+    assert recovery.post("/api/v1/auth/login", headers=headers, json=body).status_code == 401
+    result = recovery.post(
+        "/api/v1/auth/verify-code", headers=headers, json={**body, "code": _code(client.app.state.auth.mailer)}
+    )
+    assert result.status_code == 200
+    assert result.json()["user"]["role"] == "guest"
+    assert browser.get("/api/v1/auth/me").status_code == 401
+    assert (
+        recovery.post(
+            "/api/v1/auth/login", headers=headers, json={"email": user["email"], "password": PASSWORD}
+        ).status_code
+        == 401
+    )
+    assert recovery.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
+    recovery.close()
+    browser.close()
+
+
+def test_existing_bootstrap_admin_cannot_set_password_or_bypass_otp(client):
+    admin = client.get("/api/v1/auth/me").json()["user"]
+    challenge = client.app.state.store.auth_challenges[admin["email"]]
+    challenge["last_sent_at"] = utc_now() - timedelta(minutes=2)
+    browser = TestClient(client.app)
+    body = {"email": admin["email"], "password": PASSWORD}
+    assert browser.post("/api/v1/auth/register", json=body).status_code == 202
+    response = browser.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "admin-password-browser"},
+        json={**body, "code": _code(client.app.state.auth.mailer)},
+    )
+    assert response.status_code == 400
+    assert client.get("/api/v1/auth/me").status_code == 200
+    assert browser.post("/api/v1/auth/login", headers={"X-Device-Id": "browser"}, json=body).status_code == 401
+    verified = browser.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "browser"},
+        json={"email": admin["email"], "code": _code(client.app.state.auth.mailer)},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["user"]["role"] == "admin"
+    browser.close()
+
+
+def test_unverified_guest_does_not_block_member_invitation(client):
+    email = "reserved-by-stranger@ku.th"
+    assert client.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD}).status_code == 202
+    invited = client.post("/api/v1/auth/admin/users", json={"email": email})
+    assert invited.status_code == 201, invited.text
+    assert invited.json()["user"]["role"] == "member"
+
+
+def test_invalid_otp_does_not_hash_password(client, monkeypatch):
+    import chronofish.store.auth as service
+
+    calls = []
+    monkeypatch.setattr(service, "hash_password", lambda value: calls.append(value) or "unused")
+    body = {"email": "wrong-code@ku.th", "password": PASSWORD}
+    assert client.post("/api/v1/auth/register", json=body).status_code == 202
+    code = _code(client.app.state.auth.mailer)
+    wrong = "000000" if code != "000000" else "999999"
+    result = client.post("/api/v1/auth/verify-code", json={**body, "code": wrong}, headers={"X-Device-Id": "browser"})
+    assert result.status_code == 401
+    assert not calls
+
+
+def test_register_responses_do_not_reveal_invitation_or_cooldown(client):
+    browser = TestClient(client.app)
+    results = [
+        browser.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD})
+        for email in ["peerapas.c@ku.th", "new-registration@ku.th", "new-registration@ku.th", "peerapas.c@ku.th"]
+    ]
+    assert {result.status_code for result in results} == {202}
+    assert len({result.text for result in results}) == 1
+    browser.close()
+
+
+def test_promoted_member_cannot_use_guest_password(client):
+    browser, user = _register(client)
+    assert client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
+    assert browser.post("/api/v1/auth/logout").status_code == 204
+    assert (
+        browser.post(
+            "/api/v1/auth/login",
+            headers={"X-Device-Id": "browser"},
+            json={"email": user["email"], "password": PASSWORD},
+        ).status_code
+        == 401
+    )
+    browser.close()
+
+
+def test_locked_and_unknown_password_accounts_return_same_error(client):
+    browser, user = _register(client)
+    bodies = []
+    for _ in range(7):
+        for email in [user["email"], "nonexistent@ku.th"]:
+            result = browser.post(
+                "/api/v1/auth/login",
+                headers={"X-Device-Id": "browser"},
+                json={"email": email, "password": "wrong password"},
+            )
+            assert result.status_code == 401
+            bodies.append(result.text)
+    assert len(set(bodies)) == 1
+    browser.close()
+
+
+def test_password_login_capacity_does_not_block_health_or_email_code(client):
+    from chronofish.services.auth import PASSWORD_LOGINS
+
+    assert PASSWORD_LOGINS.acquire(blocking=False)
+    assert PASSWORD_LOGINS.acquire(blocking=False)
+    try:
+        result = client.post(
+            "/api/v1/auth/login", json={"email": "fake@ku.th", "password": PASSWORD}, headers={"X-Device-Id": "browser"}
+        )
+        assert result.status_code == 503
+        assert client.get("/api/v1/health").status_code == 200
+        assert client.post("/api/v1/auth/request-code", json={"email": "unknown@ku.th"}).status_code == 202
+    finally:
+        PASSWORD_LOGINS.release()
+        PASSWORD_LOGINS.release()

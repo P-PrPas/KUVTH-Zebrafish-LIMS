@@ -1,6 +1,6 @@
 import { request } from "./api/client";
 
-export type AuthRole = "admin" | "member";
+export type AuthRole = "admin" | "member" | "guest";
 export type AuthUser = {
   id: string;
   email: string;

@@ -66,6 +66,8 @@ async function enterValue(input: HTMLInputElement | HTMLSelectElement, value: st
 
 async function click(button: HTMLButtonElement | null) {
   await act(async () => {
+    const details = button?.closest<HTMLDetailsElement>(".member-details");
+    if (details) details.open = true;
     button?.click();
     await Promise.resolve();
   });
@@ -100,7 +102,7 @@ describe("admin member management", () => {
     expect(rendered.element.textContent).toContain(language === "en" ? "Account unlocked" : "ปลดล็อกบัญชีแล้ว");
     request.mockRejectedValueOnce(new Error("Unlock failed"));
     await click(buttonIn(rendered.element, language === "en" ? "Unlock account" : "ปลดล็อกบัญชี"));
-    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toContain("Unlock failed");
+    expect(rendered.element.querySelector(".member-toast--danger strong")?.textContent).toContain("Unlock failed");
     await rendered.unmount();
   });
   beforeEach(() => {
@@ -121,9 +123,11 @@ describe("admin member management", () => {
   it("loads member states, pending-sync warnings, sender settings, and unconfigured SMTP notice", async () => {
     const rendered = await renderPage(<Members language="en" />);
     await settle();
-    expect(rendered.element.textContent).toContain("Invitation pending");
+    expect(rendered.element.querySelector<HTMLDetailsElement>(".member-details")?.open).toBe(false);
+    expect(rendered.element.querySelector(".member-summary")?.textContent).toContain("2 pending offline items");
+    expect(rendered.element.textContent).toContain("Email verification pending");
     expect(rendered.element.textContent).toContain("A recently reported device still has pending work.");
-    expect(card("active@ku.th").textContent).toContain("recent · 2 items");
+    expect(card("active@ku.th").textContent).toContain("device-r · 2 items");
     expect(rendered.element.textContent).toContain("No device has reported a sync status.");
     expect(rendered.element.textContent).toContain("Server SMTP is not configured.");
     expect(rendered.element.querySelector<HTMLInputElement>("#sender-email")?.value).toBe("peerapas.c@ku.th");
@@ -134,6 +138,10 @@ describe("admin member management", () => {
     const rendered = await renderPage(<Members language="en" />);
     await settle();
     const invite = rendered.element.querySelector<HTMLInputElement>("#invite-email")!;
+    const invitationPanel = rendered.element.querySelector<HTMLElement>("#member-invitation")!;
+    expect(invitationPanel.hidden).toBe(true);
+    await click(rendered.element.querySelector<HTMLButtonElement>('[aria-controls="member-invitation"]')!);
+    expect(invitationPanel.hidden).toBe(false);
     await enterValue(invite, " New.Member@KU.TH ");
     await act(async () => {
       rendered.element
@@ -146,6 +154,7 @@ describe("admin member management", () => {
       body: JSON.stringify({ email: "new.member@ku.th" }),
     });
     expect(rendered.element.querySelector<HTMLInputElement>("#invite-email")?.value).toBe("");
+    expect(invitationPanel.hidden).toBe(true);
     expect(rendered.element.textContent).toContain("Invitation email sent.");
 
     await enterValue(rendered.element.querySelector<HTMLInputElement>("#sender-email")!, "lab@ku.th");
@@ -190,7 +199,7 @@ describe("admin member management", () => {
       method: "PATCH",
       body: JSON.stringify({ role: "admin", operatorId: null }),
     });
-    expect(rendered.element.textContent).toContain("Role and operator link saved.");
+    expect(rendered.element.textContent).toContain("Access saved.");
 
     await click(buttonIn(card("invited@ku.th"), "Resend invitation"));
     expect(request).toHaveBeenCalledWith("/auth/admin/users/member-2/invite", { method: "POST", body: "{}" });
@@ -222,7 +231,7 @@ describe("admin member management", () => {
       method: "PATCH",
       body: JSON.stringify({ active: false, acknowledgePendingDataRisk: true }),
     });
-    expect(rendered.element.textContent).toContain("Account disabled and all sessions revoked.");
+    expect(rendered.element.textContent).toContain("Account disabled.");
     await rendered.unmount();
   });
 
@@ -249,7 +258,7 @@ describe("admin member management", () => {
     await settle();
     const active = card("active@ku.th");
     await act(async () => {
-      const details = active.querySelector("details")!;
+      const details = active.querySelector<HTMLDetailsElement>(".member-sessions")!;
       details.open = true;
       details.dispatchEvent(new Event("toggle"));
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -259,6 +268,7 @@ describe("admin member management", () => {
     await click(buttonIn(active, "Revoke session"));
     expect(request).toHaveBeenCalledWith("/auth/admin/users/member-1/sessions/session-1", { method: "DELETE" });
 
+    await click(rendered.element.querySelector<HTMLButtonElement>("#members-tab-inactive")!);
     const inactive = card("disabled@ku.th");
     await click(buttonIn(inactive, "Reactivate"));
     expect(request).toHaveBeenCalledWith("/auth/admin/users/member-3", {
@@ -274,7 +284,7 @@ describe("admin member management", () => {
     await settle();
     const resend = buttonIn(card("invited@ku.th"), "ส่งคำเชิญอีกครั้ง");
     await click(resend);
-    expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe("Mail server unavailable");
+    expect(rendered.element.querySelector(".member-toast--danger strong")?.textContent).toBe("Mail server unavailable");
     expect(rendered.element.textContent).toContain("สมาชิกห้องปฏิบัติการ");
     expect(rendered.element.textContent).toContain("ยังไม่ได้ตั้งค่า SMTP ฝั่งเซิร์ฟเวอร์");
     await rendered.unmount();

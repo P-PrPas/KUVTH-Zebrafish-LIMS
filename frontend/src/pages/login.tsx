@@ -1,6 +1,8 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { deviceId, request } from "../api/client";
 import { type AuthUser, finishPendingLogout, KU_EMAIL_PATTERN, rememberUser, setOfflineQueueIdentity } from "../auth";
+import { notify } from "../notifications";
+import { ResearchArtwork } from "../research-artwork";
 
 type Props = { onLogin: (user: AuthUser) => void };
 
@@ -9,80 +11,163 @@ export function Login({ onLogin }: Props) {
     localStorage.getItem("chronofish.language") === "en" ? "en" : "th",
   );
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [mode, setMode] = useState<"login" | "register" | "reset" | "otp">("otp");
+  const [step, setStep] = useState<"credentials" | "code">("credentials");
   const [cooldown, setCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const th = language === "th";
+  const settingPassword = mode === "register" || mode === "reset";
+  useEffect(() => {
+    if (error) notify(error, "danger");
+  }, [error]);
 
+  useEffect(() => {
+    document.documentElement.lang = language;
+    localStorage.setItem("chronofish.language", language);
+  }, [language]);
   useEffect(() => {
     if (!cooldown) return;
     const timer = window.setTimeout(() => setCooldown((current) => Math.max(0, current - 1)), 1_000);
     return () => window.clearTimeout(timer);
   }, [cooldown]);
 
-  async function sendCode(event?: FormEvent) {
-    event?.preventDefault();
-    setBusy(true);
+  function switchMode(next: typeof mode) {
+    setMode(next);
+    setStep("credentials");
+    setPassword("");
+    setConfirmation("");
+    setCode("");
     setError("");
-    try {
-      await finishPendingLogout();
-      await request("/auth/request-code", {
-        method: "POST",
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      });
-      setStep("code");
-      setCooldown(60);
-    } catch (cause) {
-      const status = (cause as Error & { status?: number }).status;
-      setError(
-        status === 429
-          ? th
-            ? "กรุณารอสักครู่ก่อนขอรหัสใหม่"
-            : "Please wait before requesting another code."
-          : status === 503
-            ? th
-              ? "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"
-              : "Email delivery is not configured yet. Contact an administrator."
-            : (cause as Error).message,
-      );
-    } finally {
-      setBusy(false);
-    }
   }
 
-  async function verifyCode(event: FormEvent) {
+  async function sendCode() {
+    await request(mode === "otp" ? "/auth/request-code" : "/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim().toLowerCase(), ...(mode === "otp" ? {} : { password }) }),
+    });
+    setStep("code");
+    setCooldown(60);
+    notify(th ? "ส่งรหัสยืนยันแล้ว กรุณาตรวจสอบอีเมล" : "Verification code sent. Check your email.");
+  }
+
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    setBusy(true);
     setError("");
+    if (settingPassword && password !== confirmation) {
+      setError(th ? "รหัสผ่านทั้งสองช่องไม่ตรงกัน" : "Passwords do not match.");
+      return;
+    }
+    setBusy(true);
     try {
       await finishPendingLogout();
-      const response = await request("/auth/verify-code", {
+      if ((settingPassword || mode === "otp") && step === "credentials") {
+        await sendCode();
+        return;
+      }
+      const response = await request(step === "code" ? "/auth/verify-code" : "/auth/login", {
         method: "POST",
         headers: { "X-Device-Id": deviceId() },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), code }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          ...(mode === "otp" ? {} : { password }),
+          ...(step === "code" ? { code } : {}),
+        }),
       });
       const result = (await response.json()) as { user: AuthUser };
+      setPassword("");
+      setConfirmation("");
       rememberUser(result.user);
       setOfflineQueueIdentity();
       onLogin(result.user);
+      notify(th ? "เข้าสู่ระบบสำเร็จ" : "Signed in successfully.");
     } catch (cause) {
       const status = (cause as Error & { status?: number }).status;
-      setError(
-        status === 401
-          ? th
-            ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
-            : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
-          : (cause as Error).message,
-      );
+      if (mode === "otp" && step === "code") {
+        setError(
+          status === 401
+            ? th
+              ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
+              : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
+            : (cause as Error).message,
+        );
+      } else if (mode === "otp") {
+        setError(
+          status === 429
+            ? th
+              ? "กรุณารอสักครู่ก่อนขอรหัสใหม่"
+              : "Please wait before requesting another code."
+            : status === 503
+              ? th
+                ? "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"
+                : "Email delivery is not configured yet. Contact an administrator."
+              : (cause as Error).message,
+        );
+      } else {
+        setError((cause as Error).message);
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  async function resend() {
+    setBusy(true);
+    setError("");
+    try {
+      await sendCode();
+    } catch (cause) {
+      const status = (cause as Error & { status?: number }).status;
+      if (mode === "otp" && step === "code") {
+        setError(
+          status === 401
+            ? th
+              ? "รหัสไม่ถูกต้องหรือหมดอายุ หากใส่ผิดครบ 15 ครั้งใน 24 ชั่วโมง ให้ติดต่อผู้ดูแลเพื่อปลดล็อก"
+              : "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account."
+            : (cause as Error).message,
+        );
+      } else if (mode === "otp") {
+        setError(
+          status === 429
+            ? th
+              ? "กรุณารอสักครู่ก่อนขอรหัสใหม่"
+              : "Please wait before requesting another code."
+            : status === 503
+              ? th
+                ? "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"
+                : "Email delivery is not configured yet. Contact an administrator."
+              : (cause as Error).message,
+        );
+      } else {
+        setError((cause as Error).message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const title =
+    mode === "otp"
+      ? th
+        ? "\u0e40\u0e02\u0e49\u0e32\u0e2a\u0e39\u0e48\u0e23\u0e30\u0e1a\u0e1a\u0e14\u0e49\u0e27\u0e22\u0e23\u0e2b\u0e31\u0e2a\u0e2d\u0e35\u0e40\u0e21\u0e25"
+        : "Sign in to your lab"
+      : mode === "register"
+        ? th
+          ? "สมัครบัญชีใหม่"
+          : "Create an account"
+        : mode === "reset"
+          ? th
+            ? "ตั้งหรือรีเซ็ตรหัสผ่าน"
+            : "Set or reset your password"
+          : th
+            ? "เข้าสู่ระบบสำหรับ Guest"
+            : "Guest sign in";
+
   return (
-    <main className="auth-shell">
+    <main className="auth-shell auth-shell--login">
       <div className="auth-topline">
         <span className="auth-brand">
           <img src="/brand/kuvacb-logo.png" alt="KUVACB" /> KUVACB AqLIMS
@@ -91,107 +176,186 @@ export function Login({ onLogin }: Props) {
           {th ? "EN" : "ไทย"}
         </button>
       </div>
-      <section className="auth-card" aria-labelledby="login-title">
-        <p className="eyebrow">Kasetsart University · Animal Cell Bank</p>
-        <h1 id="login-title">{th ? "เข้าสู่ระบบห้องปฏิบัติการ" : "Sign in to your lab"}</h1>
-        <p className="muted">
-          {th
-            ? "ใช้รหัสครั้งเดียวที่ส่งไปยังอีเมลมหาวิทยาลัยที่ได้รับเชิญ"
-            : "Use a one-time code sent to your invited university email."}
-        </p>
-        {step === "email" ? (
-          <form className="auth-form" onSubmit={sendCode}>
-            <label htmlFor="login-email">{th ? "อีเมลมหาวิทยาลัย" : "University email"}</label>
-            <input
-              id="login-email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              pattern={KU_EMAIL_PATTERN}
-              title={th ? "ใช้เฉพาะอีเมลที่ลงท้ายด้วย @ku.th" : "Use an email ending in @ku.th"}
-              placeholder="name@ku.th"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-            <button className="button button--primary auth-submit" type="submit" disabled={busy}>
-              {busy ? (th ? "กำลังส่ง…" : "Sending…") : th ? "ส่งรหัส 6 หลัก" : "Send 6-digit code"}
-            </button>
-          </form>
-        ) : (
-          <form className="auth-form" onSubmit={verifyCode}>
-            <p className="auth-recipient">
-              {th ? "ตรวจสอบอีเมลของ" : "Check the inbox for"} <strong>{email}</strong>
-            </p>
-            <label htmlFor="login-code">{th ? "รหัสยืนยัน 6 หลัก" : "6-digit verification code"}</label>
-            <input
-              id="login-code"
-              name="code"
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              required
-              autoFocus
-              aria-describedby="code-help"
-              placeholder="000000"
-              value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-            />
-            <p className="auth-help" id="code-help">
+      <div className="auth-layout">
+        <aside className="auth-intro" aria-labelledby="auth-intro-title">
+          <div className="auth-intro__copy">
+            <p className="eyebrow">KUVACB / AQUATIC RESEARCH</p>
+            <h2 id="auth-intro-title">{th ? "ระบบงานวิจัยปลาม้าลาย" : "Zebrafish research workspace"}</h2>
+            <p>
               {th
-                ? "รหัสใช้ได้ครั้งเดียวใน 10 นาที ตรวจ Spam หากอีเมลไม่มา ขอซ้ำจะใช้รหัสเดิมจนหมดอายุหรือใส่ผิดครบ 5 ครั้ง"
-                : "The code works once for 10 minutes. Check spam if it is missing. Requesting again keeps the current code until it expires or fails 5 times."}
+                ? "พื้นที่ทำงานสำหรับทีมวิจัยปลาม้าลาย ตั้งแต่การทดลอง การติดตามตัวอ่อน ไปจนถึงการดูแลปลา"
+                : "A shared workspace for zebrafish research, from experiments and embryo observations to daily fish care."}
             </p>
-            <button className="button button--primary auth-submit" type="submit" disabled={busy || code.length !== 6}>
-              {busy ? (th ? "กำลังตรวจสอบ…" : "Verifying…") : th ? "ยืนยันและเข้าสู่ระบบ" : "Verify and sign in"}
-            </button>
-            <div className="auth-actions">
-              <button
-                className="text-button"
-                type="button"
-                onClick={() => {
-                  setStep("email");
-                  setError("");
-                }}
-              >
-                {th ? "เปลี่ยนอีเมล" : "Change email"}
-              </button>
-              <button
-                className="text-button"
-                type="button"
-                disabled={busy || cooldown > 0}
-                onClick={() => void sendCode()}
-              >
-                {cooldown > 0
-                  ? th
-                    ? `ส่งรหัสอีกครั้งใน ${cooldown} วินาที`
-                    : `Resend in ${cooldown}s`
-                  : th
-                    ? "ส่งรหัสอีกครั้ง"
-                    : "Resend code"}
-              </button>
-            </div>
-          </form>
-        )}
-        <p className="auth-help">
-          {th
-            ? "บัญชีที่ถูกล็อกจะขอรหัสไม่ได้ 24 ชั่วโมง ติดต่อผู้ดูแลเพื่อปลดล็อก"
-            : "Locked accounts cannot request codes for 24 hours. Contact an admin to unlock your account."}
-        </p>
-        {error && (
-          <p className="error auth-error" role="alert">
-            {error}
+          </div>
+          <ResearchArtwork thai={th} animated={false} />
+          <p className="auth-intro__caption">Kasetsart University Veterinary Animal Cell Bank</p>
+        </aside>
+        <section className="auth-card" aria-labelledby="login-title">
+          <p className="eyebrow">Kasetsart University · Animal Cell Bank</p>
+          <h1 id="login-title">{title}</h1>
+          <p className="muted">
+            {mode === "otp"
+              ? th
+                ? "Admin และ Member ใช้รหัสยืนยันทางอีเมล @ku.th"
+                : "Admins and Members use a code sent to their @ku.th email."
+              : th
+                ? "รหัสผ่านใช้สำหรับบัญชี Guest เท่านั้น"
+                : "Password sign-in is for Guest accounts only."}
           </p>
-        )}
-        <div className="auth-footnote">
-          <span aria-hidden="true">●</span>
-          {th
-            ? "เข้าใช้ได้เฉพาะสมาชิกที่ผู้ดูแลเชิญด้วยอีเมล @ku.th"
-            : "Only members invited by an administrator can sign in with @ku.th."}
-        </div>
-      </section>
+          <form
+            className="auth-form"
+            onSubmit={submit}
+            onInvalid={() => notify(th ? "กรุณาตรวจสอบข้อมูลในฟอร์ม" : "Check the form fields.", "danger")}
+          >
+            {step === "credentials" ? (
+              <>
+                <label htmlFor="login-email">{th ? "อีเมลมหาวิทยาลัย" : "University email"}</label>
+                <input
+                  id="login-email"
+                  name="email"
+                  type="email"
+                  autoComplete="username"
+                  required
+                  maxLength={254}
+                  pattern={KU_EMAIL_PATTERN}
+                  placeholder="name@ku.th"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+                {mode !== "otp" && (
+                  <>
+                    <label htmlFor="login-password">{th ? "รหัสผ่าน" : "Password"}</label>
+                    <input
+                      id="login-password"
+                      name="password"
+                      type="password"
+                      autoComplete={settingPassword ? "new-password" : "current-password"}
+                      required
+                      minLength={8}
+                      maxLength={128}
+                      aria-describedby="password-help"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                    <p className="auth-help" id="password-help">
+                      {th ? "8 ตัวขึ้นไป" : "At least 8 characters."}
+                    </p>
+                  </>
+                )}
+                {settingPassword && (
+                  <>
+                    <label htmlFor="confirm-password">{th ? "ยืนยันรหัสผ่าน" : "Confirm password"}</label>
+                    <input
+                      id="confirm-password"
+                      name="confirmation"
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      minLength={8}
+                      maxLength={128}
+                      value={confirmation}
+                      onChange={(event) => setConfirmation(event.target.value)}
+                    />
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="auth-recipient">
+                  {th ? "ส่งรหัสยืนยันไปที่" : "Verification code sent to"} <strong>{email}</strong>
+                </p>
+                <label htmlFor="login-code">{th ? "รหัสยืนยัน 6 หลัก" : "6-digit verification code"}</label>
+                <input
+                  id="login-code"
+                  name="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  aria-describedby="code-help"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                />
+                <p className="auth-help" id="code-help">
+                  {th ? "รหัสใช้ได้ครั้งเดียวและหมดอายุใน 10 นาที" : "The code works once and expires after 10 minutes."}
+                </p>
+                <button
+                  className="text-button"
+                  type="button"
+                  disabled={busy || cooldown > 0}
+                  onClick={() => void resend()}
+                >
+                  {cooldown > 0 ? `${th ? "ส่งอีกครั้งใน" : "Resend in"} ${cooldown}s` : th ? "ส่งรหัสอีกครั้ง" : "Resend code"}
+                </button>
+              </>
+            )}
+            <button className="button button--primary auth-submit" type="submit" disabled={busy}>
+              {busy
+                ? th
+                  ? "กำลังดำเนินการ…"
+                  : "Please wait…"
+                : step === "code"
+                  ? th
+                    ? "ยืนยันและเข้าสู่ระบบ"
+                    : "Verify and sign in"
+                  : settingPassword
+                    ? th
+                      ? "ส่งรหัสยืนยันอีเมล"
+                      : "Send verification code"
+                    : th
+                      ? "เข้าสู่ระบบ"
+                      : "Sign in"}
+            </button>
+          </form>
+          {error && (
+            <p className="error auth-error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="auth-actions">
+            {mode === "login" && (
+              <button
+                data-login-mode="otp"
+                className="text-button"
+                type="button"
+                disabled={busy}
+                onClick={() => switchMode("otp")}
+              >
+                {th
+                  ? "\u0e40\u0e02\u0e49\u0e32\u0e2a\u0e39\u0e48\u0e23\u0e30\u0e1a\u0e1a\u0e14\u0e49\u0e27\u0e22\u0e23\u0e2b\u0e31\u0e2a\u0e2d\u0e35\u0e40\u0e21\u0e25"
+                  : "Sign in with an email code"}
+              </button>
+            )}
+            <button
+              data-login-mode={mode === "otp" ? "login" : undefined}
+              className="text-button"
+              type="button"
+              disabled={busy}
+              onClick={() => switchMode(mode === "login" ? "register" : "login")}
+            >
+              {mode === "login"
+                ? th
+                  ? "สมัครบัญชีใหม่"
+                  : "Create an account"
+                : mode === "otp"
+                  ? th
+                    ? "Guest: เข้าสู่ระบบด้วยรหัสผ่าน"
+                    : "Guest sign in with password"
+                  : th
+                    ? "กลับไปเข้าสู่ระบบ"
+                    : "Back to sign in"}
+            </button>
+            {mode === "login" && (
+              <button className="text-button" type="button" disabled={busy} onClick={() => switchMode("reset")}>
+                {th ? "ลืมรหัสผ่าน Guest" : "Forgot Guest password"}
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
       <footer className="auth-footer">Zebrafish research workspace · Kasetsart University</footer>
     </main>
   );

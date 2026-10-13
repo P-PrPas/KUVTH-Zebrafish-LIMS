@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { request } from "../api/client";
+import { formatBangkokDateTime } from "../time";
+import { Toast } from "../toast";
 import type { Language } from "../types";
 
 type InspectFile = { name: string; sheets?: string[]; encoding?: string; delimiter?: string; preview?: string[][] };
@@ -201,6 +203,102 @@ export function Imports({ language }: { language: Language }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [importStep, setImportStep] = useState(2);
+  const [confirmationMode, setConfirmationMode] = useState("mixed");
+  const [issueFilter, setIssueFilter] = useState("all");
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const usesSites = confirmationMode !== "aggregate";
+  const usesDonors = confirmationMode === "mixed" || confirmationMode === "fish";
+  const usesAggregateWarnings = confirmationMode === "mixed" || confirmationMode === "aggregate";
+  const usesEmbryoWarnings = confirmationMode === "mixed" || confirmationMode === "embryos";
+  const importChecks = mappingRequirements
+    ? [
+        {
+          key: "method",
+          step: 2,
+          ready: Boolean(
+            confirmationMode === "mixed"
+              ? mappingRequirements.canConfirmMixed
+              : confirmationMode === "fish"
+                ? mappingRequirements.canConfirmFishSpecimens
+                : confirmationMode === "embryos"
+                  ? mappingRequirements.canConfirmEmbryos
+                  : confirmationMode === "aggregate" && mappingRequirements.canConfirmAggregate,
+          ),
+          label: th ? "วิธีนำเข้ารองรับข้อมูลในงานนี้" : "Import method supports this job",
+        },
+        {
+          key: "issues",
+          step: 3,
+          ready: mappingRequirements.unresolvedIssueCount === 0,
+          label: th
+            ? `ประเด็นรอตัดสินใจ ${mappingRequirements.unresolvedIssueCount} รายการ`
+            : `${mappingRequirements.unresolvedIssueCount} issues awaiting decisions`,
+        },
+        ...(usesSites && mappingRequirements.sheetNames.length
+          ? [
+              {
+                key: "sites",
+                step: 2,
+                ready: mappingRequirements.sheetNames.every((sheet) => Boolean(siteMappings[sheet])),
+                label: th ? "จับคู่สถานที่ครบทุกชีต" : "All sheet locations mapped",
+              },
+            ]
+          : []),
+        ...(usesDonors && mappingRequirements.donorSources.length
+          ? [
+              {
+                key: "donors",
+                step: 2,
+                ready: mappingRequirements.donorSources.every((source) => Boolean(donorMappings[source])),
+                label: th ? "จับคู่ donor cell ครบ" : "All donor cells mapped",
+              },
+            ]
+          : []),
+        ...(usesDonors && mappingRequirements.ambiguousZeroRecords.length
+          ? [
+              {
+                key: "zero",
+                step: 4,
+                ready: Boolean(zeroBypassReason.trim()),
+                label: th ? "ระบุเหตุผลสำหรับค่า 0 ที่ไม่ชัดเจน" : "Explain ambiguous zero values",
+              },
+            ]
+          : []),
+        ...(usesAggregateWarnings && mappingRequirements.aggregateWarningCount > 0
+          ? [
+              {
+                key: "aggregate",
+                step: 4,
+                ready: Boolean(aggregateWarningReason.trim()),
+                label: th ? "ระบุเหตุผลยอมรับคำเตือนข้อมูลนับจำนวน" : "Explain acceptance of count warnings",
+              },
+            ]
+          : []),
+        ...(usesEmbryoWarnings && mappingRequirements.embryoWarningCount > 0
+          ? [
+              {
+                key: "embryos",
+                step: 4,
+                ready: Boolean(embryoWarningReason.trim()),
+                label: th ? "ระบุเหตุผลยอมรับคำเตือนตัวอ่อนและเวลา" : "Explain acceptance of embryo warnings",
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const importReady = Boolean(mappingRequirements && importChecks.every((check) => check.ready));
+  const workflowRef = useRef<HTMLElement>(null);
+  function changeStep(next: number) {
+    setImportStep(next);
+    window.requestAnimationFrame(() => {
+      workflowRef.current?.scrollIntoView({ block: "start" });
+      workflowRef.current?.querySelector<HTMLButtonElement>('[aria-current="step"]')?.focus({ preventScroll: true });
+    });
+  }
+  const filteredIssues = issues.filter(
+    (issue) => issueFilter === "all" || issue.severity === issueFilter || issue.status === issueFilter,
+  );
 
   async function reloadJobs() {
     const result = await json<{ items: Job[] }>("/imports");
@@ -232,7 +330,8 @@ export function Imports({ language }: { language: Language }) {
     setStructureOffset(offset);
   }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
-    if (detail?.job.id !== id) {
+    const newJob = detail?.job.id !== id;
+    if (newJob) {
       setSiteMappings({});
       setDonorMappings({});
       setZeroBypassReason("");
@@ -261,6 +360,18 @@ export function Imports({ language }: { language: Language }) {
       json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=50`),
     ]);
     setDetail(nextDetail);
+    if (newJob || nextDetail.job.status !== "draft") {
+      setImportStep(nextDetail.job.status === "draft" ? 2 : 5);
+      setConfirmationMode(
+        requirements.canConfirmMixed
+          ? "mixed"
+          : requirements.canConfirmFishSpecimens
+            ? "fish"
+            : requirements.canConfirmEmbryos
+              ? "embryos"
+              : "aggregate",
+      );
+    }
     setRecords(nextRecordPage.items);
     setIssues(nextIssuePage.items);
     setSelectedIssueIds([]);
@@ -293,7 +404,9 @@ export function Imports({ language }: { language: Language }) {
     setInterpretation(null);
   }
   useEffect(() => {
-    void reloadJobs().catch((cause: Error) => setError(cause.message));
+    void reloadJobs()
+      .catch((cause: Error) => setError(cause.message))
+      .finally(() => setJobsLoading(false));
   }, []);
 
   async function applyDeferred(field: DeferredField) {
@@ -645,7 +758,7 @@ export function Imports({ language }: { language: Language }) {
   }
 
   return (
-    <section className="import-page">
+    <section className="work-screen import-page" data-step={importStep}>
       <header className="import-page__header">
         <div>
           <p className="eyebrow">ADMIN · DATA MIGRATION</p>
@@ -657,14 +770,27 @@ export function Imports({ language }: { language: Language }) {
           </p>
         </div>
       </header>
+      <Toast
+        notice={
+          error
+            ? {
+                message: th
+                  ? "ทำรายการไม่สำเร็จ โปรดตรวจรายละเอียดในหน้า"
+                  : "Action failed. Review the details on this page.",
+                tone: "danger",
+              }
+            : notice
+              ? { message: notice, tone: "success" }
+              : null
+        }
+        onDismiss={() => {
+          setError("");
+          setNotice("");
+        }}
+      />
       {error && (
         <p className="import-page__error" role="alert">
           {error}
-        </p>
-      )}
-      {notice && (
-        <p className="import-page__notice" role="status">
-          {notice}
         </p>
       )}
       <nav className="import-page__tabs" aria-label={th ? "ส่วนงานนำเข้า" : "Import sections"}>
@@ -688,7 +814,7 @@ export function Imports({ language }: { language: Language }) {
       </nav>
       {activeTab === "jobs" && (
         <>
-          <div className="import-page__columns">
+          <div className="import-page__columns" hidden={Boolean(detail)}>
             <section className="import-page__panel">
               <h2>{th ? "1. เลือกไฟล์" : "1. Select files"}</h2>
               <p className="muted">
@@ -830,6 +956,17 @@ export function Imports({ language }: { language: Language }) {
             <section className="import-page__panel">
               <h2>{th ? "งานนำเข้า" : "Import jobs"}</h2>
               <div className="import-page__jobs">
+                {jobsLoading ? (
+                  <p role="status">{th ? "กำลังโหลดงานนำเข้า…" : "Loading import jobs…"}</p>
+                ) : (
+                  !jobs.length && (
+                    <p className="muted">
+                      {th
+                        ? "ยังไม่มีงานนำเข้า เริ่มด้วยการเลือกไฟล์ต้นทาง"
+                        : "No import jobs yet. Start by selecting source files."}
+                    </p>
+                  )
+                )}
                 {jobs.map((job) => (
                   <button
                     type="button"
@@ -837,9 +974,22 @@ export function Imports({ language }: { language: Language }) {
                     aria-current={detail?.job.id === job.id ? "true" : undefined}
                     onClick={() => void openJob(job.id).catch((cause: Error) => setError(cause.message))}
                   >
-                    <strong>{new Date(job.createdAt).toLocaleString(th ? "th-TH" : "en-US")}</strong>
+                    <strong>{formatBangkokDateTime(job.createdAt)}</strong>
                     <span>
-                      {job.inputKind} · {job.status}
+                      {job.inputKind.toUpperCase()} ·{" "}
+                      {job.status === "draft"
+                        ? th
+                          ? "ฉบับร่าง"
+                          : "Draft"
+                        : job.status === "committed"
+                          ? th
+                            ? "นำเข้าแล้ว"
+                            : "Imported"
+                          : job.status === "reverted"
+                            ? th
+                              ? "ย้อนงานแล้ว"
+                              : "Reverted"
+                            : job.status}
                     </span>
                   </button>
                 ))}
@@ -848,7 +998,27 @@ export function Imports({ language }: { language: Language }) {
           </div>
           {detail && (
             <section className="import-page__panel">
-              <h2>{th ? "2. ตรวจฉบับร่าง" : "2. Review draft"}</h2>
+              <div className="import-job-heading">
+                <div>
+                  <p className="eyebrow">
+                    {detail.job.status === "draft"
+                      ? th
+                        ? "ฉบับร่าง"
+                        : "Draft"
+                      : detail.job.status === "committed"
+                        ? th
+                          ? "นำเข้าแล้ว"
+                          : "Imported"
+                        : th
+                          ? "ย้อนงานแล้ว"
+                          : "Reverted"}
+                  </p>
+                  <h2>{detail.files.map((file) => file.fileName).join(", ") || (th ? "งานนำเข้า" : "Import job")}</h2>
+                </div>
+                <button type="button" onClick={() => setDetail(null)}>
+                  {th ? "กลับรายการงานนำเข้า" : "Back to import jobs"}
+                </button>
+              </div>
               <p>
                 {detail.recordCount} {th ? "รายการ" : "records"} · {detail.issueCount} {th ? "ประเด็น" : "issues"} ·
                 Revision {detail.job.revision}
@@ -858,941 +1028,1119 @@ export function Imports({ language }: { language: Language }) {
                   ? "ไฟล์ต้นฉบับเก็บแยกจากข้อมูลที่แก้ไข ทุกการตัดสินใจมีประวัติ"
                   : "Original files are separate from edits. Every decision is audited."}
               </p>
-              {comparison && (comparison.matchedFiles.length > 0 || comparison.records.length > 0) && (
-                <div className="import-page__warning" role="alert">
-                  <h3>{th ? "ตรวจไฟล์ซ้ำและความต่างก่อนนำเข้า" : "Review duplicate sources and changes"}</h3>
-                  <p>
-                    {th
-                      ? "รหัสปลาหรือตัวอย่างที่มีอยู่จะนำเข้าซ้ำไม่ได้ ถ้าต้องแก้ข้อมูลเก่า ให้ตรวจ dependency และย้อนงานเดิมก่อน แล้วจึงนำเข้าไฟล์ที่แก้แล้ว"
-                      : "Existing fish or specimen codes cannot be imported twice. Review dependencies and revert the previous job before a corrected reimport."}
-                  </p>
-                  {comparison.matchedFiles.map((match, index) => (
-                    <p key={index}>
-                      {th ? "ไฟล์ตรงกันทุกไบต์" : "Exact file match"}: {match.currentFile} · {th ? "งานเดิม" : "prior job"}{" "}
-                      {match.priorJobId} ({match.priorJobStatus}) · SHA-256 {match.sha256.slice(0, 12)}…
+              <nav className="import-stepper" ref={workflowRef} aria-label={th ? "ขั้นตอนงานนำเข้า" : "Import workflow"}>
+                {(th
+                  ? ["เลือกไฟล์", "จับคู่ข้อมูล", "ตรวจประเด็น", "ตรวจสรุป", "ผลนำเข้า"]
+                  : ["Files", "Mapping", "Issues", "Summary", "Results"]
+                ).map((label, index) => (
+                  <button
+                    type="button"
+                    key={label}
+                    aria-current={importStep === index + 1 ? "step" : undefined}
+                    disabled={
+                      (index === 4 && detail.job.status === "draft") ||
+                      (detail.job.status !== "draft" && (index === 1 || index === 3))
+                    }
+                    onClick={() => changeStep(index + 1)}
+                  >
+                    <span>{index + 1}</span>
+                    {label}
+                    {index === 2 && <small>{detail.issueCount}</small>}
+                  </button>
+                ))}
+              </nav>
+              <div hidden={importStep !== 1} className="import-file-review">
+                <h3>{th ? "ไฟล์ต้นทาง" : "Source files"}</h3>
+                <p className="muted">
+                  {th
+                    ? "ฉบับร่างนี้เก็บไฟล์ต้นฉบับไว้แล้ว หากต้องเปลี่ยนไฟล์ ให้สร้างงานใหม่"
+                    : "Original files are retained with this draft. Create another job to replace source files."}
+                </p>
+              </div>
+              <div hidden={importStep !== 3}>
+                {comparison && (comparison.matchedFiles.length > 0 || comparison.records.length > 0) && (
+                  <div className="import-page__warning" role="alert">
+                    <h3>{th ? "ตรวจไฟล์ซ้ำและความต่างก่อนนำเข้า" : "Review duplicate sources and changes"}</h3>
+                    <p>
+                      {th
+                        ? "รหัสปลาหรือตัวอย่างที่มีอยู่จะนำเข้าซ้ำไม่ได้ ถ้าต้องแก้ข้อมูลเก่า ให้ตรวจ dependency และย้อนงานเดิมก่อน แล้วจึงนำเข้าไฟล์ที่แก้แล้ว"
+                        : "Existing fish or specimen codes cannot be imported twice. Review dependencies and revert the previous job before a corrected reimport."}
                     </p>
-                  ))}
-                  {comparison.records.map((match) => (
-                    <details key={match.recordId}>
-                      <summary>
-                        <strong>
-                          {match.sheetName} · {match.sourceLocator}
-                        </strong>{" "}
-                        · {match.recordKind} ·{" "}
-                        {match.activeTargetId
-                          ? th
-                            ? "รหัสนี้มีอยู่แล้ว"
-                            : "active code exists"
-                          : th
-                            ? "ตำแหน่งต้นทางเคยนำเข้า"
-                            : "source position imported before"}
-                        {match.workingChanged !== null
-                          ? ` · ${match.changedFieldCount} ${th ? "ค่าต่างกัน" : "changed fields"}`
-                          : ""}
-                      </summary>
-                      {match.activeTargetId && (
-                        <p>
-                          {th ? "ข้อมูลจริง" : "Active target"}: {match.activeTargetId}
-                        </p>
-                      )}
-                      {match.previousJobId && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void openJob(match.previousJobId!).catch((cause: Error) => setError(cause.message))
-                          }
-                        >
-                          {th ? "เปิดงานนำเข้าเดิม" : "Open prior job"}
-                        </button>
-                      )}
-                      {match.changedFields.length > 0 && (
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{th ? "ฟิลด์" : "Field"}</th>
-                              <th>{th ? "เดิม" : "Before"}</th>
-                              <th>{th ? "ใหม่" : "After"}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {match.changedFields.map((change, index) => (
-                              <tr key={index}>
-                                <td>{change.field}</td>
-                                <td>{change.before ?? "—"}</td>
-                                <td>{change.after ?? "—"}</td>
+                    {comparison.matchedFiles.map((match, index) => (
+                      <p key={index}>
+                        {th ? "ไฟล์ตรงกันทุกไบต์" : "Exact file match"}: {match.currentFile} · {th ? "งานเดิม" : "prior job"}{" "}
+                        {match.priorJobId} ({match.priorJobStatus}) · SHA-256 {match.sha256.slice(0, 12)}…
+                      </p>
+                    ))}
+                    {comparison.records.map((match) => (
+                      <details key={match.recordId}>
+                        <summary>
+                          <strong>
+                            {match.sheetName} · {match.sourceLocator}
+                          </strong>{" "}
+                          · {match.recordKind} ·{" "}
+                          {match.activeTargetId
+                            ? th
+                              ? "รหัสนี้มีอยู่แล้ว"
+                              : "active code exists"
+                            : th
+                              ? "ตำแหน่งต้นทางเคยนำเข้า"
+                              : "source position imported before"}
+                          {match.workingChanged !== null
+                            ? ` · ${match.changedFieldCount} ${th ? "ค่าต่างกัน" : "changed fields"}`
+                            : ""}
+                        </summary>
+                        {match.activeTargetId && (
+                          <p>
+                            {th ? "ข้อมูลจริง" : "Active target"}: {match.activeTargetId}
+                          </p>
+                        )}
+                        {match.previousJobId && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void openJob(match.previousJobId!).catch((cause: Error) => setError(cause.message))
+                            }
+                          >
+                            {th ? "เปิดงานนำเข้าเดิม" : "Open prior job"}
+                          </button>
+                        )}
+                        {match.changedFields.length > 0 && (
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{th ? "ฟิลด์" : "Field"}</th>
+                                <th>{th ? "เดิม" : "Before"}</th>
+                                <th>{th ? "ใหม่" : "After"}</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                      {match.changedFieldCount > match.changedFields.length && (
-                        <p>
-                          {th
-                            ? "แสดงบางส่วน กรุณาเปิดไฟล์ต้นฉบับเพื่อตรวจทั้งหมด"
-                            : "Showing the first changes; inspect the source files for the rest."}
-                        </p>
-                      )}
-                    </details>
-                  ))}
-                </div>
-              )}
-              <div className="import-page__files">
+                            </thead>
+                            <tbody>
+                              {match.changedFields.map((change, index) => (
+                                <tr key={index}>
+                                  <td>{change.field}</td>
+                                  <td>{change.before ?? "—"}</td>
+                                  <td>{change.after ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {match.changedFieldCount > match.changedFields.length && (
+                          <p>
+                            {th
+                              ? "แสดงบางส่วน กรุณาเปิดไฟล์ต้นฉบับเพื่อตรวจทั้งหมด"
+                              : "Showing the first changes; inspect the source files for the rest."}
+                          </p>
+                        )}
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="import-page__files" hidden={importStep !== 1}>
                 {detail.files.map((file) => (
                   <button type="button" key={file.id} onClick={() => void download(file.id, file.fileName)}>
                     {file.fileName} ↓ <small>SHA-256 {file.sha256.slice(0, 12)}…</small>
                   </button>
                 ))}
               </div>
-              {detail.job.status === "draft" && mappingRequirements?.canConfirmMixed && (
-                <div className="import-page__mapping">
-                  <h3>{th ? "ยืนยันชีตที่เลือกในงานเดียว" : "Confirm selected sheets"}</h3>
-                  <p className="muted">
-                    {th
-                      ? "ชีตข้อมูลหลักจะนำเข้าพร้อมกัน หากส่วนใดผิดพลาดจะไม่เขียนข้อมูล ส่วนชีตสรุปจะเก็บไว้ตรวจเทียบด้วยตนเองโดยไม่เขียนลงข้อมูลหลัก"
-                      : "Data sheets commit together. Summary sheets remain review references and do not write canonical data."}
-                  </p>
-                  {mappingRequirements.unresolvedIssueCount > 0 && (
-                    <p className="import-page__warning" role="alert">
-                      {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
-                    </p>
-                  )}
-                  {mappingRequirements.sheetNames.map((sheet) => (
-                    <label key={sheet}>
-                      {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
-                      <select
-                        value={siteMappings[sheet] ?? ""}
-                        onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
-                      >
-                        <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
-                        {siteOptions
-                          .filter((site) => site.timeZone)
-                          .map((site) => (
-                            <option key={site.id} value={site.id}>
-                              {site.code} · {site.timeZone}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  ))}
-                  {mappingRequirements.donorSources.map((source) => (
-                    <label key={source}>
-                      {th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
-                      <select
-                        value={donorMappings[source] ?? ""}
-                        onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}
-                      >
-                        <option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>
-                        {donorOptions.map((donor) => (
-                          <option key={donor.id} value={donor.id}>
-                            {donor.strain} · {donor.preparation}
-                            {donor.batchCode ? ` · ${donor.batchCode}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                  {mappingRequirements.ambiguousZeroRecords.length > 0 && (
-                    <label>
-                      {th
-                        ? `เหตุผลสำหรับค่า 0 ที่ยังไม่ชัดเจน (${mappingRequirements.ambiguousZeroRecords.length} รายการ)`
-                        : `Reason for unresolved zero flags (${mappingRequirements.ambiguousZeroRecords.length})`}
-                      <textarea
-                        rows={2}
-                        value={zeroBypassReason}
-                        onChange={(event) => setZeroBypassReason(event.target.value)}
-                      />
-                    </label>
-                  )}
-                  {mappingRequirements.aggregateWarningCount > 0 && (
-                    <div className="import-page__warning">
-                      <strong>
-                        {mappingRequirements.aggregateWarningCount}{" "}
-                        {th ? "ข้อควรตรวจในข้อมูลนับจำนวน" : "aggregate warnings"}
-                      </strong>
-                      <ul>
-                        {mappingRequirements.aggregateWarningPreview.map((item, index) => (
-                          <li key={index}>{item}</li>
-                        ))}
-                      </ul>
-                      <label>
-                        {th ? "เหตุผลที่ยอมรับ" : "Reason to accept"}
-                        <textarea
-                          rows={2}
-                          value={aggregateWarningReason}
-                          onChange={(event) => setAggregateWarningReason(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  {mappingRequirements.recordKinds.includes("embryo_candidate") && (
-                    <div className={mappingRequirements.embryoWarningCount > 0 ? "import-page__warning" : ""}>
-                      <strong>
-                        {mappingRequirements.embryoWarningCount} {th ? "ข้อควรตรวจในข้อมูลตัวอ่อน" : "embryo warnings"}
-                      </strong>
-                      <ul>
-                        {mappingRequirements.embryoWarningPreview.map((item, index) => (
-                          <li key={index}>{item}</li>
-                        ))}
-                      </ul>
-                      <label>
-                        {th ? "เหตุผลหากยอมรับเวลาหรือค่าที่ไม่ชัดเจน" : "Reason for uncertain embryo values or clocks"}
-                        <textarea
-                          rows={2}
-                          value={embryoWarningReason}
-                          onChange={(event) => setEmbryoWarningReason(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      mappingRequirements.unresolvedIssueCount > 0 ||
-                      mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) ||
-                      mappingRequirements.donorSources.some((source) => !donorMappings[source]) ||
-                      (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim()) ||
-                      (mappingRequirements.aggregateWarningCount > 0 && !aggregateWarningReason.trim()) ||
-                      (mappingRequirements.embryoWarningCount > 0 && !embryoWarningReason.trim())
-                    }
-                    onClick={() => void confirmAll()}
+              <div hidden={importStep !== 2 && importStep !== 4} className="import-confirmation">
+                <label className="import-mode">
+                  {th ? "วิธีนำเข้า" : "Import method"}
+                  <select value={confirmationMode} onChange={(event) => setConfirmationMode(event.target.value)}>
+                    {mappingRequirements?.canConfirmMixed && (
+                      <option value="mixed">{th ? "ทุกชีตพร้อมกัน" : "All selected sheets"}</option>
+                    )}
+                    {mappingRequirements?.canConfirmFishSpecimens && (
+                      <option value="fish">{th ? "ทะเบียนปลาและข้อมูลที่เกี่ยวข้อง" : "Fish and related records"}</option>
+                    )}
+                    {mappingRequirements?.canConfirmEmbryos && (
+                      <option value="embryos">{th ? "ตัวอ่อน V2" : "V2 embryos"}</option>
+                    )}
+                    {mappingRequirements?.canConfirmAggregate && (
+                      <option value="aggregate">{th ? "ข้อมูลนับจำนวนย้อนหลัง" : "Historical counts"}</option>
+                    )}
+                  </select>
+                </label>
+                {importStep === 4 && (
+                  <div
+                    className={`import-review-summary ${importReady ? "import-review-summary--ready" : "import-review-summary--pending"}`}
                   >
-                    {th ? "ยืนยันนำเข้าทุกชีตพร้อมกัน" : "Confirm all selected sheets"}
-                  </button>
-                </div>
-              )}
-              {detail.job.status === "draft" && mappingRequirements?.canConfirmFishSpecimens && (
-                <div className="import-page__mapping">
-                  <h3>{th ? "3. จับคู่ข้อมูลก่อนยืนยัน" : "3. Map before confirmation"}</h3>
-                  <p className="muted">
-                    {th
-                      ? "เลือกสถานที่และ donor cell ที่มีอยู่จริง ระบบจะนำเข้าทั้งงานพร้อมกัน"
-                      : "Choose existing sites and donor cells. The job commits as one transaction."}
-                  </p>
-                  {mappingRequirements.unresolvedIssueCount > 0 && (
-                    <p className="import-page__warning" role="alert">
-                      {th
-                        ? `ยังมีประเด็นที่ต้องแก้หรือข้ามพร้อมเหตุผล ${mappingRequirements.unresolvedIssueCount} รายการ`
-                        : `${mappingRequirements.unresolvedIssueCount} blocking or overridable issues still need decisions.`}
+                    <h3>{th ? "ตรวจสรุปก่อนยืนยัน" : "Review before confirmation"}</h3>
+                    <p className="import-readiness" role="status">
+                      {importReady
+                        ? th
+                          ? "พร้อมยืนยันนำเข้า"
+                          : "Ready to confirm import"
+                        : th
+                          ? "ยังมีรายการที่ต้องดำเนินการ"
+                          : "Action required before importing"}
                     </p>
-                  )}
-                  {mappingRequirements.sheetNames.map((sheet) => (
-                    <label key={sheet}>
-                      {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
-                      <select
-                        value={siteMappings[sheet] ?? ""}
-                        onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
-                      >
-                        <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
-                        {siteOptions
-                          .filter((site) => site.timeZone)
-                          .map((site) => (
-                            <option key={site.id} value={site.id}>
-                              {site.code} · {site.timeZone}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  ))}
-                  {mappingRequirements.donorSources.map((source) => (
-                    <label key={source}>
-                      {th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
-                      <select
-                        value={donorMappings[source] ?? ""}
-                        onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}
-                      >
-                        <option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>
-                        {donorOptions.map((donor) => (
-                          <option key={donor.id} value={donor.id}>
-                            {donor.strain} · {donor.preparation}
-                            {donor.batchCode ? ` · ${donor.batchCode}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ))}
-                  {mappingRequirements.ambiguousZeroRecords.length > 0 && (
-                    <div className="import-page__warning">
-                      <strong>{th ? "ค่า 0 หลังการหยุดติดตามที่ไม่ทราบวันที่" : "Zeros after an undated disposition"}</strong>
-                      <p>{mappingRequirements.ambiguousZeroRecords.join(", ")}</p>
-                      <label>
-                        {th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}
-                        <textarea
-                          value={zeroBypassReason}
-                          onChange={(event) => setZeroBypassReason(event.target.value)}
-                          rows={3}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      mappingRequirements.unresolvedIssueCount > 0 ||
-                      mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) ||
-                      mappingRequirements.donorSources.some((source) => !donorMappings[source]) ||
-                      (mappingRequirements.ambiguousZeroRecords.length > 0 && !zeroBypassReason.trim())
-                    }
-                    onClick={() => void confirmFishSpecimens()}
-                  >
-                    {th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}
-                  </button>
-                </div>
-              )}
-              {detail.job.status === "draft" && mappingRequirements?.canConfirmEmbryos && (
-                <div className="import-page__mapping">
-                  <h3>{th ? "ตรวจตัวอ่อน V2 ก่อนนำเข้า" : "Review V2 embryos"}</h3>
-                  <p className="muted">
-                    {th
-                      ? "เลือกสถานที่พร้อมเขตเวลา เวลาที่ไม่ชัดเจนจะเก็บเป็นวันที่เท่านั้น และไม่ใช้คำนวณตัวชี้วัดเวลา"
-                      : "Choose a site with a time zone. Uncertain clocks become date-only observations and stay out of timing metrics."}
-                  </p>
-                  {mappingRequirements.sheetNames.map((sheet) => (
-                    <label key={sheet}>
-                      {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
-                      <select
-                        value={siteMappings[sheet] ?? ""}
-                        onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
-                      >
-                        <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
-                        {siteOptions
-                          .filter((site) => site.timeZone)
-                          .map((site) => (
-                            <option key={site.id} value={site.id}>
-                              {site.code} · {site.timeZone}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                  ))}
-                  {mappingRequirements.unresolvedIssueCount > 0 && (
-                    <p className="import-page__warning" role="alert">
-                      {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
-                    </p>
-                  )}
-                  {mappingRequirements.embryoWarningCount > 0 && (
-                    <div className="import-page__warning" role="alert">
-                      <strong>
-                        {mappingRequirements.embryoWarningCount}{" "}
-                        {th ? "ข้อควรตรวจเกี่ยวกับตัวอ่อนหรือเวลา" : "embryo or timing warnings"}
-                      </strong>
-                      <ul>
-                        {mappingRequirements.embryoWarningPreview.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                      <label>
-                        {th ? "เหตุผลที่ยอมรับข้อมูลที่ยังไม่ชัดเจน" : "Reason to accept uncertain values"}
-                        <textarea
-                          rows={3}
-                          value={embryoWarningReason}
-                          onChange={(event) => setEmbryoWarningReason(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  {mappingRequirements.embryoWarningCount === 0 && (
-                    <label>
-                      {th
-                        ? "เหตุผลหากพบเวลาไม่ชัดเจนหลังเลือกเขตเวลา"
-                        : "Reason if site time zone reveals an ambiguous clock"}
-                      <input
-                        value={embryoWarningReason}
-                        onChange={(event) => setEmbryoWarningReason(event.target.value)}
-                      />
-                    </label>
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      mappingRequirements.unresolvedIssueCount > 0 ||
-                      mappingRequirements.sheetNames.some((sheet) => !siteMappings[sheet]) ||
-                      (mappingRequirements.embryoWarningCount > 0 && !embryoWarningReason.trim())
-                    }
-                    onClick={() => void confirmEmbryos()}
-                  >
-                    {th ? "ยืนยันนำเข้าตัวอ่อนทั้งงาน" : "Confirm entire embryo job"}
-                  </button>
-                </div>
-              )}
-              {detail.job.status === "draft" && mappingRequirements?.canConfirmAggregate && (
-                <div className="import-page__mapping">
-                  <h3>{th ? "ตรวจข้อมูลนับจำนวนก่อนนำเข้า" : "Review historical counts"}</h3>
-                  <p className="muted">
-                    {th
-                      ? "ข้อมูล V1, MSU และ QC จะถูกเก็บพร้อมตำแหน่งเซลล์ต้นฉบับ โดยไม่สร้างเวลาสังเกตที่ไม่มีในไฟล์"
-                      : "V1, MSU and QC counts keep their source cell locations. Missing observation times are not invented."}
-                  </p>
-                  {mappingRequirements.unresolvedIssueCount > 0 && (
-                    <p className="import-page__warning" role="alert">
-                      {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
-                    </p>
-                  )}
-                  {mappingRequirements.aggregateWarningCount > 0 && (
-                    <div className="import-page__warning" role="alert">
-                      <strong>
-                        {mappingRequirements.aggregateWarningCount}{" "}
-                        {th
-                          ? "ข้อควรตรวจ: ค่า/วันที่บางส่วนอ่านไม่ได้"
-                          : "warnings: some counts or dates could not be interpreted"}
-                      </strong>
-                      <ul>
-                        {mappingRequirements.aggregateWarningPreview.map((warning, index) => (
-                          <li key={index}>{warning}</li>
-                        ))}
-                      </ul>
-                      <label>
-                        {th ? "เหตุผลที่ยอมรับความเสี่ยงและนำเข้าเฉพาะค่าที่อ่านได้" : "Reason to import interpretable values"}
-                        <textarea
-                          rows={3}
-                          value={aggregateWarningReason}
-                          onChange={(event) => setAggregateWarningReason(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      busy ||
-                      mappingRequirements.unresolvedIssueCount > 0 ||
-                      (mappingRequirements.aggregateWarningCount > 0 && !aggregateWarningReason.trim())
-                    }
-                    onClick={() => void confirmAggregate()}
-                  >
-                    {th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งงาน" : "Confirm entire count job"}
-                  </button>
-                </div>
-              )}
-              {detail.job.status === "committed" && historicalSummary && (
-                <div className="import-page__mapping">
-                  <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
-                  <p className="muted">
-                    {th
-                      ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing"
-                      : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}
-                  </p>
-                  {historicalStructure && (
-                    <div>
-                      <h4>{th ? "การทดลองและ lot จากต้นฉบับ" : "Source experiments and lots"}</h4>
-                      {historicalStructure.items.map((experiment) => (
-                        <details key={experiment.id} className="import-page__experiment">
-                          <summary>
-                            <strong>{experiment.sourceSheet}</strong> ·{" "}
-                            {experiment.experimentDate ?? (th ? "ไม่ทราบวันที่" : "unknown date")} · {experiment.sourceKind}{" "}
-                            · {experiment.groupSource ?? "—"} · {experiment.lots.length} lot
-                          </summary>
-                          <p>
-                            {th ? "ไข่" : "Egg"}: {experiment.eggCodeSource ?? "—"} · {th ? "ไข่รับ" : "Recipient"}:{" "}
-                            {experiment.recipientSource ?? "—"} · CSOF: {experiment.csofSource ?? "—"}
-                          </p>
-                          {experiment.lots.map((lot) => (
-                            <p key={lot.id}>
-                              {th ? "lot" : "Lot"} {lot.lotNoSource ?? "—"} · {th ? "เซลล์" : "Cell"}{" "}
-                              {lot.donorSource ?? "—"} · {th ? "ฉีด" : "Injection"} {lot.injectionSource ?? "—"} ·{" "}
-                              {th ? "เวลาเริ่ม" : "Activation"} {lot.activationLocalTime ?? "—"}
-                            </p>
-                          ))}
-                        </details>
-                      ))}
-                      <div className="import-page__pager">
-                        <button
-                          disabled={structureOffset === 0}
-                          onClick={() => void loadStructure(detail.job.id, Math.max(0, structureOffset - 50))}
-                        >
-                          ←
-                        </button>
-                        <span>
-                          {structureOffset + 1}–{structureOffset + historicalStructure.items.length} /{" "}
-                          {historicalStructure.total}
-                        </span>
-                        <button
-                          disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total}
-                          onClick={() => void loadStructure(detail.job.id, structureOffset + 50)}
-                        >
-                          →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="import-page__summary">
-                    <div>
-                      <h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th>
-                            <th>N</th>
-                            <th>{th ? "รอด" : "Alive"}</th>
-                            <th>{th ? "ปกติ" : "Normal"}</th>
-                            <th>{th ? "ผิดปกติ" : "Abnormal"}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {historicalSummary.stageCounts
-                            .slice(0, summaryExpanded ? undefined : 30)
-                            .map((row, index) => (
-                              <tr key={index}>
-                                <td>
-                                  {row.stageLabel}
-                                  {row.armType ? ` · ${row.armType}` : ""}
-                                </td>
-                                <td>{row.nTotal ?? "—"}</td>
-                                <td>{row.nAlive ?? "—"}</td>
-                                <td>{row.nNormal ?? "—"}</td>
-                                <td>{row.nAbnormal ?? "—"}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div>
-                      <h4>{th ? "ผลการสังเกต" : "Observed outcomes"}</h4>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{th ? "ชนิด / ระยะ" : "Subject / stage"}</th>
-                            <th>{th ? "ผล" : "Outcome"}</th>
-                            <th>{th ? "ความแม่นของเวลา" : "Time precision"}</th>
-                            <th>{th ? "จำนวน" : "Count"}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {historicalSummary.observations
-                            .slice(0, summaryExpanded ? undefined : 30)
-                            .map((row, index) => (
-                              <tr key={index}>
-                                <td>
-                                  {row.subjectType} · {row.stageLabel ?? "—"}
-                                </td>
-                                <td>{row.outcome ?? "—"}</td>
-                                <td>{row.timePrecision}</td>
-                                <td>{row.count}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  {(historicalSummary.stageCounts.length > 30 || historicalSummary.observations.length > 30) && (
-                    <button type="button" onClick={() => setSummaryExpanded(!summaryExpanded)}>
-                      {summaryExpanded ? (th ? "แสดงน้อยลง" : "Show less") : th ? "แสดงทั้งหมด" : "Show all"}
-                    </button>
-                  )}
-                </div>
-              )}
-              {detail.job.status === "committed" && (
-                <div className="import-page__mapping">
-                  {fishStatuses.length > 0 && (
-                    <>
-                      <h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
-                      <p className="muted">
-                        {th
-                          ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้"
-                          : "Confirm status from evidence. A later edit may prevent whole-job revert."}
-                      </p>
-                    </>
-                  )}
-                  {fishStatuses.map((fish) => {
-                    const edit = fishStatusEdits[fish.id];
-                    return (
-                      edit && (
-                        <div key={fish.id} className="import-page__status-row">
-                          <strong>{fish.fishCode}</strong>
-                          <label>
-                            {th ? "สถานะ" : "Status"}
-                            <select
-                              value={edit.status}
-                              onChange={(event) => {
-                                const status = event.target.value;
-                                setFishStatusEdits({
-                                  ...fishStatusEdits,
-                                  [fish.id]: {
-                                    ...edit,
-                                    status,
-                                    lifeState: status === "ALIVE" ? "ALIVE" : status === "DEAD" ? "DEAD" : "UNKNOWN",
-                                    disposition: status === "FROZEN" || status === "DISCARDED" ? status : "NONE",
-                                    exitDate: status === "ALIVE" || status === "UNKNOWN" ? "" : edit.exitDate,
-                                  },
-                                });
+                    <ul className="import-checklist">
+                      {importChecks.map((check) => (
+                        <li key={check.key} data-ready={check.ready}>
+                          <span aria-hidden="true">{check.ready ? "✓" : "○"}</span>
+                          <span>
+                            {check.label}
+                            <small>
+                              {check.ready ? (th ? "ครบแล้ว" : "Complete") : th ? "ต้องดำเนินการ" : "Action required"}
+                            </small>
+                          </span>
+                          {!check.ready && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                changeStep(check.step);
+                                if (check.step === 4)
+                                  window.requestAnimationFrame(() => {
+                                    const input = document.querySelector<HTMLTextAreaElement>(
+                                      `.import-page__mapping:not([hidden]) [data-import-reason="${check.key}"]`,
+                                    );
+                                    const reasons = input?.closest<HTMLDetailsElement>("details");
+                                    if (reasons) reasons.open = true;
+                                    input?.scrollIntoView({ block: "center" });
+                                    input?.focus({ preventScroll: true });
+                                  });
                               }}
                             >
-                              {["UNKNOWN", "ALIVE", "DEAD", "FROZEN", "DISCARDED"].map((value) => (
-                                <option key={value}>{value}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            {th ? "การมีชีวิต" : "Life state"}
-                            <select
-                              value={edit.lifeState}
-                              onChange={(event) =>
-                                setFishStatusEdits({
-                                  ...fishStatusEdits,
-                                  [fish.id]: { ...edit, lifeState: event.target.value },
-                                })
-                              }
-                            >
-                              {["UNKNOWN", "ALIVE", "DEAD"].map((value) => (
-                                <option key={value}>{value}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            {th ? "การจัดการ" : "Disposition"}
-                            <select
-                              value={edit.disposition}
-                              onChange={(event) =>
-                                setFishStatusEdits({
-                                  ...fishStatusEdits,
-                                  [fish.id]: { ...edit, disposition: event.target.value },
-                                })
-                              }
-                            >
-                              {["NONE", "UNKNOWN", "FROZEN", "DISCARDED", "LOST"].map((value) => (
-                                <option key={value}>{value}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            {th ? "วันที่ออกจากการติดตาม" : "Exit date"}
-                            <input
-                              type="date"
-                              value={edit.exitDate}
-                              onChange={(event) =>
-                                setFishStatusEdits({
-                                  ...fishStatusEdits,
-                                  [fish.id]: { ...edit, exitDate: event.target.value },
-                                })
-                              }
-                            />
-                          </label>
-                          <label>
-                            {th ? "หลักฐานหรือเหตุผล" : "Evidence or reason"}
-                            <input
-                              value={edit.reason}
-                              onChange={(event) =>
-                                setFishStatusEdits({
-                                  ...fishStatusEdits,
-                                  [fish.id]: { ...edit, reason: event.target.value },
-                                })
-                              }
-                            />
-                          </label>
-                          <button
-                            type="button"
-                            disabled={busy || !edit.reason.trim()}
-                            onClick={() => void saveFishStatus(fish)}
-                          >
-                            {th ? "บันทึกสถานะ" : "Save status"}
-                          </button>
-                        </div>
-                      )
-                    );
-                  })}
-                  <div className="import-page__warning">
-                    <h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
+                              {check.step === 2
+                                ? th
+                                  ? "ไปจับคู่"
+                                  : "Map values"
+                                : check.step === 3
+                                  ? th
+                                    ? "ไปตรวจประเด็น"
+                                    : "Review issues"
+                                  : th
+                                    ? "เพิ่มเหตุผล"
+                                    : "Add reason"}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                     <p>
+                      {detail.recordCount}{" "}
                       {th
-                        ? "ระบบจะปฏิเสธถ้ามีข้อมูลใหม่อ้างอิงหรือมีการแก้ไขหลังนำเข้า"
-                        : "Revert is refused if later records depend on this import or imported records changed."}
+                        ? "รายการในฉบับร่าง ไม่ใช่จำนวนที่จะนำเข้าสำเร็จ"
+                        : "draft records; final imported totals are reported after confirmation"}
                     </p>
-                    <label>
-                      {th ? "เหตุผล" : "Reason"}
-                      <textarea
-                        rows={2}
-                        value={revertReason}
-                        onChange={(event) => setRevertReason(event.target.value)}
-                      />
-                    </label>
-                    <button type="button" disabled={busy || !revertReason.trim()} onClick={() => void revertJob()}>
-                      {th ? "ตรวจและย้อนทั้งงาน" : "Check and revert job"}
-                    </button>
-                  </div>
-                </div>
-              )}
-              <h3>{th ? "ประเด็นที่ต้องตรวจ" : "Issues"}</h3>
-              {detail.job.status === "draft" &&
-                issues.some((issue) => issue.status === "open" && issue.severity === "overridable") && (
-                  <div className="import-page__mapping">
-                    <h4>{th ? "ข้ามหลายประเด็นในหน้านี้" : "Bypass several issues on this page"}</h4>
+                    <dl>
+                      {Object.entries(siteMappings).map(([source, id]) => (
+                        <div key={source}>
+                          <dt>{source}</dt>
+                          <dd>{siteOptions.find((site) => site.id === id)?.code ?? id}</dd>
+                        </div>
+                      ))}
+                      {Object.entries(donorMappings).map(([source, id]) => (
+                        <div key={source}>
+                          <dt>Donor · {source}</dt>
+                          <dd>{donorOptions.find((donor) => donor.id === id)?.strain ?? id}</dd>
+                        </div>
+                      ))}
+                    </dl>
                     <p className="muted">
                       {th
-                        ? "เลือกได้เฉพาะประเด็นที่อนุญาตให้ข้าม ระบบจะเก็บเหตุผลเดียวกับทุกประเด็นที่เลือก"
-                        : "Select overridable issues only. The same reason is audited on every selected issue."}
+                        ? "รายการที่ข้ามและเหตุผลจะเก็บในประวัติ ระบบตรวจเงื่อนไขทั้งหมดอีกครั้งก่อนเขียนข้อมูล"
+                        : "Bypassed records and reasons remain audited. All requirements are checked again before writing."}
                     </p>
-                    <label>
-                      {th ? "เหตุผลที่ยอมรับความเสี่ยง" : "Reason to accept the risk"}
-                      <textarea
-                        rows={2}
-                        value={bulkBypassReason}
-                        onChange={(event) => setBulkBypassReason(event.target.value)}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={busy || !selectedIssueIds.length || !bulkBypassReason.trim()}
-                      onClick={() => void bulkBypass()}
+                  </div>
+                )}
+                {detail.job.status === "draft" && mappingRequirements?.canConfirmMixed && (
+                  <div className="import-page__mapping" hidden={confirmationMode !== "mixed"}>
+                    <h3>{th ? "ยืนยันชีตที่เลือกในงานเดียว" : "Confirm selected sheets"}</h3>
+                    <p className="muted">
+                      {th
+                        ? "ชีตข้อมูลหลักจะนำเข้าพร้อมกัน หากส่วนใดผิดพลาดจะไม่เขียนข้อมูล ส่วนชีตสรุปจะเก็บไว้ตรวจเทียบด้วยตนเองโดยไม่เขียนลงข้อมูลหลัก"
+                        : "Data sheets commit together. Summary sheets remain review references and do not write canonical data."}
+                    </p>
+                    {mappingRequirements.unresolvedIssueCount > 0 && (
+                      <p className="import-page__warning" role="alert">
+                        {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
+                      </p>
+                    )}
+                    {mappingRequirements.sheetNames.map((sheet) => (
+                      <label key={sheet}>
+                        {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+                        <select
+                          value={siteMappings[sheet] ?? ""}
+                          onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
+                        >
+                          <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
+                          {siteOptions
+                            .filter((site) => site.timeZone)
+                            .map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.code} · {site.timeZone}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    ))}
+                    {mappingRequirements.donorSources.map((source) => (
+                      <label key={source}>
+                        {th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
+                        <select
+                          value={donorMappings[source] ?? ""}
+                          onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}
+                        >
+                          <option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>
+                          {donorOptions.map((donor) => (
+                            <option key={donor.id} value={donor.id}>
+                              {donor.strain} · {donor.preparation}
+                              {donor.batchCode ? ` · ${donor.batchCode}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    <details
+                      className="import-mapping-warnings"
+                      hidden={
+                        mappingRequirements.ambiguousZeroRecords.length +
+                          mappingRequirements.aggregateWarningCount +
+                          mappingRequirements.embryoWarningCount ===
+                        0
+                      }
                     >
-                      {th ? `ข้าม ${selectedIssueIds.length} ประเด็น` : `Bypass ${selectedIssueIds.length} selected`}
+                      <summary>
+                        {mappingRequirements.ambiguousZeroRecords.length +
+                          mappingRequirements.aggregateWarningCount +
+                          mappingRequirements.embryoWarningCount}{" "}
+                        {th ? "ข้อควรตรวจและเหตุผลประกอบ" : "warnings and acceptance reasons"}
+                      </summary>
+                      {mappingRequirements.ambiguousZeroRecords.length > 0 && (
+                        <label>
+                          {th
+                            ? `เหตุผลสำหรับค่า 0 ที่ยังไม่ชัดเจน (${mappingRequirements.ambiguousZeroRecords.length} รายการ)`
+                            : `Reason for unresolved zero flags (${mappingRequirements.ambiguousZeroRecords.length})`}
+                          <textarea
+                            rows={2}
+                            data-import-reason="zero"
+                            value={zeroBypassReason}
+                            onChange={(event) => setZeroBypassReason(event.target.value)}
+                          />
+                        </label>
+                      )}
+                      {mappingRequirements.aggregateWarningCount > 0 && (
+                        <div className="import-page__warning">
+                          <strong>
+                            {mappingRequirements.aggregateWarningCount}{" "}
+                            {th ? "ข้อควรตรวจในข้อมูลนับจำนวน" : "aggregate warnings"}
+                          </strong>
+                          <ul>
+                            {mappingRequirements.aggregateWarningPreview.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                          </ul>
+                          <label>
+                            {th ? "เหตุผลที่ยอมรับ" : "Reason to accept"}
+                            <textarea
+                              rows={2}
+                              data-import-reason="aggregate"
+                              value={aggregateWarningReason}
+                              onChange={(event) => setAggregateWarningReason(event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      )}
+                      {mappingRequirements.recordKinds.includes("embryo_candidate") && (
+                        <div className={mappingRequirements.embryoWarningCount > 0 ? "import-page__warning" : ""}>
+                          <strong>
+                            {mappingRequirements.embryoWarningCount} {th ? "ข้อควรตรวจในข้อมูลตัวอ่อน" : "embryo warnings"}
+                          </strong>
+                          <ul>
+                            {mappingRequirements.embryoWarningPreview.map((item, index) => (
+                              <li key={index}>{item}</li>
+                            ))}
+                          </ul>
+                          <label>
+                            {th ? "เหตุผลหากยอมรับเวลาหรือค่าที่ไม่ชัดเจน" : "Reason for uncertain embryo values or clocks"}
+                            <textarea
+                              rows={2}
+                              data-import-reason="embryos"
+                              value={embryoWarningReason}
+                              onChange={(event) => setEmbryoWarningReason(event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </details>
+                    <button
+                      hidden={importStep !== 4}
+                      type="button"
+                      disabled={busy || !importReady || confirmationMode !== "mixed"}
+                      onClick={() => void confirmAll()}
+                    >
+                      {th ? "ยืนยันนำเข้าทุกชีตพร้อมกัน" : "Confirm all selected sheets"}
                     </button>
                   </div>
                 )}
-              {issues.length ? (
-                issues.map((issue) => (
-                  <article key={issue.id} className="import-page__item">
-                    <div>
-                      <strong>
-                        {issue.sheetName}
-                        {issue.rowNo ? ` · ${issue.sourceColumn ?? ""}${issue.rowNo}` : ""}
-                      </strong>{" "}
-                      <span className={`import-page__badge import-page__badge--${issue.severity}`}>
-                        {issue.severity}
-                      </span>{" "}
-                      <span>{issue.status}</span>
-                    </div>
-                    {issue.status === "open" && issue.severity === "overridable" && (
-                      <label className="import-page__choice">
-                        <input
-                          type="checkbox"
-                          checked={selectedIssueIds.includes(issue.id)}
-                          onChange={(event) =>
-                            setSelectedIssueIds(
-                              event.target.checked
-                                ? [...selectedIssueIds, issue.id]
-                                : selectedIssueIds.filter((id) => id !== issue.id),
-                            )
-                          }
-                        />
-                        {th ? "เลือกข้ามเป็นชุด" : "Select for bulk bypass"}
-                      </label>
+                {detail.job.status === "draft" && mappingRequirements?.canConfirmFishSpecimens && (
+                  <div className="import-page__mapping" hidden={confirmationMode !== "fish"}>
+                    <h3>{th ? "3. จับคู่ข้อมูลก่อนยืนยัน" : "3. Map before confirmation"}</h3>
+                    <p className="muted">
+                      {th
+                        ? "เลือกสถานที่และ donor cell ที่มีอยู่จริง ระบบจะนำเข้าทั้งงานพร้อมกัน"
+                        : "Choose existing sites and donor cells. The job commits as one transaction."}
+                    </p>
+                    {mappingRequirements.unresolvedIssueCount > 0 && (
+                      <p className="import-page__warning" role="alert">
+                        {th
+                          ? `ยังมีประเด็นที่ต้องแก้หรือข้ามพร้อมเหตุผล ${mappingRequirements.unresolvedIssueCount} รายการ`
+                          : `${mappingRequirements.unresolvedIssueCount} blocking or overridable issues still need decisions.`}
+                      </p>
                     )}
-                    <p>{issue.message}</p>
-                    {issue.sourceValue && <code>{issue.sourceValue}</code>}
-                    {issue.status === "open" && (
-                      <div className="import-page__actions">
+                    {mappingRequirements.sheetNames.map((sheet) => (
+                      <label key={sheet}>
+                        {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+                        <select
+                          value={siteMappings[sheet] ?? ""}
+                          onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
+                        >
+                          <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
+                          {siteOptions
+                            .filter((site) => site.timeZone)
+                            .map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.code} · {site.timeZone}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    ))}
+                    {mappingRequirements.donorSources.map((source) => (
+                      <label key={source}>
+                        {th ? `Donor จากไฟล์: ${source || "(ไม่ระบุ)"}` : `Donor source: ${source || "(blank)"}`}
+                        <select
+                          value={donorMappings[source] ?? ""}
+                          onChange={(event) => setDonorMappings({ ...donorMappings, [source]: event.target.value })}
+                        >
+                          <option value="">{th ? "เลือก donor cell" : "Select donor cell"}</option>
+                          {donorOptions.map((donor) => (
+                            <option key={donor.id} value={donor.id}>
+                              {donor.strain} · {donor.preparation}
+                              {donor.batchCode ? ` · ${donor.batchCode}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                    {mappingRequirements.ambiguousZeroRecords.length > 0 && (
+                      <div className="import-page__warning">
+                        <strong>{th ? "ค่า 0 หลังการหยุดติดตามที่ไม่ทราบวันที่" : "Zeros after an undated disposition"}</strong>
+                        <p>{mappingRequirements.ambiguousZeroRecords.join(", ")}</p>
                         <label>
-                          {th ? "เหตุผล" : "Reason"}
-                          <input
-                            value={decisionReason[issue.id] ?? ""}
-                            onChange={(event) =>
-                              setDecisionReason({ ...decisionReason, [issue.id]: event.target.value })
-                            }
+                          {th ? "เหตุผลที่ยอมรับความไม่ชัดเจน" : "Reason to keep these outcomes unresolved"}
+                          <textarea
+                            data-import-reason="zero"
+                            value={zeroBypassReason}
+                            onChange={(event) => setZeroBypassReason(event.target.value)}
+                            rows={3}
                           />
                         </label>
-                        {issue.recordId && issue.sourceColumn ? (
-                          <>
+                      </div>
+                    )}
+                    <button
+                      hidden={importStep !== 4}
+                      type="button"
+                      disabled={busy || !importReady || confirmationMode !== "fish"}
+                      onClick={() => void confirmFishSpecimens()}
+                    >
+                      {th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}
+                    </button>
+                  </div>
+                )}
+                {detail.job.status === "draft" && mappingRequirements?.canConfirmEmbryos && (
+                  <div className="import-page__mapping" hidden={confirmationMode !== "embryos"}>
+                    <h3>{th ? "ตรวจตัวอ่อน V2 ก่อนนำเข้า" : "Review V2 embryos"}</h3>
+                    <p className="muted">
+                      {th
+                        ? "เลือกสถานที่พร้อมเขตเวลา เวลาที่ไม่ชัดเจนจะเก็บเป็นวันที่เท่านั้น และไม่ใช้คำนวณตัวชี้วัดเวลา"
+                        : "Choose a site with a time zone. Uncertain clocks become date-only observations and stay out of timing metrics."}
+                    </p>
+                    {mappingRequirements.sheetNames.map((sheet) => (
+                      <label key={sheet}>
+                        {th ? `สถานที่ของ ${sheet}` : `Site for ${sheet}`}
+                        <select
+                          value={siteMappings[sheet] ?? ""}
+                          onChange={(event) => setSiteMappings({ ...siteMappings, [sheet]: event.target.value })}
+                        >
+                          <option value="">{th ? "เลือกสถานที่" : "Select site"}</option>
+                          {siteOptions
+                            .filter((site) => site.timeZone)
+                            .map((site) => (
+                              <option key={site.id} value={site.id}>
+                                {site.code} · {site.timeZone}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    ))}
+                    {mappingRequirements.unresolvedIssueCount > 0 && (
+                      <p className="import-page__warning" role="alert">
+                        {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
+                      </p>
+                    )}
+                    {mappingRequirements.embryoWarningCount > 0 && (
+                      <div className="import-page__warning" role="alert">
+                        <strong>
+                          {mappingRequirements.embryoWarningCount}{" "}
+                          {th ? "ข้อควรตรวจเกี่ยวกับตัวอ่อนหรือเวลา" : "embryo or timing warnings"}
+                        </strong>
+                        <ul>
+                          {mappingRequirements.embryoWarningPreview.map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                          ))}
+                        </ul>
+                        <label>
+                          {th ? "เหตุผลที่ยอมรับข้อมูลที่ยังไม่ชัดเจน" : "Reason to accept uncertain values"}
+                          <textarea
+                            rows={3}
+                            data-import-reason="embryos"
+                            value={embryoWarningReason}
+                            onChange={(event) => setEmbryoWarningReason(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                    {mappingRequirements.embryoWarningCount === 0 && (
+                      <label>
+                        {th
+                          ? "เหตุผลหากพบเวลาไม่ชัดเจนหลังเลือกเขตเวลา"
+                          : "Reason if site time zone reveals an ambiguous clock"}
+                        <input
+                          data-import-reason="embryos"
+                          value={embryoWarningReason}
+                          onChange={(event) => setEmbryoWarningReason(event.target.value)}
+                        />
+                      </label>
+                    )}
+                    <button
+                      hidden={importStep !== 4}
+                      type="button"
+                      disabled={busy || !importReady || confirmationMode !== "embryos"}
+                      onClick={() => void confirmEmbryos()}
+                    >
+                      {th ? "ยืนยันนำเข้าตัวอ่อนทั้งงาน" : "Confirm entire embryo job"}
+                    </button>
+                  </div>
+                )}
+                {detail.job.status === "draft" && mappingRequirements?.canConfirmAggregate && (
+                  <div className="import-page__mapping" hidden={confirmationMode !== "aggregate"}>
+                    <h3>{th ? "ตรวจข้อมูลนับจำนวนก่อนนำเข้า" : "Review historical counts"}</h3>
+                    <p className="muted">
+                      {th
+                        ? "ข้อมูล V1, MSU และ QC จะถูกเก็บพร้อมตำแหน่งเซลล์ต้นฉบับ โดยไม่สร้างเวลาสังเกตที่ไม่มีในไฟล์"
+                        : "V1, MSU and QC counts keep their source cell locations. Missing observation times are not invented."}
+                    </p>
+                    {mappingRequirements.unresolvedIssueCount > 0 && (
+                      <p className="import-page__warning" role="alert">
+                        {mappingRequirements.unresolvedIssueCount} {th ? "ประเด็นที่ต้องแก้หรือข้าม" : "issues need decisions"}
+                      </p>
+                    )}
+                    {mappingRequirements.aggregateWarningCount > 0 && (
+                      <div className="import-page__warning" role="alert">
+                        <strong>
+                          {mappingRequirements.aggregateWarningCount}{" "}
+                          {th
+                            ? "ข้อควรตรวจ: ค่า/วันที่บางส่วนอ่านไม่ได้"
+                            : "warnings: some counts or dates could not be interpreted"}
+                        </strong>
+                        <ul>
+                          {mappingRequirements.aggregateWarningPreview.map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                          ))}
+                        </ul>
+                        <label>
+                          {th ? "เหตุผลที่ยอมรับความเสี่ยงและนำเข้าเฉพาะค่าที่อ่านได้" : "Reason to import interpretable values"}
+                          <textarea
+                            rows={3}
+                            data-import-reason="aggregate"
+                            value={aggregateWarningReason}
+                            onChange={(event) => setAggregateWarningReason(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                    <button
+                      hidden={importStep !== 4}
+                      type="button"
+                      disabled={busy || !importReady || confirmationMode !== "aggregate"}
+                      onClick={() => void confirmAggregate()}
+                    >
+                      {th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งงาน" : "Confirm entire count job"}
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div hidden={importStep !== 5}>
+                {detail.job.status === "reverted" && (
+                  <p className="import-page__notice" role="status">
+                    {th
+                      ? "ย้อนงานนี้แล้ว ไฟล์ต้นฉบับและประวัติยังอยู่ครบ"
+                      : "This job was reverted. Source files and history remain available."}
+                  </p>
+                )}
+                {detail.job.status === "committed" && historicalSummary && (
+                  <div className="import-page__mapping">
+                    <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
+                    <p className="muted">
+                      {th
+                        ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing"
+                        : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}
+                    </p>
+                    {historicalStructure && (
+                      <div>
+                        <h4>{th ? "การทดลองและ lot จากต้นฉบับ" : "Source experiments and lots"}</h4>
+                        {historicalStructure.items.map((experiment) => (
+                          <details key={experiment.id} className="import-page__experiment">
+                            <summary>
+                              <strong>{experiment.sourceSheet}</strong> ·{" "}
+                              {experiment.experimentDate ?? (th ? "ไม่ทราบวันที่" : "unknown date")} ·{" "}
+                              {experiment.sourceKind} · {experiment.groupSource ?? "—"} · {experiment.lots.length} lot
+                            </summary>
+                            <p>
+                              {th ? "ไข่" : "Egg"}: {experiment.eggCodeSource ?? "—"} · {th ? "ไข่รับ" : "Recipient"}:{" "}
+                              {experiment.recipientSource ?? "—"} · CSOF: {experiment.csofSource ?? "—"}
+                            </p>
+                            {experiment.lots.map((lot) => (
+                              <p key={lot.id}>
+                                {th ? "lot" : "Lot"} {lot.lotNoSource ?? "—"} · {th ? "เซลล์" : "Cell"}{" "}
+                                {lot.donorSource ?? "—"} · {th ? "ฉีด" : "Injection"} {lot.injectionSource ?? "—"} ·{" "}
+                                {th ? "เวลาเริ่ม" : "Activation"} {lot.activationLocalTime ?? "—"}
+                              </p>
+                            ))}
+                          </details>
+                        ))}
+                        <div className="import-page__pager">
+                          <button
+                            disabled={structureOffset === 0}
+                            onClick={() => void loadStructure(detail.job.id, Math.max(0, structureOffset - 50))}
+                          >
+                            ←
+                          </button>
+                          <span>
+                            {structureOffset + 1}–{structureOffset + historicalStructure.items.length} /{" "}
+                            {historicalStructure.total}
+                          </span>
+                          <button
+                            disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total}
+                            onClick={() => void loadStructure(detail.job.id, structureOffset + 50)}
+                          >
+                            →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="import-page__summary">
+                      <div>
+                        <h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th>
+                              <th>N</th>
+                              <th>{th ? "รอด" : "Alive"}</th>
+                              <th>{th ? "ปกติ" : "Normal"}</th>
+                              <th>{th ? "ผิดปกติ" : "Abnormal"}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {historicalSummary.stageCounts
+                              .slice(0, summaryExpanded ? undefined : 30)
+                              .map((row, index) => (
+                                <tr key={index}>
+                                  <td>
+                                    {row.stageLabel}
+                                    {row.armType ? ` · ${row.armType}` : ""}
+                                  </td>
+                                  <td>{row.nTotal ?? "—"}</td>
+                                  <td>{row.nAlive ?? "—"}</td>
+                                  <td>{row.nNormal ?? "—"}</td>
+                                  <td>{row.nAbnormal ?? "—"}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div>
+                        <h4>{th ? "ผลการสังเกต" : "Observed outcomes"}</h4>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>{th ? "ชนิด / ระยะ" : "Subject / stage"}</th>
+                              <th>{th ? "ผล" : "Outcome"}</th>
+                              <th>{th ? "ความแม่นของเวลา" : "Time precision"}</th>
+                              <th>{th ? "จำนวน" : "Count"}</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {historicalSummary.observations
+                              .slice(0, summaryExpanded ? undefined : 30)
+                              .map((row, index) => (
+                                <tr key={index}>
+                                  <td>
+                                    {row.subjectType} · {row.stageLabel ?? "—"}
+                                  </td>
+                                  <td>{row.outcome ?? "—"}</td>
+                                  <td>{row.timePrecision}</td>
+                                  <td>{row.count}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    {(historicalSummary.stageCounts.length > 30 || historicalSummary.observations.length > 30) && (
+                      <button type="button" onClick={() => setSummaryExpanded(!summaryExpanded)}>
+                        {summaryExpanded ? (th ? "แสดงน้อยลง" : "Show less") : th ? "แสดงทั้งหมด" : "Show all"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {detail.job.status === "committed" && (
+                  <div className="import-page__mapping">
+                    {fishStatuses.length > 0 && (
+                      <>
+                        <h3>{th ? "ตรวจสถานะปลาหลังนำเข้า" : "Review imported fish status"}</h3>
+                        <p className="muted">
+                          {th
+                            ? "สถานะไม่ทราบต้องมีหลักฐานก่อนยืนยัน การแก้ไขจะถูกบันทึกและอาจทำให้ย้อนงานนำเข้าไม่ได้"
+                            : "Confirm status from evidence. A later edit may prevent whole-job revert."}
+                        </p>
+                      </>
+                    )}
+                    {fishStatuses.map((fish) => {
+                      const edit = fishStatusEdits[fish.id];
+                      return (
+                        edit && (
+                          <div key={fish.id} className="import-page__status-row">
+                            <strong>{fish.fishCode}</strong>
                             <label>
-                              {th
-                                ? `ค่าใหม่ของ ${issue.sourceColumn}${issue.rowNo ?? ""}`
-                                : `New value for ${issue.sourceColumn}${issue.rowNo ?? ""}`}
-                              <input
-                                value={correctedValues[issue.id] ?? ""}
+                              {th ? "สถานะ" : "Status"}
+                              <select
+                                value={edit.status}
+                                onChange={(event) => {
+                                  const status = event.target.value;
+                                  setFishStatusEdits({
+                                    ...fishStatusEdits,
+                                    [fish.id]: {
+                                      ...edit,
+                                      status,
+                                      lifeState: status === "ALIVE" ? "ALIVE" : status === "DEAD" ? "DEAD" : "UNKNOWN",
+                                      disposition: status === "FROZEN" || status === "DISCARDED" ? status : "NONE",
+                                      exitDate: status === "ALIVE" || status === "UNKNOWN" ? "" : edit.exitDate,
+                                    },
+                                  });
+                                }}
+                              >
+                                {["UNKNOWN", "ALIVE", "DEAD", "FROZEN", "DISCARDED"].map((value) => (
+                                  <option key={value}>{value}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              {th ? "การมีชีวิต" : "Life state"}
+                              <select
+                                value={edit.lifeState}
                                 onChange={(event) =>
-                                  setCorrectedValues({ ...correctedValues, [issue.id]: event.target.value })
+                                  setFishStatusEdits({
+                                    ...fishStatusEdits,
+                                    [fish.id]: { ...edit, lifeState: event.target.value },
+                                  })
+                                }
+                              >
+                                {["UNKNOWN", "ALIVE", "DEAD"].map((value) => (
+                                  <option key={value}>{value}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              {th ? "การจัดการ" : "Disposition"}
+                              <select
+                                value={edit.disposition}
+                                onChange={(event) =>
+                                  setFishStatusEdits({
+                                    ...fishStatusEdits,
+                                    [fish.id]: { ...edit, disposition: event.target.value },
+                                  })
+                                }
+                              >
+                                {["NONE", "UNKNOWN", "FROZEN", "DISCARDED", "LOST"].map((value) => (
+                                  <option key={value}>{value}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              {th ? "วันที่ออกจากการติดตาม" : "Exit date"}
+                              <input
+                                type="date"
+                                value={edit.exitDate}
+                                onChange={(event) =>
+                                  setFishStatusEdits({
+                                    ...fishStatusEdits,
+                                    [fish.id]: { ...edit, exitDate: event.target.value },
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              {th ? "หลักฐานหรือเหตุผล" : "Evidence or reason"}
+                              <input
+                                value={edit.reason}
+                                onChange={(event) =>
+                                  setFishStatusEdits({
+                                    ...fishStatusEdits,
+                                    [fish.id]: { ...edit, reason: event.target.value },
+                                  })
                                 }
                               />
                             </label>
                             <button
-                              disabled={busy || !decisionReason[issue.id]?.trim() || !correctedValues[issue.id]?.trim()}
-                              onClick={() => void correctCell(issue)}
+                              type="button"
+                              disabled={busy || !edit.reason.trim()}
+                              onClick={() => void saveFishStatus(fish)}
                             >
-                              {th ? "แก้เซลล์และตรวจค่า" : "Apply and validate cell"}
+                              {th ? "บันทึกสถานะ" : "Save status"}
                             </button>
+                          </div>
+                        )
+                      );
+                    })}
+                    <div className="import-page__warning">
+                      <h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
+                      <p>
+                        {th
+                          ? "ระบบจะปฏิเสธถ้ามีข้อมูลใหม่อ้างอิงหรือมีการแก้ไขหลังนำเข้า"
+                          : "Revert is refused if later records depend on this import or imported records changed."}
+                      </p>
+                      <label>
+                        {th ? "เหตุผล" : "Reason"}
+                        <textarea
+                          rows={2}
+                          value={revertReason}
+                          onChange={(event) => setRevertReason(event.target.value)}
+                        />
+                      </label>
+                      <button type="button" disabled={busy || !revertReason.trim()} onClick={() => void revertJob()}>
+                        {th ? "ตรวจและย้อนทั้งงาน" : "Check and revert job"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div hidden={importStep !== 3}>
+                <h3>{th ? "ประเด็นที่ต้องตรวจ" : "Issues"}</h3>
+                <label className="import-issue-filter">
+                  {th ? "กรองประเด็นในหน้านี้" : "Filter issues on this page"}
+                  <select value={issueFilter} onChange={(event) => setIssueFilter(event.target.value)}>
+                    <option value="all">{th ? "ทั้งหมด" : "All"}</option>
+                    <option value="blocking">{th ? "ต้องแก้ไข" : "Blocking"}</option>
+                    <option value="overridable">{th ? "ยอมรับพร้อมเหตุผลได้" : "Overridable"}</option>
+                    <option value="open">{th ? "รอตัดสินใจ" : "Open"}</option>
+                  </select>
+                </label>
+                {detail.job.status === "draft" &&
+                  issues.some((issue) => issue.status === "open" && issue.severity === "overridable") && (
+                    <div className="import-page__mapping">
+                      <h4>{th ? "ข้ามหลายประเด็นในหน้านี้" : "Bypass several issues on this page"}</h4>
+                      <p className="muted">
+                        {th
+                          ? "เลือกได้เฉพาะประเด็นที่อนุญาตให้ข้าม ระบบจะเก็บเหตุผลเดียวกับทุกประเด็นที่เลือก"
+                          : "Select overridable issues only. The same reason is audited on every selected issue."}
+                      </p>
+                      <label>
+                        {th ? "เหตุผลที่ยอมรับความเสี่ยง" : "Reason to accept the risk"}
+                        <textarea
+                          rows={2}
+                          value={bulkBypassReason}
+                          onChange={(event) => setBulkBypassReason(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={busy || !selectedIssueIds.length || !bulkBypassReason.trim()}
+                        onClick={() => void bulkBypass()}
+                      >
+                        {th ? `ข้าม ${selectedIssueIds.length} ประเด็น` : `Bypass ${selectedIssueIds.length} selected`}
+                      </button>
+                    </div>
+                  )}
+                {filteredIssues.length ? (
+                  filteredIssues.map((issue) => (
+                    <article key={issue.id} className="import-page__item">
+                      <div>
+                        <strong>
+                          {issue.sheetName}
+                          {issue.rowNo ? ` · ${issue.sourceColumn ?? ""}${issue.rowNo}` : ""}
+                        </strong>{" "}
+                        <span className={`import-page__badge import-page__badge--${issue.severity}`}>
+                          {issue.severity}
+                        </span>{" "}
+                        <span>{issue.status}</span>
+                      </div>
+                      {issue.status === "open" && issue.severity === "overridable" && (
+                        <label className="import-page__choice">
+                          <input
+                            type="checkbox"
+                            checked={selectedIssueIds.includes(issue.id)}
+                            onChange={(event) =>
+                              setSelectedIssueIds(
+                                event.target.checked
+                                  ? [...selectedIssueIds, issue.id]
+                                  : selectedIssueIds.filter((id) => id !== issue.id),
+                              )
+                            }
+                          />
+                          {th ? "เลือกข้ามเป็นชุด" : "Select for bulk bypass"}
+                        </label>
+                      )}
+                      <p>{issue.message}</p>
+                      {issue.sourceValue && <code>{issue.sourceValue}</code>}
+                      {issue.status === "open" && (
+                        <div className="import-page__actions">
+                          <label>
+                            {th ? "เหตุผล" : "Reason"}
+                            <input
+                              value={decisionReason[issue.id] ?? ""}
+                              onChange={(event) =>
+                                setDecisionReason({ ...decisionReason, [issue.id]: event.target.value })
+                              }
+                            />
+                          </label>
+                          {issue.recordId && issue.sourceColumn ? (
+                            <>
+                              <label>
+                                {th
+                                  ? `ค่าใหม่ของ ${issue.sourceColumn}${issue.rowNo ?? ""}`
+                                  : `New value for ${issue.sourceColumn}${issue.rowNo ?? ""}`}
+                                <input
+                                  value={correctedValues[issue.id] ?? ""}
+                                  onChange={(event) =>
+                                    setCorrectedValues({ ...correctedValues, [issue.id]: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <button
+                                disabled={
+                                  busy || !decisionReason[issue.id]?.trim() || !correctedValues[issue.id]?.trim()
+                                }
+                                onClick={() => void correctCell(issue)}
+                              >
+                                {th ? "แก้เซลล์และตรวจค่า" : "Apply and validate cell"}
+                              </button>
+                              <button
+                                disabled={busy || !decisionReason[issue.id]?.trim()}
+                                onClick={() => void decide(issue, "corrected")}
+                              >
+                                {th ? "ตรวจค่าที่แก้ในแถวแล้ว" : "Validate edited row"}
+                              </button>
+                            </>
+                          ) : (
+                            <p className="muted">
+                              {th
+                                ? "ประเด็นนี้ไม่มีแถวให้แก้บนเว็บ กรุณาอัปโหลดต้นฉบับที่แก้แล้ว"
+                                : "No editable row is linked to this issue; upload a corrected source."}
+                            </p>
+                          )}
+                          {issue.severity === "overridable" && (
                             <button
                               disabled={busy || !decisionReason[issue.id]?.trim()}
-                              onClick={() => void decide(issue, "corrected")}
+                              onClick={() => void decide(issue, "bypassed")}
                             >
-                              {th ? "ตรวจค่าที่แก้ในแถวแล้ว" : "Validate edited row"}
+                              {th ? "ข้ามพร้อมเหตุผล" : "Bypass with reason"}
                             </button>
-                          </>
-                        ) : (
-                          <p className="muted">
-                            {th
-                              ? "ประเด็นนี้ไม่มีแถวให้แก้บนเว็บ กรุณาอัปโหลดต้นฉบับที่แก้แล้ว"
-                              : "No editable row is linked to this issue; upload a corrected source."}
-                          </p>
-                        )}
-                        {issue.severity === "overridable" && (
-                          <button
-                            disabled={busy || !decisionReason[issue.id]?.trim()}
-                            onClick={() => void decide(issue, "bypassed")}
-                          >
-                            {th ? "ข้ามพร้อมเหตุผล" : "Bypass with reason"}
-                          </button>
-                        )}
-                        {issue.severity === "warning" && (
-                          <button
-                            disabled={busy || !decisionReason[issue.id]?.trim()}
-                            onClick={() => void decide(issue, "dismissed")}
-                          >
-                            {th ? "รับทราบ" : "Acknowledge"}
-                          </button>
-                        )}
+                          )}
+                          {issue.severity === "warning" && (
+                            <button
+                              disabled={busy || !decisionReason[issue.id]?.trim()}
+                              onClick={() => void decide(issue, "dismissed")}
+                            >
+                              {th ? "รับทราบ" : "Acknowledge"}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  ))
+                ) : (
+                  <p className="muted">{th ? "ไม่มีประเด็นในหน้านี้" : "No issues on this page."}</p>
+                )}
+                <div className="import-page__pager">
+                  <button
+                    disabled={issueOffset === 0}
+                    onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}
+                  >
+                    ←
+                  </button>
+                  <span>
+                    {issueOffset + 1}–{issueOffset + issues.length}
+                  </span>
+                  <button
+                    disabled={issueOffset + issues.length >= detail.issueCount}
+                    onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}
+                  >
+                    →
+                  </button>
+                </div>
+                <details className="import-source-details">
+                  <summary>
+                    {th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"} · {records.length}
+                  </summary>
+                  {records.map((row) => (
+                    <article key={row.id} className="import-page__item">
+                      <div>
+                        <strong>
+                          {row.sheetName} · {row.sourceLocator}
+                        </strong>{" "}
+                        <span>{row.recordKind}</span>
                       </div>
-                    )}
-                  </article>
-                ))
-              ) : (
-                <p className="muted">{th ? "ไม่มีประเด็นในหน้านี้" : "No issues on this page."}</p>
-              )}
-              <div className="import-page__pager">
-                <button
-                  disabled={issueOffset === 0}
-                  onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}
-                >
-                  ←
-                </button>
-                <span>
-                  {issueOffset + 1}–{issueOffset + issues.length}
-                </span>
-                <button
-                  disabled={issueOffset + issues.length >= detail.issueCount}
-                  onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}
-                >
-                  →
-                </button>
-              </div>
-              <h3>{th ? "ข้อมูลต้นทางและฉบับแก้ไข" : "Source and working values"}</h3>
-              {records.map((row) => (
-                <article key={row.id} className="import-page__item">
-                  <div>
-                    <strong>
-                      {row.sheetName} · {row.sourceLocator}
-                    </strong>{" "}
-                    <span>{row.recordKind}</span>
+                      {row.recordKind === "reconciliation" && (
+                        <p className="muted">
+                          {th
+                            ? "ข้อมูลสรุปสำหรับตรวจเทียบด้วยตนเอง ไม่ใช้สร้างระเบียนหรือคำนวณตัวชี้วัด"
+                            : "Summary reference for manual reconciliation. It does not create records or enter metrics."}
+                        </p>
+                      )}
+                      {row.targetId && (
+                        <p className="muted">
+                          {th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}
+                        </p>
+                      )}
+                      {[
+                        "fish",
+                        "specimen",
+                        "embryo_candidate",
+                        "legacy_lot",
+                        "scnt_aggregate",
+                        "control_aggregate",
+                      ].includes(row.recordKind) && (
+                        <button type="button" onClick={() => void showInterpretation(row.id)}>
+                          {th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}
+                        </button>
+                      )}
+                      {interpretation?.recordId === row.id && (
+                        <div className="import-page__interpretation">
+                          <strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
+                          <pre>
+                            {JSON.stringify(
+                              {
+                                ...interpretation.value,
+                                observations: undefined,
+                                stageObservations: undefined,
+                                dailySurvival: undefined,
+                                counts: undefined,
+                                controlCounts: undefined,
+                              },
+                              null,
+                              2,
+                            )}
+                          </pre>
+                          {Array.isArray(interpretation.value.observations) && (
+                            <p>
+                              {th ? "รายการสังเกต" : "Observations"}: {interpretation.value.observations.length}
+                            </p>
+                          )}
+                          {Array.isArray(interpretation.value.stageObservations) && (
+                            <p>
+                              {th ? "ระยะตัวอ่อนที่บันทึก" : "Recorded embryo stages"}:{" "}
+                              {interpretation.value.stageObservations.length}
+                            </p>
+                          )}
+                          {Array.isArray(interpretation.value.dailySurvival) && (
+                            <p>
+                              {th ? "วันที่ติดตาม" : "Daily tracking entries"}: {interpretation.value.dailySurvival.length}
+                            </p>
+                          )}
+                          {Array.isArray(interpretation.value.counts) && (
+                            <p>
+                              {th ? "รายการนับจำนวน" : "Count values"}: {interpretation.value.counts.length}
+                            </p>
+                          )}
+                          {Array.isArray(interpretation.value.controlCounts) && (
+                            <p>
+                              {th ? "ข้อมูลควบคุม" : "Control counts"}: {interpretation.value.controlCounts.length}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <div className="import-page__comparison">
+                        <div>
+                          <h4>{th ? "ต้นฉบับ" : "Original"}</h4>
+                          <pre>{JSON.stringify(row.source, null, 2)}</pre>
+                        </div>
+                        <div>
+                          <h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>
+                          {editing === row.id ? (
+                            <>
+                              <textarea
+                                rows={9}
+                                value={workingText}
+                                onChange={(event) => setWorkingText(event.target.value)}
+                                aria-label="Working JSON"
+                              />
+                              <label>
+                                {th ? "เหตุผลการแก้" : "Edit reason"}
+                                <input value={reason} onChange={(event) => setReason(event.target.value)} />
+                              </label>
+                              <button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>
+                                {th ? "บันทึก" : "Save"}
+                              </button>
+                              <button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button>
+                            </>
+                          ) : (
+                            <>
+                              <pre>{JSON.stringify(row.working, null, 2)}</pre>
+                              <button
+                                disabled={detail.job.status !== "draft"}
+                                onClick={() => {
+                                  setEditing(row.id);
+                                  setWorkingText(JSON.stringify(row.working, null, 2));
+                                  setReason("");
+                                }}
+                              >
+                                {th ? "แก้ไขข้อมูล" : "Edit values"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                  <div className="import-page__pager">
+                    <button
+                      disabled={recordOffset === 0}
+                      onClick={() => void openJob(detail.job.id, Math.max(0, recordOffset - 50), issueOffset)}
+                    >
+                      ←
+                    </button>
+                    <span>
+                      {recordOffset + 1}–{recordOffset + records.length}
+                    </span>
+                    <button
+                      disabled={recordOffset + records.length >= detail.recordCount}
+                      onClick={() => void openJob(detail.job.id, recordOffset + 50, issueOffset)}
+                    >
+                      →
+                    </button>
                   </div>
-                  {row.recordKind === "reconciliation" && (
-                    <p className="muted">
-                      {th
-                        ? "ข้อมูลสรุปสำหรับตรวจเทียบด้วยตนเอง ไม่ใช้สร้างระเบียนหรือคำนวณตัวชี้วัด"
-                        : "Summary reference for manual reconciliation. It does not create records or enter metrics."}
-                    </p>
-                  )}
-                  {row.targetId && (
-                    <p className="muted">
-                      {th ? "บันทึกเป็น" : "Imported as"} {row.targetTable} · {row.targetId}
-                    </p>
-                  )}
-                  {[
-                    "fish",
-                    "specimen",
-                    "embryo_candidate",
-                    "legacy_lot",
-                    "scnt_aggregate",
-                    "control_aggregate",
-                  ].includes(row.recordKind) && (
-                    <button type="button" onClick={() => void showInterpretation(row.id)}>
-                      {th ? "ดูความหมายที่ระบบอ่านได้" : "View interpretation"}
+                </details>
+              </div>
+              {detail.job.status === "draft" && (
+                <div className="import-workflow-actions">
+                  {importStep > 1 && (
+                    <button type="button" onClick={() => changeStep(importStep - 1)}>
+                      {th ? "ขั้นตอนก่อนหน้า" : "Previous step"}
                     </button>
                   )}
-                  {interpretation?.recordId === row.id && (
-                    <div className="import-page__interpretation">
-                      <strong>{th ? "ผลอ่านข้อมูล" : "Interpreted values"}</strong>
-                      <pre>
-                        {JSON.stringify(
-                          {
-                            ...interpretation.value,
-                            observations: undefined,
-                            stageObservations: undefined,
-                            dailySurvival: undefined,
-                            counts: undefined,
-                            controlCounts: undefined,
-                          },
-                          null,
-                          2,
-                        )}
-                      </pre>
-                      {Array.isArray(interpretation.value.observations) && (
-                        <p>
-                          {th ? "รายการสังเกต" : "Observations"}: {interpretation.value.observations.length}
-                        </p>
-                      )}
-                      {Array.isArray(interpretation.value.stageObservations) && (
-                        <p>
-                          {th ? "ระยะตัวอ่อนที่บันทึก" : "Recorded embryo stages"}:{" "}
-                          {interpretation.value.stageObservations.length}
-                        </p>
-                      )}
-                      {Array.isArray(interpretation.value.dailySurvival) && (
-                        <p>
-                          {th ? "วันที่ติดตาม" : "Daily tracking entries"}: {interpretation.value.dailySurvival.length}
-                        </p>
-                      )}
-                      {Array.isArray(interpretation.value.counts) && (
-                        <p>
-                          {th ? "รายการนับจำนวน" : "Count values"}: {interpretation.value.counts.length}
-                        </p>
-                      )}
-                      {Array.isArray(interpretation.value.controlCounts) && (
-                        <p>
-                          {th ? "ข้อมูลควบคุม" : "Control counts"}: {interpretation.value.controlCounts.length}
-                        </p>
-                      )}
-                    </div>
+                  {importStep < 4 && (
+                    <button type="button" className="button button--primary" onClick={() => changeStep(importStep + 1)}>
+                      {th ? "ขั้นตอนถัดไป" : "Next step"} →
+                    </button>
                   )}
-                  <div className="import-page__comparison">
-                    <div>
-                      <h4>{th ? "ต้นฉบับ" : "Original"}</h4>
-                      <pre>{JSON.stringify(row.source, null, 2)}</pre>
-                    </div>
-                    <div>
-                      <h4>{th ? "ฉบับแก้ไข" : "Working copy"}</h4>
-                      {editing === row.id ? (
-                        <>
-                          <textarea
-                            rows={9}
-                            value={workingText}
-                            onChange={(event) => setWorkingText(event.target.value)}
-                            aria-label="Working JSON"
-                          />
-                          <label>
-                            {th ? "เหตุผลการแก้" : "Edit reason"}
-                            <input value={reason} onChange={(event) => setReason(event.target.value)} />
-                          </label>
-                          <button disabled={busy || !reason.trim()} onClick={() => void saveRecord(row)}>
-                            {th ? "บันทึก" : "Save"}
-                          </button>
-                          <button onClick={() => setEditing(null)}>{th ? "ยกเลิก" : "Cancel"}</button>
-                        </>
-                      ) : (
-                        <>
-                          <pre>{JSON.stringify(row.working, null, 2)}</pre>
-                          <button
-                            disabled={detail.job.status !== "draft"}
-                            onClick={() => {
-                              setEditing(row.id);
-                              setWorkingText(JSON.stringify(row.working, null, 2));
-                              setReason("");
-                            }}
-                          >
-                            {th ? "แก้ไขข้อมูล" : "Edit values"}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </article>
-              ))}
-              <div className="import-page__pager">
-                <button
-                  disabled={recordOffset === 0}
-                  onClick={() => void openJob(detail.job.id, Math.max(0, recordOffset - 50), issueOffset)}
-                >
-                  ←
-                </button>
-                <span>
-                  {recordOffset + 1}–{recordOffset + records.length}
-                </span>
-                <button
-                  disabled={recordOffset + records.length >= detail.recordCount}
-                  onClick={() => void openJob(detail.job.id, recordOffset + 50, issueOffset)}
-                >
-                  →
-                </button>
-              </div>
+                </div>
+              )}
             </section>
           )}
         </>
@@ -1820,49 +2168,54 @@ export function Imports({ language }: { language: Language }) {
                   {field.targetTable ?? "—"} {field.targetId ?? ""}
                 </p>
                 {field.status === "pending" && field.targetFields.length > 0 && edit && (
-                  <div className="import-page__deferred-edit">
-                    <label>
-                      {th ? "ฟิลด์ปลายทาง" : "Target field"}
-                      <select
-                        value={edit.targetField}
-                        onChange={(event) =>
-                          setDeferredEdits({
-                            ...deferredEdits,
-                            [field.id]: { ...edit, targetField: event.target.value },
-                          })
-                        }
+                  <details className="import-deferred-details">
+                    <summary>{th ? "เลือกปลายทางและเติมค่า" : "Map and apply value"}</summary>
+                    <div className="import-page__deferred-edit">
+                      <label>
+                        {th ? "ฟิลด์ปลายทาง" : "Target field"}
+                        <select
+                          value={edit.targetField}
+                          onChange={(event) =>
+                            setDeferredEdits({
+                              ...deferredEdits,
+                              [field.id]: { ...edit, targetField: event.target.value },
+                            })
+                          }
+                        >
+                          {field.targetFields.map((name) => (
+                            <option key={name} value={name}>
+                              {th && (name === "notes" || name === "remarks") ? `หมายเหตุ · ${name}` : name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        {th ? "ค่าที่จะเพิ่ม" : "Value to apply"}
+                        <input
+                          value={edit.value}
+                          onChange={(event) =>
+                            setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, value: event.target.value } })
+                          }
+                        />
+                      </label>
+                      <label>
+                        {th ? "เหตุผล" : "Reason"}
+                        <input
+                          value={edit.reason}
+                          onChange={(event) =>
+                            setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, reason: event.target.value } })
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={busy || !edit.value.trim() || !edit.reason.trim()}
+                        onClick={() => void applyDeferred(field)}
                       >
-                        {field.targetFields.map((name) => (
-                          <option key={name}>{name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      {th ? "ค่าที่จะเพิ่ม" : "Value to apply"}
-                      <input
-                        value={edit.value}
-                        onChange={(event) =>
-                          setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, value: event.target.value } })
-                        }
-                      />
-                    </label>
-                    <label>
-                      {th ? "เหตุผล" : "Reason"}
-                      <input
-                        value={edit.reason}
-                        onChange={(event) =>
-                          setDeferredEdits({ ...deferredEdits, [field.id]: { ...edit, reason: event.target.value } })
-                        }
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={busy || !edit.value.trim() || !edit.reason.trim()}
-                      onClick={() => void applyDeferred(field)}
-                    >
-                      {th ? "เพิ่มลงข้อมูลจริง" : "Apply value"}
-                    </button>
-                  </div>
+                        {th ? "เพิ่มลงข้อมูลจริง" : "Apply value"}
+                      </button>
+                    </div>
+                  </details>
                 )}
               </article>
             );

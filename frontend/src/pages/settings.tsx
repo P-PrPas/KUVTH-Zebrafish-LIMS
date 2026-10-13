@@ -1,6 +1,7 @@
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useState } from "react";
 import { type ApiItem, get, request } from "../api/client";
-import { Empty, ErrorMessage } from "../components";
+import { Empty, ErrorMessage, RecordingOperator } from "../components";
+import { notify } from "../notifications";
 import { putQueue, type QueuedWrite } from "../offline";
 import { formatBangkokDateTime } from "../time";
 import { type AppText, text } from "../types";
@@ -214,6 +215,7 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
       link.download = "timing-profile.csv";
       link.click();
       URL.revokeObjectURL(url);
+      notify(t === text.th ? "เตรียมไฟล์แผนเวลาแล้ว เริ่มดาวน์โหลด" : "Timing profile file ready. Download started.");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -317,7 +319,7 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
     );
   const thai = t === text.th;
   return (
-    <section>
+    <section className="work-screen timing-page">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "มาตรฐานเวลาแบบเก็บเวอร์ชัน" : "VERSIONED TIMING STANDARD"}</p>
@@ -360,7 +362,7 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
           </label>
         </div>
       </div>
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       {message && <p className="notice">{message}</p>}
       {loading && <p className="muted">{thai ? "กำลังโหลดเวลามาตรฐาน…" : "Loading timing profile…"}</p>}
       {profile && (
@@ -371,7 +373,8 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
                 {thai ? "เวอร์ชันที่ใช้อยู่" : "Current version"} {String(profile.version)}
               </strong>
               <small>
-                {String(profile.name)} · {createdAt(profile)} · {thai ? "บันทึกโดย" : "by"}{" "}
+                {String(profile.name ?? (thai ? "เวอร์ชันเวลามาตรฐาน" : "Timing profile"))} · {createdAt(profile)} ·{" "}
+                {thai ? "บันทึกโดย" : "by"}{" "}
                 {operatorNames[String(profile.createdByOperatorId)] ?? (thai ? "ไม่ระบุผู้ปฏิบัติงาน" : "Unknown operator")}
               </small>
             </span>
@@ -386,7 +389,12 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
               <summary>
                 {thai ? `ปรับค่า HPA รายระยะ · ${entries.length} ระยะ` : `Edit HPA by stage · ${entries.length} stages`}
               </summary>
-              <div className="workflow-disclosure__body table-wrap">
+              <div
+                className="workflow-disclosure__body table-wrap"
+                role="region"
+                tabIndex={0}
+                aria-label={thai ? "ปรับค่า HPA รายระยะ" : "Edit HPA by stage"}
+              >
                 <table>
                   <thead>
                     <tr>
@@ -429,6 +437,11 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
                 </table>
               </div>
             </details>
+            <div className="timing-review">
+              <h3>{thai ? "สรุปค่าที่จะเปลี่ยนในเวอร์ชันใหม่" : "Changes in the new version"}</h3>
+              <p>{changedStages({ entries }, profile, thai)}</p>
+            </div>
+            <RecordingOperator />
             <button className="button button--primary" disabled={saving}>
               {saving ? t.saving : t.saveTimingVersion}
             </button>
@@ -472,6 +485,7 @@ export function Timing({ t = text.en }: { t?: AppText } = {}) {
             </table>
           </div>
           <div className="button-row">
+            <RecordingOperator />
             <button
               className="button button--primary"
               disabled={
@@ -599,6 +613,7 @@ export function Promotions({ t = text.en }: { t?: AppText } = {}) {
           <button className="button button--secondary" type="button" onClick={load}>
             {t.refresh}
           </button>
+          <RecordingOperator />
           <button className="button button--primary" disabled={!eligibleSelected.length}>
             {t.confirmSelected} ({eligibleSelected.length})
           </button>
@@ -680,251 +695,5 @@ export function Promotions({ t = text.en }: { t?: AppText } = {}) {
         </div>
       )}
     </form>
-  );
-}
-
-type ControlRow = {
-  armType: "NATURAL_BREEDING" | "IVF";
-  stageCode: string;
-  nNormal: number;
-  nAbnormal: number;
-};
-export function Controls({ t = text.en }: { t?: AppText } = {}) {
-  const thai = t === text.th;
-  const [batchId, setBatchId] = useState("");
-  const [batches, setBatches] = useState<ApiItem[]>([]);
-  const [protocols, setProtocols] = useState<ApiItem[]>([]);
-  const [protocolId, setProtocolId] = useState("");
-  const [stages, setStages] = useState<ApiItem[]>([]);
-  const [rows, setRows] = useState<ControlRow[]>([
-    {
-      armType: "NATURAL_BREEDING",
-      stageCode: "stage_01_1C",
-      nNormal: 0,
-      nAbnormal: 0,
-    },
-  ]);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void get("/batches")
-      .then((data) => {
-        const items = data.items ?? [];
-        setBatches(items);
-        setBatchId((current) => current || String(items[0]?.id ?? ""));
-      })
-      .catch((e: Error) => setError(e.message));
-    void get("/protocols")
-      .then((data) => {
-        const items = data.items ?? [];
-        setProtocols(items);
-        setProtocolId((current) => current || String(items[0]?.id ?? seedProtocolId));
-      })
-      .catch(() => setProtocolId(seedProtocolId));
-  }, []);
-  useEffect(() => {
-    if (!batchId) return;
-    const batch = batches.find((item) => item.id === batchId);
-    if (batch?.protocolId) setProtocolId(String(batch.protocolId));
-    void get(`/batches/${batchId}/control-arm-counts`)
-      .then((data) => {
-        const items = (data.items ?? []) as ControlRow[];
-        setRows(
-          items.length
-            ? items
-            : [
-                {
-                  armType: "NATURAL_BREEDING",
-                  stageCode: "stage_01_1C",
-                  nNormal: 0,
-                  nAbnormal: 0,
-                },
-              ],
-        );
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [batchId, batches]);
-  useEffect(() => {
-    if (!protocolId) return;
-    void get(`/protocols/${protocolId}/stages`)
-      .then((data) => setStages(data.items ?? []))
-      .catch(() =>
-        setStages(
-          Array.from({ length: 26 }, (_, index) => ({
-            code: `stage_${String(index + 1).padStart(2, "0")}`,
-            label: `Stage ${index + 1}`,
-          })),
-        ),
-      );
-  }, [protocolId]);
-  const update = (index: number, value: Partial<ControlRow>) =>
-    setRows((current) => current.map((row, position) => (position === index ? { ...row, ...value } : row)));
-  const totals = rows.reduce(
-    (current, row) => ({
-      normal: current.normal + row.nNormal,
-      abnormal: current.abnormal + row.nAbnormal,
-    }),
-    { normal: 0, abnormal: 0 },
-  );
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    const keys = rows.map((row) => `${row.armType}:${row.stageCode}`);
-    if (
-      !rows.length ||
-      rows.some(
-        (row) =>
-          !row.stageCode ||
-          !Number.isInteger(row.nNormal) ||
-          !Number.isInteger(row.nAbnormal) ||
-          row.nNormal < 0 ||
-          row.nAbnormal < 0,
-      ) ||
-      new Set(keys).size !== keys.length
-    ) {
-      setError("Use one row per arm and stage with non-negative whole counts");
-      return;
-    }
-    try {
-      await putQueue(`/batches/${batchId}/control-arm-counts`, { items: rows });
-      setMessage(t.controlCountsSaved);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-  return (
-    <section>
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">{thai ? "บันทึกข้อมูลเพื่อเปรียบเทียบ" : "COMPARISON EVIDENCE"}</p>
-          <h1>{thai ? "ผลกลุ่มเปรียบเทียบ" : "Comparison group results"}</h1>
-          <p className="muted">
-            {thai
-              ? "เลือกการทดลองและระยะ แล้วบันทึกจำนวนปกติ–ผิดปกติของกลุ่มผสมธรรมชาติหรือ IVF"
-              : "Choose an experiment and stage, then record normal and abnormal counts for natural-breeding or IVF groups."}
-          </p>
-        </div>
-      </div>
-      <form className="task-surface form-card control-form" onSubmit={save}>
-        <label>
-          {thai ? "โพรโทคอล" : "Protocol"}
-          <select required value={protocolId} onChange={(event) => setProtocolId(event.target.value)}>
-            <option value="">{thai ? "เลือกโพรโทคอล" : "Select protocol"}</option>
-            {protocols.length === 0 && protocolId && <option value={protocolId}>Default protocol</option>}
-            {protocols.map((protocol) => (
-              <option key={String(protocol.id)} value={String(protocol.id)}>
-                {String(protocol.name ?? protocol.code ?? protocol.id)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {thai ? "การทดลอง" : "Batch"}
-          <select required value={batchId} onChange={(event) => setBatchId(event.target.value)}>
-            <option value="">{thai ? "เลือกการทดลอง" : "Select batch"}</option>
-            {batches.map((batch) => (
-              <option key={String(batch.id)} value={String(batch.id)}>
-                {String(batch.batchCode)}
-              </option>
-            ))}
-          </select>
-        </label>
-        {rows.map((row, index) => (
-          <div className="form-card--inline" key={`${index}-${row.armType}`}>
-            <label>
-              {thai ? "แขนการทดลอง" : "Arm"}
-              <select
-                value={row.armType}
-                onChange={(event) =>
-                  update(index, {
-                    armType: event.target.value as ControlRow["armType"],
-                  })
-                }
-              >
-                <option value="NATURAL_BREEDING">{thai ? "ผสมพันธุ์ตามธรรมชาติ" : "Natural breeding"}</option>
-                <option value="IVF">IVF</option>
-              </select>
-            </label>
-            <label>
-              {thai ? "ระยะที่ตรวจ" : "Stage"}
-              <select value={row.stageCode} onChange={(event) => update(index, { stageCode: event.target.value })}>
-                {stages.map((stage) => (
-                  <option key={String(stage.code ?? stage.stageCode)} value={String(stage.code ?? stage.stageCode)}>
-                    {String(stage.label ?? stage.stageLabel ?? stage.code)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {thai ? "จำนวนปกติ" : "Normal"}
-              <input
-                type="number"
-                min="0"
-                value={row.nNormal}
-                onChange={(event) => update(index, { nNormal: Number(event.target.value) })}
-              />
-            </label>
-            <label>
-              {thai ? "จำนวนผิดปกติ" : "Abnormal"}
-              <input
-                type="number"
-                min="0"
-                value={row.nAbnormal}
-                onChange={(event) => update(index, { nAbnormal: Number(event.target.value) })}
-              />
-            </label>
-            <button
-              type="button"
-              className="inline-action inline-action--danger"
-              onClick={() => setRows((current) => current.filter((_, position) => position !== index))}
-            >
-              {thai ? "ลบแถว" : "Remove"}
-            </button>
-          </div>
-        ))}
-        <div className="record-facts">
-          <div className="record-fact">
-            <span>{thai ? "ปกติรวม" : "Normal total"}</span>
-            <strong>{totals.normal}</strong>
-          </div>
-          <div className="record-fact">
-            <span>{thai ? "ผิดปกติรวม" : "Abnormal total"}</span>
-            <strong>{totals.abnormal}</strong>
-          </div>
-          <div className="record-fact">
-            <span>{thai ? "จำนวนทั้งหมด" : "Grand total"}</span>
-            <strong>{totals.normal + totals.abnormal}</strong>
-          </div>
-        </div>
-        <div className="button-row">
-          <button
-            type="button"
-            className="button button--secondary"
-            onClick={() =>
-              setRows((current) => [
-                ...current,
-                {
-                  armType: "IVF",
-                  stageCode: stages[0]?.code ?? "stage_01_1C",
-                  nNormal: 0,
-                  nAbnormal: 0,
-                },
-              ])
-            }
-          >
-            {thai ? "เพิ่มกลุ่มหรือระยะ" : "Add arm row"}
-          </button>
-          <button className="button button--primary" type="submit">
-            {thai ? "บันทึกผลเปรียบเทียบ" : "Save counts"}
-          </button>
-        </div>
-      </form>
-      {error && <ErrorMessage message={error} />}
-      {message && (
-        <p className="notice" role="status">
-          {message}
-        </p>
-      )}
-    </section>
   );
 }

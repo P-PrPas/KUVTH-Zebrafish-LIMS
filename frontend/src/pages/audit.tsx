@@ -3,6 +3,7 @@ import { type ApiItem, get } from "../api/client";
 import { Empty, ErrorMessage } from "../components";
 import { formatBangkokDateTime } from "../time";
 import { type AppText, text } from "../types";
+import { correctionFields } from "./corrections";
 
 type AuditFilters = {
   table: string;
@@ -50,6 +51,7 @@ const actionLabel = (value: string, thai: boolean) =>
   })[value] ?? value;
 const tableLabel = (value: string, thai: boolean) =>
   ({
+    auth_user: thai ? "บัญชีผู้ใช้" : "User account",
     sites: thai ? "สถานที่ปฏิบัติงาน" : "Lab location",
     experiment_batch: thai ? "การทดลอง" : "Experiment",
     experiment_batches: thai ? "การทดลอง" : "Experiment",
@@ -131,7 +133,7 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
   };
 
   return (
-    <section aria-busy={loading}>
+    <section className="work-screen audit-workspace" aria-busy={loading}>
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "หลักฐานการเปลี่ยนแปลงข้อมูล" : "DATA CHANGE EVIDENCE"}</p>
@@ -196,7 +198,7 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
         </details>
       </form>
 
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       {loading && (
         <p className="table-note" role="status">
           {t.loading}
@@ -284,16 +286,76 @@ export function Audit({ t = text.en }: { t?: AppText } = {}) {
                       <dd>{displayedAt}</dd>
                     </div>
                   </dl>
-                  <div className="audit-values">
-                    <div>
-                      <h2>{t.before}</h2>
-                      <pre>{jsonValue(item.oldValues)}</pre>
-                    </div>
-                    <div>
-                      <h2>{t.after}</h2>
-                      <pre>{jsonValue(item.newValues)}</pre>
-                    </div>
+                  <div
+                    className="table-wrap audit-diff"
+                    role="region"
+                    tabIndex={0}
+                    aria-label={thai ? "เปรียบเทียบข้อมูลที่เปลี่ยน" : "Changed fields"}
+                  >
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{thai ? "ข้อมูลที่เปลี่ยน" : "Changed field"}</th>
+                          <th>{t.before}</th>
+                          <th>{t.after}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from(
+                          new Set([
+                            ...Object.keys((item.oldValues as Record<string, unknown>) ?? {}),
+                            ...Object.keys((item.newValues as Record<string, unknown>) ?? {}),
+                          ]),
+                        )
+                          .filter(
+                            (field) =>
+                              jsonValue((item.oldValues as Record<string, unknown> | null)?.[field]) !==
+                              jsonValue((item.newValues as Record<string, unknown> | null)?.[field]),
+                          )
+                          .map((field) => {
+                            const definition = correctionFields[String(item.tableName)]?.find(
+                              (entry) => entry.name === field,
+                            );
+                            const before = (item.oldValues as Record<string, unknown> | null)?.[field];
+                            const after = (item.newValues as Record<string, unknown> | null)?.[field];
+                            return (
+                              <tr key={field}>
+                                <th scope="row">
+                                  {(thai ? definition?.th : definition?.en) ?? field.replaceAll("_", " ")}
+                                </th>
+                                <td>
+                                  {before === null || before === undefined
+                                    ? "—"
+                                    : typeof before === "string"
+                                      ? before
+                                      : jsonValue(before)}
+                                </td>
+                                <td>
+                                  {after === null || after === undefined
+                                    ? "—"
+                                    : typeof after === "string"
+                                      ? after
+                                      : jsonValue(after)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
                   </div>
+                  <details className="audit-raw">
+                    <summary>{thai ? "ข้อมูลต้นฉบับแบบ JSON" : "Original JSON values"}</summary>
+                    <div className="audit-values">
+                      <div>
+                        <h2>{t.before}</h2>
+                        <pre>{jsonValue(item.oldValues)}</pre>
+                      </div>
+                      <div>
+                        <h2>{t.after}</h2>
+                        <pre>{jsonValue(item.newValues)}</pre>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </details>
             );

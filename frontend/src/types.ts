@@ -8,13 +8,13 @@ export type Page =
   | "master"
   | "timing"
   | "promotions"
-  | "controls"
   | "audit"
   | "export"
   | "members"
   | "admin"
   | "imports"
   | "corrections"
+  | "profile"
   | "my-requests";
 export type Language = "th" | "en";
 export type AppText = typeof text.th;
@@ -28,7 +28,6 @@ export const text = {
     master: "ตั้งค่าห้องแล็บ",
     timing: "เวลามาตรฐาน",
     promotions: "ขึ้นทะเบียนปลาโคลน",
-    controls: "ผลกลุ่มเปรียบเทียบ",
     audit: "ตรวจสอบการแก้ไข",
     auditDescription: "ตรวจสอบการเปลี่ยนแปลงย้อนหลังตามตาราง ระเบียน ผู้ปฏิบัติงาน และช่วงเวลา",
     historyFilters: "ตัวกรองประวัติ",
@@ -82,8 +81,6 @@ export const text = {
       "\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e21\u0e35\u0e15\u0e31\u0e27\u0e2d\u0e48\u0e2d\u0e19\u0e17\u0e35\u0e48\u0e40\u0e02\u0e49\u0e32\u0e40\u0e01\u0e13\u0e11\u0e4c",
     queued: "\u0e23\u0e2d\u0e2a\u0e48\u0e07",
     confirm: "\u0e22\u0e37\u0e19\u0e22\u0e31\u0e19",
-    controlCountsSaved:
-      "\u0e1a\u0e31\u0e19\u0e17\u0e36\u0e01\u0e08\u0e33\u0e19\u0e27\u0e19\u0e01\u0e25\u0e38\u0e48\u0e21\u0e04\u0e27\u0e1a\u0e04\u0e38\u0e21\u0e41\u0e25\u0e49\u0e27",
     downloadExcel: "\u0e14\u0e32\u0e27\u0e19\u0e4c\u0e42\u0e2b\u0e25\u0e14 Excel",
     printPDF: "\u0e1e\u0e34\u0e21\u0e1e\u0e4c / PDF",
     members: "\u0e2a\u0e21\u0e32\u0e0a\u0e34\u0e01\u0e41\u0e25\u0e30\u0e2a\u0e34\u0e17\u0e18\u0e34\u0e4c",
@@ -99,7 +96,6 @@ export const text = {
     master: "Lab settings",
     timing: "Timing standards",
     promotions: "Register clone fish",
-    controls: "Comparison groups",
     audit: "Change history",
     auditDescription: "Review changes by table, record, operator, or time window.",
     historyFilters: "History filters",
@@ -151,7 +147,6 @@ export const text = {
     noEligiblePromotions: "No eligible embryo promotions",
     queued: "Queued",
     confirm: "Confirm",
-    controlCountsSaved: "Control counts saved",
     downloadExcel: "Download Excel",
     printPDF: "Print / PDF",
     members: "Members & access",

@@ -49,6 +49,7 @@ describe("email OTP login", () => {
     request.mockResolvedValueOnce(jsonResponse({}));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     expect(rendered.element.querySelector<HTMLInputElement>("#login-email")?.checkValidity()).toBe(false);
     await changeValue("#login-email", " PEERAPAS.C@KU.TH ");
     await changeValue("#login-email", "PEERAPAS.C@KU.TH");
@@ -59,8 +60,8 @@ describe("email OTP login", () => {
       body: JSON.stringify({ email: "peerapas.c@ku.th" }),
     });
     expect(rendered.element.textContent).toContain("รหัสยืนยัน 6 หลัก");
-    expect(rendered.element.textContent).toContain("ส่งรหัสอีกครั้งใน 60 วินาที");
-    expect(rendered.element.querySelector<HTMLButtonElement>(".auth-actions button:last-child")?.disabled).toBe(true);
+    expect(rendered.element.textContent).toContain("ส่งอีกครั้งใน 60s");
+    expect(rendered.element.querySelector<HTMLButtonElement>(".auth-form .text-button")?.disabled).toBe(true);
   });
 
   it("filters the code to six digits and signs in with the device id", async () => {
@@ -71,6 +72,7 @@ describe("email OTP login", () => {
     );
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     await changeValue("#login-code", "12a345678");
@@ -98,6 +100,7 @@ describe("email OTP login", () => {
     request.mockRejectedValueOnce(Object.assign(new Error(`HTTP ${status}`), { status }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(message);
@@ -109,6 +112,7 @@ describe("email OTP login", () => {
       .mockRejectedValueOnce(Object.assign(new Error("invalid"), { status: 401 }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     await changeValue("#login-code", "123456");
@@ -117,8 +121,8 @@ describe("email OTP login", () => {
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".auth-actions button")?.click());
     expect(rendered.element.querySelector("#login-email")).not.toBeNull();
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".language")?.click());
-    expect(rendered.element.textContent).toContain("Sign in to your lab");
-    expect(localStorage.getItem("chronofish.language")).toBeNull();
+    expect(rendered.element.textContent).toContain("Guest sign in");
+    expect(localStorage.getItem("chronofish.language")).toBe("en");
   });
 
   it("finishes a queued logout before requesting a fresh code", async () => {
@@ -126,6 +130,7 @@ describe("email OTP login", () => {
     request.mockResolvedValue(jsonResponse({}));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     expect(request).toHaveBeenNthCalledWith(1, "/auth/logout", { method: "POST" });
@@ -145,6 +150,7 @@ describe("email OTP login", () => {
       .mockRejectedValueOnce(Object.assign(new Error("invalid"), { status: 401 }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
+    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
     await changeValue("#login-email", "member@KU.TH");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(

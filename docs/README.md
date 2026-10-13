@@ -17,3 +17,4 @@
 - [Requirement Analysis](requirements/KUVTH_Zebrafish_LIMS_Requirement_Analysis.md) — บริบทและการวิเคราะห์ domain
 - [Implementation Plan](planning/IMPLEMENTATION_PLAN.md) — ลำดับการพัฒนา
 - [Operations Runbook](operations/OPERATIONS.md) — การ deploy และดูแลระบบ
+- [KU registration and passwords](deploy/guest-registration.md) — การสมัคร Guest, ให้สิทธิ์ Member และตั้งรหัสผ่านบัญชีเดิม

@@ -38,3 +38,7 @@ export function rfc3339ToDateTimeLocal(value: string): string {
 export function formatBangkokDateTime(value: string): string {
   return value ? bangkokDisplayFormatter.format(new Date(value)).replace(",", "") : "";
 }
+
+export function formatBangkokDate(value: string): string {
+  return formatBangkokDateTime(value.length === 10 ? `${value}T00:00:00+07:00` : value).split(" ")[0];
+}

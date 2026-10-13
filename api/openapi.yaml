@@ -77,6 +77,71 @@ tags:
     description: Administrator-only historical import drafts and source review
 
 paths:
+  /analytics/guest-dashboard:
+    get:
+      tags: [Analytics]
+      summary: Central dashboard totals available to guests; ignores filters and exposes no record details
+      operationId: guestDashboard
+      responses:
+        '200':
+          description: Unfiltered aggregate counts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [nBatches, nActivated, nPromoted, nFish, nAlive, nDead]
+                properties:
+                  nBatches: { type: integer }
+                  nActivated: { type: integer }
+                  nPromoted: { type: integer }
+                  nFish: { type: integer }
+                  nAlive: { type: integer }
+                  nDead: { type: integer }
+
+  /auth/login:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Sign in to a verified Guest account with a password
+      operationId: passwordLogin
+      parameters:
+        - $ref: '#/components/parameters/DeviceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordInput' }
+      responses:
+        '200':
+          description: Session created in an HttpOnly cookie
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/AuthUser' }
+        '401': { description: Invalid credentials, unavailable account, or password login not permitted; locked and unknown accounts use the same response }
+        '429': { description: Proxy request rate limit reached }
+        '503': { description: Password authentication capacity is busy; try again shortly }
+  /auth/register:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Register a KU guest or request a password reset verification code
+      operationId: registerGuest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordInput' }
+      responses:
+        '202': { description: Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code }
+        '400': { description: Invalid email or password }
+        '429': { description: Proxy request rate limit reached }
+        '503': { description: Email delivery unavailable }
 
   /imports/inspect:
     post:
@@ -2648,7 +2713,7 @@ paths:
   /exports/excel:
     post:
       tags: [Export]
-      summary: Build a clean analysis table or the detailed 14-sheet workbook
+      summary: Build a clean analysis table or the detailed 13-sheet workbook
       description: |
         Uses the same filters as the dashboard (FR-905). Every sheet is a flat
         table with a single header row and no merged cells (FR-902) so pandas
@@ -2712,6 +2777,11 @@ paths:
     post:
       tags: [Corrections]
       summary: Submit a single-field correction request
+      description: >
+        Members may also request a linked operator change using targetTable auth_user,
+        their own account id, fieldName operatorId, and an active unassigned operator.
+        Only an admin may approve; the account change, request decision and audits
+        commit together. This does not allow members to change their role or another account.
       operationId: createCorrection
       x-account-write: true
       parameters:
@@ -2960,6 +3030,12 @@ components:
                     activatedAt: '2026-08-20T10:59:00+07:00'
 
   schemas:
+    PasswordInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
 
     ImportJob:
       type: object
@@ -4097,7 +4173,7 @@ components:
           description: Required for clean format. Strictly increasing Fry, Juvenile and Adult age milestones in days from birth. Counts require an ALIVE fish observation at or beyond each age; zero means no documented survivors, not confirmed mortality. Ages are included in the download filename. Manual fish without embryo lineage are excluded.
         sheets:
           type: [array, 'null']
-          description: Only for full format; omit for all 14 sheets. Clean format always contains the single v4 sheet.
+          description: Only for full format; omit for all 13 sheets. Clean format always contains the single v4 sheet.
           minItems: 1
           uniqueItems: true
           items: { type: string }
@@ -4134,6 +4210,7 @@ components:
       properties:
         email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
         code: { type: string, pattern: '^[0-9]{6}$' }
+        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true, description: Required for guests; set or reset password after verifying email and revoke previous sessions }
     AuthMember:
       allOf:
         - { $ref: '#/components/schemas/AuthUser' }
@@ -4160,7 +4237,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
-        role: { type: string, enum: [admin, member] }
+        role: { type: string, enum: [admin, member, guest] }
         operatorId: { type: [string, 'null'], format: uuid }
         sessionId: { type: [string, 'null'], format: uuid }
         deviceId: { type: [string, 'null'] }
@@ -4168,7 +4245,7 @@ components:
       type: object
       minProperties: 1
       properties:
-        role: { type: string, enum: [admin, member] }
+        role: { type: string, enum: [admin, member, guest] }
         active: { type: boolean }
         operatorId: { type: [string, 'null'], format: uuid }
         acknowledgePendingDataRisk: { type: boolean }

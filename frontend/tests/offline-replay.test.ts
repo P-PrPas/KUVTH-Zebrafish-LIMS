@@ -23,6 +23,50 @@ describe("browser offline replay", () => {
     vi.unstubAllGlobals();
   });
 
+  it("retries legacy rejected control counts using PUT and preserves their payload and key", async () => {
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    sessionStorage.setItem("chronofish.operator_id", "operator-a");
+    const body = { items: [{ armType: "IVF", stageCode: "stage_19_SH", nNormal: 4, nAbnormal: 1 }] };
+    await queueWrite({
+      path: "/batches/batch-1/control-arm-counts",
+      method: "POST",
+      body,
+      contentType: "application/json",
+      key: "legacy-control-key",
+      actorUserId: "01900000-0000-7000-8000-000000000099",
+      operatorId: "operator-a",
+      deviceId: "device-a",
+      createdAt: Date.now(),
+      attempt: 0,
+      nextAttempt: Date.now(),
+      status: "rejected",
+      lastError: "HTTP 405",
+    });
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          JSON.stringify(init?.method === "PUT" ? { items: body.items } : { detail: "Method Not Allowed" }),
+          {
+            status: init?.method === "PUT" ? 200 : 405,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await retryRejected();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/batches/batch-1/control-arm-counts"),
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify(body),
+        headers: expect.objectContaining({ "X-Idempotency-Key": "legacy-control-key", "X-Operator-Id": "operator-a" }),
+      }),
+    );
+    expect(await rejectedQueueCount()).toBe(0);
+    expect(await queueCount()).toBe(0);
+  });
+
   it("keeps other-account and legacy writes visible without attributing them to the current account", async () => {
     vi.stubGlobal("indexedDB", fakeIndexedDB);
     Object.defineProperty(navigator, "onLine", { configurable: true, value: false });

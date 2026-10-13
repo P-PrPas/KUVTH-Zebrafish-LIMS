@@ -38,7 +38,6 @@ SHEET_NAMES = (
     "06_Fish_Register",
     "07_Fish_Observations",
     "08_Fish_Matrix",
-    "09_Control_Arms",
     "10_Specimens",
     "11_Summary",
     "12_R_Analysis_Table",
@@ -454,28 +453,6 @@ def _fish_matrix(state: State, query: dict[str, str]) -> tuple[list[str], list[l
     return columns, rows
 
 
-def _control_rows(state: State, query: dict[str, str]) -> list[list[object]]:
-    batches = filtered_batches(state, query)
-    rows = []
-    for item in sorted(state.entities["control-arm-counts"].values(), key=lambda value: _text(value.get("id"))):
-        batch = batches.get(str(item.get("batchId")))
-        if not batch or item.get("deletedAt") is not None:
-            continue
-        site = state.entities["sites"].get(str(batch.get("siteId")), {})
-        rows.append(
-            [
-                batch.get("batchCode"),
-                batch.get("experimentDate"),
-                site.get("code"),
-                item.get("armType"),
-                stage_label(stage_number(_text(item.get("stageCode")))),
-                item.get("nNormal"),
-                item.get("nAbnormal"),
-            ]
-        )
-    return rows
-
-
 def _summary_rows(state: State, query: dict[str, str]) -> list[list[object]]:
     groups: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
     for embryo in filtered_embryos(state, query):
@@ -709,11 +686,6 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
             fish_observations,
         ),
         ("08_Fish_Matrix", ["fish_code", "dob", "strain", "status", *fish_columns], fish_matrix),
-        (
-            "09_Control_Arms",
-            ["batch_code", "experiment_date", "site", "arm_type", "stage_label", "n_normal", "n_abnormal"],
-            _control_rows(state, query) if selected("09_Control_Arms") else [],
-        ),
         (
             "10_Specimens",
             [
