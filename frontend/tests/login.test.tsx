@@ -121,7 +121,7 @@ describe("email OTP login", () => {
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".auth-actions button")?.click());
     expect(rendered.element.querySelector("#login-email")).not.toBeNull();
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".language")?.click());
-    expect(rendered.element.textContent).toContain("Sign in to your lab");
+    expect(rendered.element.textContent).toContain("Guest sign in");
     expect(localStorage.getItem("chronofish.language")).toBe("en");
   });
 

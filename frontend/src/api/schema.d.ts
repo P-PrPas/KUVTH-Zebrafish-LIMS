@@ -30,7 +30,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign in with a verified KU email and password */
+        /** Sign in to a verified Guest account with a password */
         post: operations["passwordLogin"];
         delete?: never;
         options?: never;
@@ -3313,15 +3313,22 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid credentials or unverified email */
+            /** @description Invalid credentials */
             401: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Account locked for 15 minutes after five failed attempts */
+            /** @description Proxy request rate limit reached */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Password authentication capacity is busy; try again shortly */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3342,7 +3349,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Verification code sent for an active account; password is set only after verifying the code */
+            /** @description Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -3356,7 +3363,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Email cooldown or rate limit reached */
+            /** @description Proxy request rate limit reached */
             429: {
                 headers: {
                     [name: string]: unknown;

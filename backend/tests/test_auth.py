@@ -517,7 +517,7 @@ def test_password_attempt_limit_expires_and_disabled_accounts_cannot_login(clien
             ).status_code
             == 401
         )
-    assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 429
+    assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 401
     stored = client.app.state.store.auth_users[user["id"]]
     stored["password_locked_until"] = utc_now() - timedelta(seconds=1)
     assert browser.post(path, headers=headers, json={"email": user["email"], "password": PASSWORD}).status_code == 200
@@ -534,21 +534,20 @@ def test_password_attempt_limit_expires_and_disabled_accounts_cannot_login(clien
 
 def test_password_reset_keeps_role_and_requires_otp_before_revoking_sessions(client):
     browser, user = _register(client)
-    assert client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
     recovery = TestClient(client.app)
     challenge = client.app.state.store.auth_challenges[user["email"]]
     challenge["last_sent_at"] = utc_now() - timedelta(minutes=2)
     new_password = "a different secure password"
     body = {"email": user["email"], "password": new_password}
     assert recovery.post("/api/v1/auth/register", json=body).status_code == 202
-    assert browser.get("/api/v1/batches").status_code == 200
+    assert browser.get("/api/v1/auth/me").status_code == 200
     headers = {"X-Device-Id": "recovery-browser"}
     assert recovery.post("/api/v1/auth/login", headers=headers, json=body).status_code == 401
     result = recovery.post(
         "/api/v1/auth/verify-code", headers=headers, json={**body, "code": _code(client.app.state.auth.mailer)}
     )
     assert result.status_code == 200
-    assert result.json()["user"]["role"] == "member"
+    assert result.json()["user"]["role"] == "guest"
     assert browser.get("/api/v1/auth/me").status_code == 401
     assert (
         recovery.post(
@@ -561,7 +560,7 @@ def test_password_reset_keeps_role_and_requires_otp_before_revoking_sessions(cli
     browser.close()
 
 
-def test_existing_bootstrap_admin_sets_first_password_without_changing_identity(client):
+def test_existing_bootstrap_admin_cannot_set_password_or_bypass_otp(client):
     admin = client.get("/api/v1/auth/me").json()["user"]
     challenge = client.app.state.store.auth_challenges[admin["email"]]
     challenge["last_sent_at"] = utc_now() - timedelta(minutes=2)
@@ -573,9 +572,95 @@ def test_existing_bootstrap_admin_sets_first_password_without_changing_identity(
         headers={"X-Device-Id": "admin-password-browser"},
         json={**body, "code": _code(client.app.state.auth.mailer)},
     )
-    assert response.status_code == 200
-    assert response.json()["user"]["id"] == admin["id"]
-    assert response.json()["user"]["role"] == "admin"
-    assert client.get("/api/v1/auth/me").status_code == 401
-    assert browser.get("/api/v1/auth/admin/users").status_code == 200
+    assert response.status_code == 400
+    assert client.get("/api/v1/auth/me").status_code == 200
+    assert browser.post("/api/v1/auth/login", headers={"X-Device-Id": "browser"}, json=body).status_code == 401
+    verified = browser.post(
+        "/api/v1/auth/verify-code",
+        headers={"X-Device-Id": "browser"},
+        json={"email": admin["email"], "code": _code(client.app.state.auth.mailer)},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["user"]["role"] == "admin"
     browser.close()
+
+
+def test_unverified_guest_does_not_block_member_invitation(client):
+    email = "reserved-by-stranger@ku.th"
+    assert client.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD}).status_code == 202
+    invited = client.post("/api/v1/auth/admin/users", json={"email": email})
+    assert invited.status_code == 201, invited.text
+    assert invited.json()["user"]["role"] == "member"
+
+
+def test_invalid_otp_does_not_hash_password(client, monkeypatch):
+    import chronofish.store.auth as service
+
+    calls = []
+    monkeypatch.setattr(service, "hash_password", lambda value: calls.append(value) or "unused")
+    body = {"email": "wrong-code@ku.th", "password": PASSWORD}
+    assert client.post("/api/v1/auth/register", json=body).status_code == 202
+    code = _code(client.app.state.auth.mailer)
+    wrong = "000000" if code != "000000" else "999999"
+    result = client.post("/api/v1/auth/verify-code", json={**body, "code": wrong}, headers={"X-Device-Id": "browser"})
+    assert result.status_code == 401
+    assert not calls
+
+
+def test_register_responses_do_not_reveal_invitation_or_cooldown(client):
+    browser = TestClient(client.app)
+    results = [
+        browser.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD})
+        for email in ["peerapas.c@ku.th", "new-registration@ku.th", "new-registration@ku.th", "peerapas.c@ku.th"]
+    ]
+    assert {result.status_code for result in results} == {202}
+    assert len({result.text for result in results}) == 1
+    browser.close()
+
+
+def test_promoted_member_cannot_use_guest_password(client):
+    browser, user = _register(client)
+    assert client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
+    assert browser.post("/api/v1/auth/logout").status_code == 204
+    assert (
+        browser.post(
+            "/api/v1/auth/login",
+            headers={"X-Device-Id": "browser"},
+            json={"email": user["email"], "password": PASSWORD},
+        ).status_code
+        == 401
+    )
+    browser.close()
+
+
+def test_locked_and_unknown_password_accounts_return_same_error(client):
+    browser, user = _register(client)
+    bodies = []
+    for _ in range(7):
+        for email in [user["email"], "nonexistent@ku.th"]:
+            result = browser.post(
+                "/api/v1/auth/login",
+                headers={"X-Device-Id": "browser"},
+                json={"email": email, "password": "wrong password"},
+            )
+            assert result.status_code == 401
+            bodies.append(result.text)
+    assert len(set(bodies)) == 1
+    browser.close()
+
+
+def test_password_login_capacity_does_not_block_health_or_email_code(client):
+    from chronofish.services.auth import PASSWORD_LOGINS
+
+    assert PASSWORD_LOGINS.acquire(blocking=False)
+    assert PASSWORD_LOGINS.acquire(blocking=False)
+    try:
+        result = client.post(
+            "/api/v1/auth/login", json={"email": "fake@ku.th", "password": PASSWORD}, headers={"X-Device-Id": "browser"}
+        )
+        assert result.status_code == 503
+        assert client.get("/api/v1/health").status_code == 200
+        assert client.post("/api/v1/auth/request-code", json={"email": "unknown@ku.th"}).status_code == 202
+    finally:
+        PASSWORD_LOGINS.release()
+        PASSWORD_LOGINS.release()

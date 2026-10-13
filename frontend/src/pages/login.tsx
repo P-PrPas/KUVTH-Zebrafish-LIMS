@@ -14,7 +14,7 @@ export function Login({ onLogin }: Props) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [code, setCode] = useState("");
-  const [mode, setMode] = useState<"login" | "register" | "reset" | "otp">("login");
+  const [mode, setMode] = useState<"login" | "register" | "reset" | "otp">("otp");
   const [step, setStep] = useState<"credentials" | "code">("credentials");
   const [cooldown, setCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -163,8 +163,8 @@ export function Login({ onLogin }: Props) {
             ? "ตั้งหรือรีเซ็ตรหัสผ่าน"
             : "Set or reset your password"
           : th
-            ? "เข้าสู่ระบบห้องปฏิบัติการ"
-            : "Sign in to your lab";
+            ? "เข้าสู่ระบบสำหรับ Guest"
+            : "Guest sign in";
 
   return (
     <main className="auth-shell auth-shell--login">
@@ -193,7 +193,15 @@ export function Login({ onLogin }: Props) {
         <section className="auth-card" aria-labelledby="login-title">
           <p className="eyebrow">Kasetsart University · Animal Cell Bank</p>
           <h1 id="login-title">{title}</h1>
-          <p className="muted">{th ? "ใช้อีเมล @ku.th" : "Use your @ku.th email."}</p>
+          <p className="muted">
+            {mode === "otp"
+              ? th
+                ? "Admin และ Member ใช้รหัสยืนยันทางอีเมล @ku.th"
+                : "Admins and Members use a code sent to their @ku.th email."
+              : th
+                ? "รหัสผ่านใช้สำหรับบัญชี Guest เท่านั้น"
+                : "Password sign-in is for Guest accounts only."}
+          </p>
           <form
             className="auth-form"
             onSubmit={submit}
@@ -322,16 +330,27 @@ export function Login({ onLogin }: Props) {
               </button>
             )}
             <button
+              data-login-mode={mode === "otp" ? "login" : undefined}
               className="text-button"
               type="button"
               disabled={busy}
-              onClick={() => switchMode(mode === "otp" ? "otp" : mode === "login" ? "register" : "login")}
+              onClick={() => switchMode(mode === "login" ? "register" : "login")}
             >
-              {mode === "login" ? (th ? "สมัครบัญชีใหม่" : "Create an account") : th ? "กลับไปเข้าสู่ระบบ" : "Back to sign in"}
+              {mode === "login"
+                ? th
+                  ? "สมัครบัญชีใหม่"
+                  : "Create an account"
+                : mode === "otp"
+                  ? th
+                    ? "Guest: เข้าสู่ระบบด้วยรหัสผ่าน"
+                    : "Guest sign in with password"
+                  : th
+                    ? "กลับไปเข้าสู่ระบบ"
+                    : "Back to sign in"}
             </button>
             {mode === "login" && (
               <button className="text-button" type="button" disabled={busy} onClick={() => switchMode("reset")}>
-                {th ? "ลืมรหัสผ่าน / บัญชีเดิมยังไม่มีรหัสผ่าน" : "Forgot password / Set your first password"}
+                {th ? "ลืมรหัสผ่าน Guest" : "Forgot Guest password"}
               </button>
             )}
           </div>

@@ -102,7 +102,7 @@ paths:
     post:
       security: []
       tags: [Authentication]
-      summary: Sign in with a verified KU email and password
+      summary: Sign in to a verified Guest account with a password
       operationId: passwordLogin
       parameters:
         - $ref: '#/components/parameters/DeviceId'
@@ -123,8 +123,9 @@ paths:
                 required: [user]
                 properties:
                   user: { $ref: '#/components/schemas/AuthUser' }
-        '401': { description: Invalid credentials or unverified email }
-        '429': { description: Account locked for 15 minutes after five failed attempts }
+        '401': { description: Invalid credentials, unavailable account, or password login not permitted; locked and unknown accounts use the same response }
+        '429': { description: Proxy request rate limit reached }
+        '503': { description: Password authentication capacity is busy; try again shortly }
   /auth/register:
     post:
       security: []
@@ -137,9 +138,9 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PasswordInput' }
       responses:
-        '202': { description: Verification code sent for an active account; password is set only after verifying the code }
+        '202': { description: Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code }
         '400': { description: Invalid email or password }
-        '429': { description: Email cooldown or rate limit reached }
+        '429': { description: Proxy request rate limit reached }
         '503': { description: Email delivery unavailable }
 
   /imports/inspect:

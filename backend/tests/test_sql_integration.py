@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -58,8 +59,6 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
     login = other.post("/api/v1/auth/login", headers=headers, json=body)
     assert login.status_code == 200, login.text
     assert "password_hash" not in admin.get("/api/v1/auth/admin/users").text
-    assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
-    assert other.get("/api/v1/batches").status_code == 200
     for _ in range(5):
         assert (
             other.post(
@@ -67,7 +66,14 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
             ).status_code
             == 401
         )
-    assert guest.post("/api/v1/auth/login", headers=headers, json=body).status_code == 429
+    assert guest.post("/api/v1/auth/login", headers=headers, json=body).status_code == 401
+    with store.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT password_locked_until FROM auth_user WHERE id = :id"), {"id": user["id"]}
+            ).scalar_one()
+            is not None
+        )
     with store.engine.begin() as connection:
         connection.execute(
             text("UPDATE auth_user SET password_locked_until = :past WHERE id = :id"),
@@ -83,9 +89,12 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
     code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
     reset = guest.post("/api/v1/auth/verify-code", headers=headers, json={**body, "code": code})
     assert reset.status_code == 200, reset.text
-    assert reset.json()["user"]["role"] == "member"
+    assert reset.json()["user"]["role"] == "guest"
     assert other.get("/api/v1/auth/me").status_code == 401
     assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
+    assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
+    assert other.get("/api/v1/batches").status_code == 200
+    assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 401
     assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "guest"}).status_code == 200
     assert other.get("/api/v1/batches").status_code == 403
     guest.close()
@@ -230,6 +239,127 @@ def test_authentication_migration_rolls_back_on_mysql():
         with admin_engine.begin() as connection:
             connection.exec_driver_sql(f"DROP DATABASE IF EXISTS {database_name}")
         admin_engine.dispose()
+
+
+@pytest.mark.parametrize("legacy_passwords", [False, True])
+def test_main_v24_upgrade_and_legacy_passwords_are_preserved(legacy_passwords):
+    name = f"chronofish_upgrade_{uuid4().hex[:12]}"
+    root_url = make_url(str(DATABASE_URL))
+    admin_engine = create_engine(
+        root_url.set(database="postgres" if DRIVER == "postgres" else "mysql"), isolation_level="AUTOCOMMIT"
+    )
+    config = replace(
+        _config("upgrade@ku.th"), database_url=root_url.set(database=name).render_as_string(hide_password=False)
+    )
+    engine = None
+    try:
+        with admin_engine.connect() as connection:
+            connection.exec_driver_sql(f"CREATE DATABASE {name}")
+        engine = create_database_engine(config)
+        with engine.begin() as connection:
+            for path in sorted(config.migrations_dir.glob("*.up.sql")):
+                if int(path.name[:6]) <= 24:
+                    _execute_script(connection, path.read_text(encoding="utf-8"))
+            connection.exec_driver_sql(
+                "CREATE TABLE schema_migrations (version BIGINT PRIMARY KEY, dirty BOOLEAN NOT NULL)"
+            )
+            connection.execute(text("INSERT INTO schema_migrations VALUES (24, :dirty)"), {"dirty": False})
+            if legacy_passwords:
+                # Equivalent to the old branch's version 23, before the schema reached 24.
+                script = (config.migrations_dir / "000025_guest_password.up.sql").read_text(encoding="utf-8")
+                _execute_script(connection, script)
+        repository = AuthRepository(SimpleNamespace(engine=engine), "upgrade-test-secret")
+        now = datetime.now(UTC)
+        repository.ensure_bootstrap("upgrade@ku.th", now)
+        repository.issue_code("upgrade@ku.th", repository.code_hash("upgrade@ku.th", "123456"), now)
+        result = repository.verify_and_create_session(
+            "upgrade@ku.th",
+            repository.code_hash("upgrade@ku.th", "123456"),
+            uuid7(),
+            "upgrade-session",
+            "upgrade-device",
+            now,
+        )
+        assert result.user
+        if legacy_passwords:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("UPDATE auth_user SET password_hash = :hash, password_attempts = 3 WHERE email = :email"),
+                    {"hash": "existing-credential-must-survive", "email": "upgrade@ku.th"},
+                )
+        with engine.connect() as connection:
+            before = dict(
+                connection.execute(text("SELECT * FROM auth_user WHERE email = 'upgrade@ku.th'")).mappings().one()
+            )
+            session = dict(
+                connection.execute(text("SELECT * FROM auth_session WHERE token_hash = 'upgrade-session'"))
+                .mappings()
+                .one()
+            )
+            protocols = list(connection.execute(text("SELECT * FROM protocol ORDER BY id")).mappings())
+        migrate(config)
+        migrate(config)
+        with engine.begin() as connection:
+            # The DDL itself also tolerates a second application without resetting credentials.
+            _execute_script(
+                connection, (config.migrations_dir / "000025_guest_password.up.sql").read_text(encoding="utf-8")
+            )
+            after = dict(
+                connection.execute(text("SELECT * FROM auth_user WHERE email = 'upgrade@ku.th'")).mappings().one()
+            )
+            assert all(after[key] == value for key, value in before.items())
+            assert "password_hash" in after and "password_locked_until" in after
+            assert connection.execute(text("SELECT version FROM schema_migrations")).scalar_one() == 25
+            assert (
+                dict(
+                    connection.execute(text("SELECT * FROM auth_session WHERE token_hash = 'upgrade-session'"))
+                    .mappings()
+                    .one()
+                )
+                == session
+            )
+            assert list(connection.execute(text("SELECT * FROM protocol ORDER BY id")).mappings()) == protocols
+        repository.register_guest("after-upgrade@ku.th", now)
+        assert repository.user_by_email("after-upgrade@ku.th")["role"] == "guest"
+    finally:
+        if engine:
+            engine.dispose()
+        with admin_engine.connect() as connection:
+            connection.exec_driver_sql(f"DROP DATABASE IF EXISTS {name}")
+        admin_engine.dispose()
+
+
+def test_sql_guest_invitation_and_password_policy():
+    email = f"sql-guest-{uuid7()}@ku.th"
+    admin_email = f"sql-policy-admin-{uuid7()}@ku.th"
+    store = SQLStore(_config(admin_email))
+    admin = _client(store, admin_email)
+    browser = TestClient(admin.app)
+    headers = {"X-Device-Id": "guest-test"}
+    body = {"email": email, "password": "correct horse battery staple"}
+    assert browser.post("/api/v1/auth/register", json=body).status_code == 202
+    guest_code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    invited = admin.post("/api/v1/auth/admin/users", json={"email": email})
+    assert invited.status_code == 201, invited.text
+    assert invited.json()["user"]["role"] == "member"
+    assert (
+        browser.post("/api/v1/auth/verify-code", json={**body, "code": guest_code}, headers=headers).status_code == 401
+    )
+    assert browser.post("/api/v1/auth/login", json=body, headers=headers).status_code == 401
+    # The invitation invalidates the unverified registration challenge; a fresh OTP works.
+    with store.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE auth_login_challenge SET last_sent_at = :at WHERE email = :email"),
+            {"at": datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=2), "email": email},
+        )
+    assert browser.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
+    code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
+    assert browser.post("/api/v1/auth/verify-code", json={**body, "code": code}, headers=headers).status_code == 400
+    verified = browser.post("/api/v1/auth/verify-code", json={"email": email, "code": code}, headers=headers)
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["user"]["role"] == "member"
+    browser.close()
+    admin.close()
 
 
 def test_sql_otp_reuse_daily_limit_and_session_identity():
