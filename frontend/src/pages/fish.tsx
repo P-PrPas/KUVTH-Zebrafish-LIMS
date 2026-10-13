@@ -1,9 +1,11 @@
 import { type FormEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { type ApiItem, get } from "../api/client";
 import { cachedUser } from "../auth";
-import { Empty, ErrorMessage } from "../components";
+import { Empty, ErrorMessage, RecordingOperator } from "../components";
 import { parseFilters, withFilters } from "../filters";
+import { notify } from "../notifications";
 import { putQueue, type QueuedWrite } from "../offline";
+import { formatBangkokDate } from "../time";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
 import { CorrectionRequestButton } from "./corrections";
@@ -42,15 +44,7 @@ const sexLabel = (value: unknown, thai: boolean) =>
   ({ M: thai ? "เพศผู้" : "Male", F: thai ? "เพศเมีย" : "Female", UNKNOWN: thai ? "ยังไม่ระบุ" : "Not recorded" })[
     String(value)
   ] ?? "—";
-const specimenTypeLabel = (value: unknown, thai: boolean) =>
-  ({
-    CAUDAL_FIN_CLIP: thai ? "ชิ้นครีบหาง" : "Caudal fin clip",
-    WHOLE_EMBRYO: thai ? "ตัวอ่อนทั้งตัว" : "Whole embryo",
-    ANAL_FIN_CLIP: thai ? "ชิ้นครีบก้น" : "Anal fin clip",
-    LEFTOVER_CELLS: thai ? "เซลล์ที่เหลือ" : "Leftover cells",
-    WHOLE_ADULT: thai ? "ปลาตัวเต็มวัยทั้งตัว" : "Whole adult",
-    UNKNOWN: thai ? "ยังไม่ทราบชนิด" : "Unknown",
-  })[String(value)] ?? String(value ?? "—");
+
 const dateRange = (start: string, end: string) => {
   if (!start || !end || end < start) return [];
   const values: string[] = [];
@@ -225,6 +219,8 @@ export function Fish({ t }: { t: AppText }) {
           })),
       );
       if (observations.length) await putQueue("/observations/fish", { observations });
+      if (!observations.length && !corrections.length)
+        notify(thai ? "ไม่มีผลตรวจใหม่ที่ต้องบันทึก" : "No new observations to save.", "warning");
       for (const fish of corrections)
         await putQueue(
           `/observations/fish/${fish.observationId}`,
@@ -300,7 +296,7 @@ export function Fish({ t }: { t: AppText }) {
     );
 
   return (
-    <section>
+    <section className="work-screen fish-workspace">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "บันทึกการดูแลประจำวัน" : "DAILY CARE RECORD"}</p>
@@ -314,12 +310,17 @@ export function Fish({ t }: { t: AppText }) {
                 : "Clone fish records"}
           </h1>
           <p className="muted">
-            {thai
-              ? `วันที่ ${new Intl.DateTimeFormat("th-TH", { dateStyle: "long", timeZone: "Asia/Bangkok" }).format(new Date(`${date}T12:00:00+07:00`))} · ปลาที่ยังไม่เลือกจะบันทึกเป็น “ยังอยู่” โดยอัตโนมัติ`
-              : `Bangkok date: ${date}. Fish without an exception are saved as alive.`}
+            {mode === "registry"
+              ? thai
+                ? "ค้นหาประวัติปลา สายพันธุ์ สถานะ และตำแหน่งเลี้ยง"
+                : "Find fish records, strains, outcomes and housing."
+              : thai
+                ? `วันที่ ${new Intl.DateTimeFormat("th-TH", { dateStyle: "long", timeZone: "Asia/Bangkok" }).format(new Date(`${date}T12:00:00+07:00`))} · ปลาที่ยังไม่เลือกจะบันทึกเป็น “ยังอยู่” โดยอัตโนมัติ`
+                : `Bangkok date: ${date}. Fish without an exception are saved as alive.`}
           </p>
         </div>
         <div className="button-row">
+          {mode === "rollcall" && <RecordingOperator />}
           {mode === "rollcall" && (
             <button
               className="button button--primary"
@@ -390,9 +391,21 @@ export function Fish({ t }: { t: AppText }) {
           {thai ? "ทะเบียนปลา" : "Fish registry"}
         </button>
       </div>
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       {mode === "rollcall" ? (
         <div id="fish-panel-rollcall" role="tabpanel" aria-labelledby="fish-tab-rollcall">
+          <div className="work-summary" role="status">
+            <span>
+              {thai ? "ปลาในรายการ" : "Fish in this view"} <strong>{items.length}</strong>
+            </span>
+            <span>
+              {thai ? "บันทึกแล้ว" : "Recorded"} <strong>{items.filter((fish) => fish.alreadyRecorded).length}</strong>
+            </span>
+            <span>
+              {thai ? "รอตรวจ" : "Awaiting check"}{" "}
+              <strong>{items.filter((fish) => !fish.alreadyRecorded).length}</strong>
+            </span>
+          </div>
           <details className="filter-disclosure">
             <summary>{thai ? "เปลี่ยนวันที่หรือบันทึกย้อนหลัง" : "Change date or enter a backdated check"}</summary>
             <div className="form-card form-card--inline">
@@ -544,16 +557,25 @@ export function Fish({ t }: { t: AppText }) {
         </div>
       ) : (
         <div id="fish-panel-registry" role="tabpanel" aria-labelledby="fish-tab-registry">
+          <div className="registry-search">
+            <label htmlFor="fish-registry-search">
+              {thai ? "ค้นหารหัสหรือสายพันธุ์" : "Search"}
+              <input
+                id="fish-registry-search"
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={thai ? "รหัสปลา หรือสายพันธุ์" : "Fish code or strain"}
+              />
+            </label>
+            <p role="status">{thai ? `พบ ${visible.length} ตัว` : `${visible.length} fish found`}</p>
+          </div>
           <details className="filter-disclosure">
             <summary>
               {thai ? `ค้นหาและกรอง · พบ ${visible.length} ตัว` : `Search and filter · ${visible.length} fish`}
             </summary>
             <fieldset className="filter-bar">
               <legend>{thai ? "ตัวกรองทะเบียนปลา" : "Registry filters"}</legend>
-              <label>
-                {thai ? "ค้นหารหัสหรือสายพันธุ์" : "Search"}
-                <input value={search} onChange={(event) => setSearch(event.target.value)} />
-              </label>
               <label>
                 {thai ? "สถานที่" : "Site"}
                 <select
@@ -686,10 +708,14 @@ export function Fish({ t }: { t: AppText }) {
                 <button className="list-row" key={String(fish.id)} onClick={() => setSelected(String(fish.id))}>
                   <span>
                     <strong>{String(fish.fishCode)}</strong>
-                    <small>
-                      {thai
-                        ? `สายพันธุ์ ${String(fish.strain ?? "ไม่ระบุ")} · เกิด ${String(fish.dob ?? "—")} · ${healthStatusLabel(fish.healthStatus, true)}`
-                        : `Strain ${String(fish.strain ?? "Unknown")} · DOB ${String(fish.dob ?? "—")} · ${healthStatusLabel(fish.healthStatus, false)}`}
+                    <small className="record-meta">
+                      <span>
+                        {thai ? "สายพันธุ์" : "Strain"} {String(fish.strain ?? (thai ? "ไม่ระบุ" : "Unknown"))}
+                      </span>
+                      <span>
+                        {thai ? "เกิด" : "DOB"} {String(fish.dob ?? "—")}
+                      </span>
+                      <span>{healthStatusLabel(fish.healthStatus, thai)}</span>
                     </small>
                   </span>
                   <span className="pill">{outcomeLabel((fish.status ?? "ALIVE") as FishOutcome, t)}</span>
@@ -858,8 +884,9 @@ function ManualFishForm({
           />
         </label>
       )}
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       <div className="button-row">
+        <RecordingOperator />
         <button className="button button--primary">{thai ? "บันทึกเข้าทะเบียนปลา" : "Save fish"}</button>
         <button type="button" className="button button--secondary" onClick={onCancel}>
           {thai ? "ยกเลิก" : "Cancel"}
@@ -882,21 +909,9 @@ function FishDetail({
 }) {
   const [detail, setDetail] = useState<ApiItem | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"history" | "specimens" | "details">("history");
-  const [showSpecimenForm, setShowSpecimenForm] = useState(false);
+  const [tab, setTab] = useState<"history" | "details">("history");
   const [fishEdit, setFishEdit] = useState({ fishCode: "", sex: "UNKNOWN", fishBoxId: "", remarks: "" });
   const [fishCorrectionReason, setFishCorrectionReason] = useState("");
-  const [specimen, setSpecimen] = useState({
-    specimenCode: "",
-    specimenKind: "CL",
-    specimenType: "CAUDAL_FIN_CLIP",
-    preservationState: "UNKNOWN",
-    collectedOn: bangkokDate(),
-    frozenOn: "",
-    storage: "",
-    notes: "",
-    markFinClipped: false,
-  });
   const [editing, setEditing] = useState<ApiItem | null>(null);
   const [reason, setReason] = useState("");
   const thai = t === text.th;
@@ -940,32 +955,6 @@ function FishDetail({
     setDetail({ ...detail, ...changes, sex: changes.sex as ApiItem["sex"] });
     try {
       await putQueue(`/fish/${fishId}`, changes, "application/json", "PATCH");
-    } catch (e) {
-      setDetail(previous);
-      setError((e as Error).message);
-    }
-  };
-  const saveSpecimen = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!detail) return;
-    const previous = detail;
-    const optimistic = {
-      ...specimen,
-      id: `queued-specimen-${Date.now()}`,
-      fishId,
-      queued: true,
-      frozenOn: specimen.frozenOn || null,
-      storage: specimen.storage || null,
-    };
-    setDetail({ ...detail, specimens: [...((detail.specimens as ApiItem[] | undefined) ?? []), optimistic] });
-    try {
-      await putQueue(`/fish/${fishId}/specimens`, {
-        ...specimen,
-        frozenOn: specimen.frozenOn || null,
-        storage: specimen.storage || null,
-      });
-      setSpecimen({ ...specimen, specimenCode: "" });
-      setShowSpecimenForm(false);
     } catch (e) {
       setDetail(previous);
       setError((e as Error).message);
@@ -1037,19 +1026,18 @@ function FishDetail({
           ← {thai ? "ทะเบียนปลา" : "Fish registry"}
         </button>
         {error ? (
-          <ErrorMessage message={error} />
+          <ErrorMessage message={error} toast />
         ) : (
           <p className="notice">{thai ? "กำลังเปิดประวัติปลา…" : "Loading fish record…"}</p>
         )}
       </section>
     );
   const observations = (detail.observations as ApiItem[] | undefined) ?? [];
-  const specimens = (detail.specimens as ApiItem[] | undefined) ?? [];
   const box = masters["fish-boxes"].find((item) => String(item.id) === String(detail.fishBoxId));
   const moveDetailTab = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
-    const tabs = ["history", "specimens", "details"] as const;
+    const tabs = ["history", "details"] as const;
     const index =
       event.key === "Home"
         ? 0
@@ -1070,12 +1058,12 @@ function FishDetail({
           <h1>{String(detail.fishCode)}</h1>
           <p className="muted">
             {thai
-              ? "ข้อมูลประจำตัว ผลการตรวจตามเวลา และตัวอย่างเนื้อเยื่ออยู่ในระเบียนเดียวกัน"
-              : "Identity, observation history and tissue samples in one record."}
+              ? "ข้อมูลประจำตัวและผลการตรวจตามเวลาอยู่ในระเบียนเดียวกัน"
+              : "Identity and observation history in one record."}
           </p>
         </div>
       </div>
-      <div className="record-facts">
+      <div className="record-facts record-facts--fish">
         <div className="record-fact">
           <span>{thai ? "สถานะ" : "Status"}</span>
           <strong>{outcomeLabel((detail.status ?? "ALIVE") as FishOutcome, t)}</strong>
@@ -1099,9 +1087,9 @@ function FishDetail({
           <strong>{conditionLabel(detail.condition, thai)}</strong>
         </div>
       </div>
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       <div className="tabs" role="tablist" aria-label={thai ? "ข้อมูลปลา" : "Fish record sections"}>
-        {(["history", "specimens", "details"] as const).map((value) => (
+        {(["history", "details"] as const).map((value) => (
           <button
             id={`fish-detail-tab-${value}`}
             role="tab"
@@ -1113,17 +1101,7 @@ function FishDetail({
             onKeyDown={moveDetailTab}
             key={value}
           >
-            {value === "history"
-              ? thai
-                ? "ผลการตรวจ"
-                : "Observation history"
-              : value === "specimens"
-                ? thai
-                  ? "ตัวอย่างเนื้อเยื่อและ DNA"
-                  : "Tissue & DNA samples"
-                : thai
-                  ? "ข้อมูลประจำตัว"
-                  : "Fish details"}
+            {value === "history" ? (thai ? "ผลการตรวจ" : "Observation history") : thai ? "ข้อมูลประจำตัว" : "Fish details"}
           </button>
         ))}
       </div>
@@ -1137,7 +1115,11 @@ function FishDetail({
                 <article className="timeline__item" key={String(item.id)}>
                   <div className="timeline__card">
                     <div className="timeline__meta">
-                      <strong>{String(item.observedOn ?? "—")}</strong>
+                      <strong>
+                        <time dateTime={String(item.observedOn ?? "")}>
+                          {formatBangkokDate(String(item.observedOn ?? "")) || "—"}
+                        </time>
+                      </strong>
                       <span
                         className={
                           String(item.outcome) === "DEAD" ? "status-label status-label--danger" : "status-label"
@@ -1242,156 +1224,9 @@ function FishDetail({
                 />
               </label>
               <div className="button-row">
+                <RecordingOperator />
                 <button className="button button--primary">{thai ? "บันทึกการแก้ไข" : "Save correction"}</button>
                 <button type="button" className="button button--secondary" onClick={() => setEditing(null)}>
-                  {thai ? "ยกเลิก" : "Cancel"}
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
-      )}
-      {tab === "specimens" && (
-        <div id="fish-detail-panel-specimens" role="tabpanel" aria-labelledby="fish-detail-tab-specimens">
-          <div className="task-section__head">
-            <div>
-              <h2>{thai ? "ตัวอย่างที่เก็บแล้ว" : "Collected samples"}</h2>
-              <p className="muted">
-                {thai
-                  ? "ใช้ติดตามชิ้นเนื้อ ตำแหน่งจัดเก็บ และชุดรหัสที่ส่งวิเคราะห์"
-                  : "Track tissue, storage and the analysis code set."}
-              </p>
-            </div>
-            <button className="button button--primary" onClick={() => setShowSpecimenForm((value) => !value)}>
-              {showSpecimenForm ? (thai ? "ปิดแบบฟอร์ม" : "Close form") : thai ? "เพิ่มตัวอย่าง" : "Add specimen"}
-            </button>
-          </div>
-          {!specimens.length ? (
-            <Empty message={thai ? "ยังไม่มีตัวอย่างจากปลาตัวนี้" : "No samples from this fish"} />
-          ) : (
-            <div className="specimen-grid">
-              {specimens.map((item) => (
-                <article className="specimen-card" key={String(item.id)}>
-                  <strong>{String(item.specimenCode ?? "—")}</strong>
-                  <span>
-                    {specimenTypeLabel(item.specimenType, thai)} · {String(item.specimenKind ?? "—")}
-                  </span>
-                  <small>{String(item.preservationState ?? "UNKNOWN")}</small>
-                  {Array.isArray(item.linkedFishIds) && item.linkedFishIds.length > 1 && (
-                    <small>
-                      {thai
-                        ? `ใช้ร่วมกับปลา ${item.linkedFishIds.length} ตัว`
-                        : `Shared by ${item.linkedFishIds.length} fish`}
-                    </small>
-                  )}
-                  <small>
-                    {thai ? "เก็บเมื่อ" : "Collected"} {String(item.collectedOn ?? "—")} ·{" "}
-                    {item.storage ? `${String(item.storage)} °C` : thai ? "ไม่ระบุที่เก็บ" : "No storage"}
-                  </small>
-                </article>
-              ))}
-            </div>
-          )}
-          {showSpecimenForm && (
-            <form className="task-surface form-card" onSubmit={saveSpecimen}>
-              <div>
-                <p className="eyebrow">{thai ? "บันทึกตัวอย่าง" : "SAMPLE RECORD"}</p>
-                <h2>{thai ? "เพิ่มตัวอย่างเนื้อเยื่อหรือ DNA" : "Add tissue or DNA specimen"}</h2>
-              </div>
-              <label>
-                {thai ? "รหัสตัวอย่าง" : "Specimen code"}
-                <input
-                  required
-                  value={specimen.specimenCode}
-                  onChange={(event) => setSpecimen({ ...specimen, specimenCode: event.target.value })}
-                />
-                <span className="field-hint">
-                  {thai ? "ใช้รหัสเดียวกับฉลากบนหลอด" : "Use the code printed on the sample tube"}
-                </span>
-              </label>
-              <label>
-                {thai ? "ชุดรหัสวิเคราะห์" : "Analysis code set"}
-                <select
-                  value={specimen.specimenKind}
-                  onChange={(event) => setSpecimen({ ...specimen, specimenKind: event.target.value })}
-                >
-                  <option>CL</option>
-                  <option>CLA</option>
-                  <option>RT</option>
-                  <option>DC</option>
-                </select>
-              </label>
-              <label>
-                {thai ? "ชนิดตัวอย่าง" : "Sample type"}
-                <select
-                  value={specimen.specimenType}
-                  onChange={(event) => setSpecimen({ ...specimen, specimenType: event.target.value })}
-                >
-                  <option value="CAUDAL_FIN_CLIP">{specimenTypeLabel("CAUDAL_FIN_CLIP", thai)}</option>
-                  <option value="WHOLE_EMBRYO">{specimenTypeLabel("WHOLE_EMBRYO", thai)}</option>
-                  <option value="ANAL_FIN_CLIP">{specimenTypeLabel("ANAL_FIN_CLIP", thai)}</option>
-                  <option value="LEFTOVER_CELLS">{specimenTypeLabel("LEFTOVER_CELLS", thai)}</option>
-                  <option value="WHOLE_ADULT">{specimenTypeLabel("WHOLE_ADULT", thai)}</option>
-                  <option value="UNKNOWN">{specimenTypeLabel("UNKNOWN", thai)}</option>
-                </select>
-              </label>
-              <label>
-                {thai ? "สภาพก่อนจัดเก็บ" : "Material preservation"}
-                <select
-                  value={specimen.preservationState}
-                  onChange={(event) => setSpecimen({ ...specimen, preservationState: event.target.value })}
-                >
-                  <option value="UNKNOWN">{thai ? "ยังไม่ทราบ" : "Unknown"}</option>
-                  <option value="FRESH">{thai ? "สด" : "Fresh"}</option>
-                  <option value="CRYOPRESERVED">{thai ? "เก็บรักษาด้วยความเย็น" : "Cryopreserved"}</option>
-                </select>
-              </label>
-              <label>
-                {thai ? "วันที่เก็บ" : "Collected on"}
-                <input
-                  required
-                  type="date"
-                  value={specimen.collectedOn}
-                  onChange={(event) => setSpecimen({ ...specimen, collectedOn: event.target.value })}
-                />
-              </label>
-              <label>
-                {thai ? "วันที่แช่แข็ง" : "Frozen on"}
-                <input
-                  type="date"
-                  value={specimen.frozenOn}
-                  onChange={(event) => setSpecimen({ ...specimen, frozenOn: event.target.value })}
-                />
-              </label>
-              <label>
-                {thai ? "อุณหภูมิจัดเก็บ" : "Storage temperature"}
-                <select
-                  value={specimen.storage}
-                  onChange={(event) => setSpecimen({ ...specimen, storage: event.target.value })}
-                >
-                  <option value="">{thai ? "ยังไม่จัดเก็บ" : "Not stored"}</option>
-                  <option value="-20">−20 °C</option>
-                  <option value="-80">−80 °C</option>
-                </select>
-              </label>
-              <label>
-                {thai ? "หมายเหตุ" : "Notes"}
-                <input
-                  value={specimen.notes}
-                  onChange={(event) => setSpecimen({ ...specimen, notes: event.target.value })}
-                />
-              </label>
-              <label className="check-field">
-                <input
-                  type="checkbox"
-                  checked={specimen.markFinClipped}
-                  onChange={(event) => setSpecimen({ ...specimen, markFinClipped: event.target.checked })}
-                />
-                {thai ? "ทำเครื่องหมายว่าตัดครีบแล้ว" : "Mark fin clipped"}
-              </label>
-              <div className="button-row">
-                <button className="button button--primary">{thai ? "บันทึกตัวอย่าง" : "Add specimen"}</button>
-                <button type="button" className="button button--secondary" onClick={() => setShowSpecimenForm(false)}>
                   {thai ? "ยกเลิก" : "Cancel"}
                 </button>
               </div>
@@ -1506,6 +1341,7 @@ function FishDetail({
             />
           </label>
           <div className="button-row">
+            <RecordingOperator />
             <button className="button button--primary">{thai ? "บันทึกข้อมูลปลา" : "Save fish"}</button>
           </div>
         </form>

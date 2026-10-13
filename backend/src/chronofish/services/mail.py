@@ -46,7 +46,7 @@ class SMTPMailer:
                 connection.login(self.config.mail_smtp_username, self.config.mail_smtp_password)
             connection.send_message(message)
         finally:
-            connection.quit()
+            connection.close()
 
 
 class RecordingMailer:

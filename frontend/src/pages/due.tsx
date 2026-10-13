@@ -1,7 +1,8 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 import { type ApiItem, get, operatorId } from "../api/client";
-import { Empty, ErrorMessage } from "../components";
+import { Empty, ErrorMessage, RecordingOperator } from "../components";
 import { parseFilters, withFilters } from "../filters";
+import { notify } from "../notifications";
 import {
   clearObservationDraft,
   readObservationDraft,
@@ -133,7 +134,7 @@ export function Due({ t }: { t: AppText }) {
   }
   const items = nextCheckpoints([...(data.overdue ?? []), ...(data.upcoming ?? [])]);
   return (
-    <section>
+    <section className="work-screen due-worklist">
       <div className="page-heading">
         <div>
           <p className="eyebrow">{thai ? "งานตรวจตัวอ่อนวันนี้" : "Stage 1 daily work"}</p>
@@ -176,7 +177,7 @@ export function Due({ t }: { t: AppText }) {
           </label>
         </fieldset>
       </details>
-      {error && <ErrorMessage message={error} />}
+      {error && <ErrorMessage message={error} toast />}
       {items.length === 0 ? (
         <Empty
           message={t.empty}
@@ -186,36 +187,65 @@ export function Due({ t }: { t: AppText }) {
           }}
         />
       ) : (
-        <div className="list">
-          {items.map((item: ApiItem) => {
-            const late = Number(item.minutesLate ?? 0);
-            const pendingStages = Number(item.pendingStages ?? 0);
+        <div className="due-groups">
+          {[true, false].map((overdue) => {
+            const group = items.filter((item) => Number(item.minutesLate ?? 0) > 0 === overdue);
+            if (!group.length) return null;
             return (
-              <button
-                key={String(item.injectionLotId)}
-                className={`list-row ${late > 0 ? "list-row--late" : "list-row--upcoming"}`}
-                onClick={() => selectLot(item)}
-              >
-                <span>
-                  <strong>
-                    {String(item.batchCode)} · Lot {String(item.lotNo)}
-                  </strong>
-                  <small>
-                    {thai
-                      ? `ช่วงแนะนำ ${String(item.stageLabel)} · เหลือ ${String(item.embryosRemaining ?? "—")} ตัว${pendingStages > 1 ? ` · มี ${pendingStages} ช่วงที่ถึงเวลาแล้ว` : ""}`
-                      : `Suggested ${String(item.stageLabel)} · ${String(item.embryosRemaining ?? "—")} embryos${pendingStages > 1 ? ` · ${pendingStages} stages due` : ""}`}
-                  </small>
-                </span>
-                <span className={late > 0 ? "pill pill--late" : "pill"}>
-                  {late > 0
-                    ? thai
-                      ? `เกิน ${late} นาที`
-                      : `Late ${late} min`
-                    : thai
-                      ? `อีก ${Math.abs(late)} นาที`
-                      : `Due in ${Math.abs(late)} min`}
-                </span>
-              </button>
+              <section className="due-group" key={String(overdue)} aria-labelledby={`due-group-${overdue}`}>
+                <div className="work-section-heading">
+                  <h2 id={`due-group-${overdue}`}>
+                    {overdue
+                      ? thai
+                        ? "เลยกำหนดตรวจ"
+                        : "Overdue checks"
+                      : thai
+                        ? "ถึงกำหนดและใกล้ถึงเวลา"
+                        : "Due and upcoming"}
+                  </h2>
+                  <span className="pill">
+                    {group.length} {thai ? "Lot" : "lots"}
+                  </span>
+                </div>
+                <div className="list">
+                  {group.map((item: ApiItem) => {
+                    const late = Number(item.minutesLate ?? 0);
+                    const pendingStages = Number(item.pendingStages ?? 0);
+                    return (
+                      <button
+                        key={String(item.injectionLotId)}
+                        className={`list-row ${late > 0 ? "list-row--late" : "list-row--upcoming"}`}
+                        onClick={() => selectLot(item)}
+                      >
+                        <span className="due-row__identity">
+                          <strong>
+                            {String(item.batchCode)} · Lot {String(item.lotNo)}
+                          </strong>
+                          <small>
+                            {thai
+                              ? `ช่วงแนะนำ ${String(item.stageLabel)} · เหลือ ${String(item.embryosRemaining ?? "—")} ตัว${pendingStages > 1 ? ` · มี ${pendingStages} ช่วงที่ถึงเวลาแล้ว` : ""}`
+                              : `Suggested ${String(item.stageLabel)} · ${String(item.embryosRemaining ?? "—")} embryos${pendingStages > 1 ? ` · ${pendingStages} stages due` : ""}`}
+                          </small>
+                        </span>
+                        <span className="due-row__time">
+                          <span className={late > 0 ? "pill pill--late" : "pill"}>
+                            {late > 0
+                              ? thai
+                                ? `เกิน ${late} นาที`
+                                : `Late ${late} min`
+                              : thai
+                                ? `อีก ${Math.abs(late)} นาที`
+                                : `Due in ${Math.abs(late)} min`}
+                          </span>
+                          <span className="list-row__action" aria-hidden="true">
+                            {thai ? "เริ่มตรวจ" : "Open check"} <span>→</span>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             );
           })}
         </div>
@@ -433,8 +463,14 @@ function ObservationRound({
       });
       setDraftError(false);
       setDraftSavedAt(savedAt);
-      if (manual) setSaveStatus(thai ? "บันทึกร่างแล้ว · ยังไม่ยืนยันผล" : "Draft saved · not confirmed");
+      if (manual) {
+        const message = thai ? "บันทึกร่างในอุปกรณ์แล้ว · ยังไม่ยืนยันผล" : "Draft saved on this device · not confirmed";
+        setSaveStatus(message);
+        notify(message, "warning");
+      }
     } catch {
+      if (!draftError || manual)
+        notify(thai ? "บันทึกร่างในอุปกรณ์ไม่สำเร็จ" : "Could not save the draft on this device.", "danger");
       setDraftError(true);
     }
   };
@@ -884,7 +920,7 @@ function ObservationRound({
   };
 
   return (
-    <section className="checkpoint-round">
+    <section className="work-screen checkpoint-round">
       <button className="back" onClick={leaveRound}>
         ← {t.due}
       </button>
@@ -913,58 +949,62 @@ function ObservationRound({
           </p>
         </div>
       </div>
-      <div className="checkpoint-status" role="status" aria-live="polite">
-        <strong>
-          {thai ? "ผู้บันทึก" : "Operator"} {operatorName}
-        </strong>
-        <span>{saveStatus}</span>
-      </div>
-      {error && <ErrorMessage message={error} />}
-      {draftError && (
-        <ErrorMessage
-          message={
-            thai
-              ? "อุปกรณ์นี้เก็บร่างไม่ได้ กรุณายืนยันผลก่อนออกจากหน้า"
-              : "Draft storage is unavailable. Confirm your observations before leaving."
-          }
-        />
-      )}
-      {!draftError && (
-        <div className="checkpoint-draft-panel" role="status" aria-live="polite" aria-atomic="true">
-          <div>
-            <strong>{thai ? "โหมดร่าง · บันทึกอัตโนมัติ" : "Draft mode · auto-save active"}</strong>
-            <span title={draftSavedAt ? new Date(draftSavedAt).toLocaleString() : undefined}>
-              {hasDraft
-                ? thai
-                  ? "ข้อมูลยังอยู่บนอุปกรณ์นี้ ต้องกดยืนยันผลเมื่อเสร็จ"
-                  : "Entries stay on this device until you confirm the final result."
-                : thai
-                  ? "เริ่มกรอกได้ทันที ระบบจะจำข้อมูลและหลุมล่าสุด"
-                  : "Start recording; this device will remember your entries and last selected well."}
-            </span>
-          </div>
-          <button
-            className="button button--secondary"
-            type="button"
-            disabled={!entry}
-            onClick={() => persistDraft(true)}
-          >
-            {thai ? "บันทึกร่างตอนนี้" : "Save draft now"}
-          </button>
+      <div className="checkpoint-context">
+        <div className="checkpoint-status" role="status" aria-live="polite">
+          <strong>
+            {thai ? "ผู้บันทึก" : "Operator"} {operatorName}
+          </strong>
+          <span>{saveStatus}</span>
         </div>
-      )}
-      <p className="timing-preview">
-        {thai ? "เวลาเว้นว่างไว้จะใช้เวลาปัจจุบัน · ผู้บันทึก" : "Leave time blank to use now · recorded by"} {operatorName}
-        {confirmedAt && ` · ${new Date(confirmedAt).toLocaleString()}`}
-      </p>
-      <label className="checkpoint-time-field">
-        {thai ? "เวลาที่สังเกต (ไม่บังคับ)" : "Observation time (optional)"}
-        <input
-          type="datetime-local"
-          value={observationTime}
-          onChange={(event) => setObservationTime(event.target.value)}
-        />
-      </label>
+        {error && <ErrorMessage message={error} toast />}
+        {draftError && (
+          <ErrorMessage
+            message={
+              thai
+                ? "อุปกรณ์นี้เก็บร่างไม่ได้ กรุณายืนยันผลก่อนออกจากหน้า"
+                : "Draft storage is unavailable. Confirm your observations before leaving."
+            }
+          />
+        )}
+        {!draftError && (
+          <div className="checkpoint-draft-panel" role="status" aria-live="polite" aria-atomic="true">
+            <div>
+              <strong>{thai ? "โหมดร่าง · บันทึกอัตโนมัติ" : "Draft mode · auto-save active"}</strong>
+              <span title={draftSavedAt ? new Date(draftSavedAt).toLocaleString() : undefined}>
+                {hasDraft
+                  ? thai
+                    ? "ข้อมูลยังอยู่บนอุปกรณ์นี้ ต้องกดยืนยันผลเมื่อเสร็จ"
+                    : "Entries stay on this device until you confirm the final result."
+                  : thai
+                    ? "เริ่มกรอกได้ทันที ระบบจะจำข้อมูลและหลุมล่าสุด"
+                    : "Start recording; this device will remember your entries and last selected well."}
+              </span>
+            </div>
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={!entry}
+              onClick={() => persistDraft(true)}
+            >
+              {thai ? "บันทึกร่างตอนนี้" : "Save draft now"}
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="checkpoint-timing">
+        <p className="timing-preview">
+          {thai ? "เวลาเว้นว่างไว้จะใช้เวลาปัจจุบัน · ผู้บันทึก" : "Leave time blank to use now · recorded by"} {operatorName}
+          {confirmedAt && ` · ${new Date(confirmedAt).toLocaleString()}`}
+        </p>
+        <label className="checkpoint-time-field">
+          {thai ? "เวลาที่สังเกต (ไม่บังคับ)" : "Observation time (optional)"}
+          <input
+            type="datetime-local"
+            value={observationTime}
+            onChange={(event) => setObservationTime(event.target.value)}
+          />
+        </label>
+      </div>
       <div className="checkpoint-metrics" role="status" aria-live="polite">
         <div>
           <span aria-hidden="true">•</span>
@@ -991,54 +1031,60 @@ function ObservationRound({
           <small>{thai ? "บันทึกแล้ว" : "Saved"}</small>
         </div>
       </div>
-      <div className="checkpoint-shortcuts form-card form-card--inline">
-        <label htmlFor="bulk-stage">
-          {thai ? "ระยะที่แนะนำสำหรับฟองที่ยังว่าง" : "Suggested stage for blank embryos"}
-          <select id="bulk-stage" value={selectedStage} onChange={(event) => setSelectedStage(event.target.value)}>
-            <option value="">{thai ? "เลือกระยะ" : "Choose stage"}</option>
-            {stages.map((stage) => (
-              <option key={String(stage.stageCode)} value={String(stage.stageCode)}>
-                {String(stage.stageLabel)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="bulk-action-copy">
-          <strong>
-            {thai
-              ? `การกระทำนี้จะมีผลกับ ${bulkable.length} ฟองที่ยังว่างและยังไม่บันทึก`
-              : `This deliberate action affects ${bulkable.length} blank unsaved embryos.`}
-          </strong>
-          <span>
-            {thai ? "ตรวจทานหลุมที่เป็นข้อยกเว้นได้ทีละหลุมก่อนยืนยัน" : "Review exception wells individually before confirming."}
-          </span>
-        </div>
-        <div className="button-row">
-          <button
-            className="button button--secondary"
-            type="button"
-            disabled={!selectedStage || bulkable.length === 0}
-            onClick={applyStageToBlankRows}
-          >
-            {thai ? `ใช้กับฟองว่าง ${bulkable.length} ฟอง` : `Apply to ${bulkable.length} blank`}
-          </button>
-          <button
-            className="button button--secondary"
-            type="button"
-            disabled={stagedWithoutOutcome.length === 0}
-            onClick={applyAliveToStagedRows}
-          >
-            {thai
-              ? `ตั้งสถานะมีชีวิตให้ฟองที่เลือกระยะแล้ว ${stagedWithoutOutcome.length} ฟอง`
-              : `Set Alive for ${stagedWithoutOutcome.length} staged embryos`}
-          </button>
-          {lastBulk && (
-            <button className="button button--secondary" type="button" onClick={clearLatestBulk}>
-              {thai ? "ล้างการตั้งค่าล่าสุด" : "Undo bulk stage"}
+      <details className="checkpoint-bulk-tools">
+        <summary>
+          {thai ? "เครื่องมือสำหรับหลายหลุม" : "Tools for multiple wells"}
+          <span>{thai ? `ฟองว่าง ${bulkable.length} ฟอง` : `${bulkable.length} blank embryos`}</span>
+        </summary>
+        <div className="checkpoint-shortcuts form-card form-card--inline">
+          <label htmlFor="bulk-stage">
+            {thai ? "ระยะที่แนะนำสำหรับฟองที่ยังว่าง" : "Suggested stage for blank embryos"}
+            <select id="bulk-stage" value={selectedStage} onChange={(event) => setSelectedStage(event.target.value)}>
+              <option value="">{thai ? "เลือกระยะ" : "Choose stage"}</option>
+              {stages.map((stage) => (
+                <option key={String(stage.stageCode)} value={String(stage.stageCode)}>
+                  {String(stage.stageLabel)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="bulk-action-copy">
+            <strong>
+              {thai
+                ? `การกระทำนี้จะมีผลกับ ${bulkable.length} ฟองที่ยังว่างและยังไม่บันทึก`
+                : `This deliberate action affects ${bulkable.length} blank unsaved embryos.`}
+            </strong>
+            <span>
+              {thai ? "ตรวจทานหลุมที่เป็นข้อยกเว้นได้ทีละหลุมก่อนยืนยัน" : "Review exception wells individually before confirming."}
+            </span>
+          </div>
+          <div className="button-row">
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={!selectedStage || bulkable.length === 0}
+              onClick={applyStageToBlankRows}
+            >
+              {thai ? `ใช้กับฟองว่าง ${bulkable.length} ฟอง` : `Apply to ${bulkable.length} blank`}
             </button>
-          )}
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={stagedWithoutOutcome.length === 0}
+              onClick={applyAliveToStagedRows}
+            >
+              {thai
+                ? `ตั้งสถานะมีชีวิตให้ฟองที่เลือกระยะแล้ว ${stagedWithoutOutcome.length} ฟอง`
+                : `Set Alive for ${stagedWithoutOutcome.length} staged embryos`}
+            </button>
+            {lastBulk && (
+              <button className="button button--secondary" type="button" onClick={clearLatestBulk}>
+                {thai ? "ล้างการตั้งค่าล่าสุด" : "Undo bulk stage"}
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
       <div className="checkpoint-workspace">
         <section className="checkpoint-plate" aria-labelledby="checkpoint-plate-heading">
           <div className="checkpoint-section-heading">
@@ -1085,6 +1131,9 @@ function ObservationRound({
             </label>
           </fieldset>
           <div className="checkpoint-legend" aria-label={thai ? "คำอธิบายสถานะหลุม" : "Well status legend"}>
+            <span className="checkpoint-legend__abnormal">
+              ! {outcomeLabel("ALIVE", thai)} · {conditionLabel("ABNORMAL", thai)}
+            </span>
             <span>○ {thai ? "ยังไม่ตรวจ" : "Unreviewed"}</span>
             <span>• {thai ? "พร้อมบันทึก" : "Ready to save"}</span>
             <span>! {thai ? "ข้อยกเว้น" : "Exception"}</span>
@@ -1116,6 +1165,10 @@ function ObservationRound({
                 const id = String(embryo.embryoId);
                 const well = String(embryo.wellPosition ?? (thai ? "ไม่ระบุหลุม" : "Unassigned"));
                 const state = stateFor(embryo);
+                const abnormal =
+                  state !== "dead" &&
+                  (embryoOutcomes[id] || embryo.priorOutcome) === "ALIVE" &&
+                  embryoConditions[id] === "ABNORMAL";
                 return (
                   <div role="gridcell" aria-selected={id === selectedId} key={id}>
                     <button
@@ -1125,8 +1178,8 @@ function ObservationRound({
                       id={wellButtonId(id)}
                       data-well={well}
                       type="button"
-                      className={`well-cell well-cell--${state}${!embryo.wellPosition ? " well-cell--unassigned" : ""}${id === selectedId ? " well-cell--selected" : ""}`}
-                      aria-label={`${thai ? "หลุม" : "Well"} ${well}, ${String(embryo.embryoCode ?? "")}, ${stateLabel(state)}${id === selectedId ? `, ${thai ? "กำลังเลือก" : "selected"}` : ""}`}
+                      className={`well-cell well-cell--${state}${abnormal ? " well-cell--abnormal" : ""}${!embryo.wellPosition ? " well-cell--unassigned" : ""}${id === selectedId ? " well-cell--selected" : ""}`}
+                      aria-label={`${thai ? "หลุม" : "Well"} ${well}, ${String(embryo.embryoCode ?? "")}, ${stateLabel(state)}${abnormal ? `, ${outcomeLabel("ALIVE", thai)}, ${conditionLabel("ABNORMAL", thai)}` : ""}${id === selectedId ? `, ${thai ? "กำลังเลือก" : "selected"}` : ""}`}
                       aria-pressed={id === selectedId}
                       tabIndex={id === selectedId || (!selectedId && index === 0) ? 0 : -1}
                       onClick={() => selectWell(id, true)}
@@ -1142,6 +1195,7 @@ function ObservationRound({
                             }`}
                       </strong>
                       {!embryo.wellPosition && <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>}
+                      {abnormal && <small>{conditionLabel("ABNORMAL", thai)}</small>}
                       <span title={stateLabel(state)}>
                         <b aria-hidden="true">
                           {state === "dead"
@@ -1369,6 +1423,7 @@ function ObservationRound({
       <div className="checkpoint-action-bar" aria-describedby="checkpoint-confirm-explainer">
         <div>
           <strong>{thai ? "ยืนยันผลการตรวจ" : "Confirm observations"}</strong>
+          <RecordingOperator />
           <span id="checkpoint-confirm-explainer">{disabledReason}</span>
         </div>
         <button

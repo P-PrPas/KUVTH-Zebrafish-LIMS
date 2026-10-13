@@ -8,9 +8,11 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
+from ..services.passwords import check_password, hash_password
 
 IDLE_TTL = timedelta(days=30)
 SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
@@ -103,6 +105,122 @@ class AuthRepository:
     def token_hash(self, token: str) -> str:
         return hashlib.sha256(token.encode()).hexdigest()
 
+    def register_guest(self, email: str, now: datetime) -> None:
+        if self.engine is None:
+            with self.lock:
+                if any(user["email"] == email for user in self.store.auth_users.values()):
+                    return
+                user_id = uuid7()
+                self.store.auth_users[user_id] = {
+                    "id": user_id,
+                    "email": email,
+                    "role": "guest",
+                    "active": True,
+                    "verified_at": None,
+                    "invited_at": now,
+                    "operator_id": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            return
+        try:
+            with self.engine.begin() as connection:
+                if connection.execute(text("SELECT id FROM auth_user WHERE email = :email"), {"email": email}).first():
+                    return
+                connection.execute(
+                    text(
+                        "INSERT INTO auth_user (id, email, role, active, invited_at, created_at, updated_at) "
+                        "VALUES (:id, :email, 'guest', :active, :now, :now, :now)"
+                    ),
+                    {"id": uuid7(), "email": email, "active": True, "now": _stored(now)},
+                )
+        except IntegrityError:
+            if not self.user_by_email(email):
+                raise
+
+    def password_login(
+        self, email: str, password: str, session_id: str, token_hash: str, device_id: str, now: datetime
+    ) -> dict[str, Any] | None:
+        def valid(user: Any) -> bool:
+            eligible = bool(
+                user
+                and user["role"] == "guest"
+                and user["active"]
+                and user["verified_at"]
+                and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
+            )
+            return check_password(password, user.get("password_hash") if eligible else None) and eligible
+
+        if self.engine is None:
+            with self.lock:
+                user = next((u for u in self.store.auth_users.values() if u["email"] == email), None)
+                accepted = valid(user)
+                if not accepted:
+                    if (
+                        user
+                        and user["role"] == "guest"
+                        and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
+                    ):
+                        attempts = 0 if user.get("password_locked_until") else user.get("password_attempts", 0)
+                        user["password_attempts"] = attempts + 1
+                        user["password_locked_until"] = _utc(now) + timedelta(minutes=15) if attempts >= 4 else None
+                    return None
+                user.update(password_attempts=0, password_locked_until=None)
+                self.store.auth_sessions[token_hash] = {
+                    "id": session_id,
+                    "user_id": user["id"],
+                    "device_id": device_id,
+                    "created_at": now,
+                    "last_seen_at": now,
+                    "revoked_at": None,
+                    "absolute_expires_at": _utc(now) + ABSOLUTE_TTL,
+                }
+                return dict(user)
+        with self.engine.begin() as connection:
+            row = (
+                connection.execute(text("SELECT * FROM auth_user WHERE email = :email FOR UPDATE"), {"email": email})
+                .mappings()
+                .first()
+            )
+            user = dict(row) if row else None
+            accepted = valid(user)
+            if (
+                user
+                and user["role"] == "guest"
+                and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
+            ):
+                attempts = 0 if accepted or user["password_locked_until"] else int(user["password_attempts"])
+                attempts = 0 if accepted else attempts + 1
+                connection.execute(
+                    text(
+                        "UPDATE auth_user SET password_attempts = :attempts, password_locked_until = :locked "
+                        "WHERE id = :id"
+                    ),
+                    {
+                        "id": user["id"],
+                        "attempts": attempts,
+                        "locked": _stored(_utc(now) + timedelta(minutes=15)) if attempts >= 5 else None,
+                    },
+                )
+            if not accepted:
+                return None
+            connection.execute(
+                text(
+                    "INSERT INTO auth_session "
+                    "(id, token_hash, user_id, device_id, created_at, last_seen_at, absolute_expires_at) "
+                    "VALUES (:id, :hash, :user, :device, :now, :now, :expires)"
+                ),
+                {
+                    "id": session_id,
+                    "hash": token_hash,
+                    "user": user["id"],
+                    "device": device_id,
+                    "now": _stored(now),
+                    "expires": _stored(_utc(now) + ABSOLUTE_TTL),
+                },
+            )
+            return _user_payload(user)
+
     def ensure_bootstrap(self, email: str, now: datetime) -> None:
         email = email.strip().lower()
         if self.engine is None:
@@ -134,6 +252,15 @@ class AuthRepository:
                     ),
                     {"id": uuid7(), "email": email, "active": True, "now": _stored(now)},
                 )
+
+    def user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        if self.engine is None:
+            with self.lock:
+                row = self.store.auth_users.get(user_id)
+                return {**_user_payload(row), "updatedAt": _iso(row["updated_at"])} if row else None
+        with self.engine.connect() as connection:
+            row = connection.execute(text("SELECT * FROM auth_user WHERE id = :id"), {"id": user_id}).mappings().first()
+            return {**_user_payload(row), "updatedAt": _iso(row["updated_at"])} if row else None
 
     def user_by_email(self, email: str) -> dict[str, Any] | None:
         if self.engine is None:
@@ -243,7 +370,14 @@ class AuthRepository:
             return True
 
     def verify_and_create_session(
-        self, email: str, digest: str, session_id: str, token_hash: str, device_id: str, now: datetime
+        self,
+        email: str,
+        digest: str,
+        session_id: str,
+        token_hash: str,
+        device_id: str,
+        now: datetime,
+        password: str | None = None,
     ) -> VerificationResult:
         if self.engine is None:
             with self.lock:
@@ -266,6 +400,11 @@ class AuthRepository:
                     if reached:
                         challenge["locked_until"] = _utc(now) + OTP_DAILY_WINDOW
                     return VerificationResult(None, reached)
+                if password is not None and user["role"] != "guest":
+                    raise APIError(400, "otp_required", "Admin and Member accounts must sign in with an email code")
+                if user["role"] == "guest" and password is None:
+                    raise APIError(400, "password_required", "Set a password to complete registration")
+                password_hash = hash_password(password) if password is not None else None
                 challenge.update(
                     code_hash="",
                     expires_at=_utc(now),
@@ -277,6 +416,11 @@ class AuthRepository:
                 )
                 user["verified_at"] = now
                 user["updated_at"] = now
+                if password_hash:
+                    user.update(password_hash=password_hash, password_attempts=0, password_locked_until=None)
+                    for session in self.store.auth_sessions.values():
+                        if session["user_id"] == user["id"]:
+                            session["revoked_at"] = now
                 self.store.auth_sessions[token_hash] = {
                     "id": session_id,
                     "user_id": user["id"],
@@ -344,6 +488,23 @@ class AuthRepository:
                 )
                 return VerificationResult(None, reached)
             now_db = _stored(now)
+            if password is not None and user["role"] != "guest":
+                raise APIError(400, "otp_required", "Admin and Member accounts must sign in with an email code")
+            if user["role"] == "guest" and password is None:
+                raise APIError(400, "password_required", "Set a password to complete registration")
+            password_hash = hash_password(password) if password is not None else None
+            if password_hash:
+                connection.execute(
+                    text(
+                        "UPDATE auth_user SET password_hash = :hash, password_attempts = 0, "
+                        "password_locked_until = NULL WHERE id = :id"
+                    ),
+                    {"hash": password_hash, "id": user["id"]},
+                )
+                connection.execute(
+                    text("UPDATE auth_session SET revoked_at = :now WHERE user_id = :id AND revoked_at IS NULL"),
+                    {"now": now_db, "id": user["id"]},
+                )
             connection.execute(text("DELETE FROM auth_login_failure WHERE email = :email"), {"email": email})
             connection.execute(
                 text(
@@ -448,7 +609,23 @@ class AuthRepository:
         user_id = uuid7()
         if self.engine is None:
             with self.lock:
-                if any(user["email"] == email for user in self.store.auth_users.values()):
+                existing = next((user for user in self.store.auth_users.values() if user["email"] == email), None)
+                if existing and existing["role"] == "guest" and not existing["verified_at"] and existing["active"]:
+                    old = _user_payload(existing)
+                    existing.update(
+                        role="member",
+                        invited_at=now,
+                        updated_at=now,
+                        password_hash=None,
+                        password_attempts=0,
+                        password_locked_until=None,
+                    )
+                    challenge = self.store.auth_challenges.get(email)
+                    if challenge:
+                        challenge.update(code_hash="", expires_at=now)
+                    self._memory_audit(actor, "UPDATE", existing["id"], old, _user_payload(existing), now)
+                    return dict(existing)
+                if existing:
                     raise APIError(409, "already_invited", "This email already has an account")
                 user = {
                     "id": user_id,
@@ -467,7 +644,34 @@ class AuthRepository:
                 )
                 return dict(user)
         with self.engine.begin() as connection:
-            if connection.execute(text("SELECT id FROM auth_user WHERE email = :email"), {"email": email}).first():
+            existing = (
+                connection.execute(text("SELECT * FROM auth_user WHERE email = :email FOR UPDATE"), {"email": email})
+                .mappings()
+                .first()
+            )
+            if existing and existing["role"] == "guest" and not existing["verified_at"] and existing["active"]:
+                connection.execute(
+                    text(
+                        "UPDATE auth_user SET role = 'member', invited_at = :now, updated_at = :now, "
+                        "invited_by_user_id = :actor, password_hash = NULL, password_attempts = 0, "
+                        "password_locked_until = NULL WHERE id = :id"
+                    ),
+                    {"id": existing["id"], "actor": actor["id"], "now": _stored(now)},
+                )
+                connection.execute(
+                    text("UPDATE auth_login_challenge SET code_hash = '', expires_at = :now WHERE email = :email"),
+                    {"email": email, "now": _stored(now)},
+                )
+                row = (
+                    connection.execute(text("SELECT * FROM auth_user WHERE id = :id"), {"id": existing["id"]})
+                    .mappings()
+                    .one()
+                )
+                self._sql_audit(
+                    connection, actor, "UPDATE", existing["id"], _user_payload(existing), _user_payload(row), now
+                )
+                return _user_payload(row)
+            if existing:
                 raise APIError(409, "already_invited", "This email already has an account")
             connection.execute(
                 text(
@@ -725,8 +929,8 @@ class AuthRepository:
         unknown = set(changes) - {"role", "active", "operatorId", "acknowledgePendingDataRisk"}
         if unknown or not changes:
             raise APIError(400, "invalid_update", "Update fields are invalid")
-        if "role" in changes and changes["role"] not in {"admin", "member"}:
-            raise APIError(400, "invalid_role", "Role must be admin or member")
+        if "role" in changes and changes["role"] not in {"admin", "member", "guest"}:
+            raise APIError(400, "invalid_role", "Role must be admin, member or guest")
         if "active" in changes and not isinstance(changes["active"], bool):
             raise APIError(400, "invalid_status", "active must be a boolean")
         if "operatorId" in changes and changes["operatorId"] is not None and not isinstance(changes["operatorId"], str):

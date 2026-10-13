@@ -4,8 +4,8 @@
 | | |
 |---|---|
 | **เอกสาร** | Software Requirements Specification |
-| **เวอร์ชัน** | 1.0 |
-| **วันที่** | 2026-08-20 |
+| **เวอร์ชัน** | 1.1 |
+| **วันที่** | 2026-10-12 |
 | **ลูกค้า** | ห้องปฏิบัติการ Cloning โรงพยาบาลสัตว์ |
 | **อ้างอิง** | Requirement Analysis v0.3 (เอกสารแยก) |
 | **มาตรฐาน** | อ้างอิงโครงสร้างตาม ISO/IEC/IEEE 29148 |
@@ -74,7 +74,6 @@
 | **Promotion** | การเลื่อนขั้นตัวอ่อนที่รอดเกิน 5 วันขึ้นเป็นปลาโคลน |
 | **Exit event** | เหตุการณ์ที่ทำให้หยุดติดตามหน่วยนั้น (ตาย / สลาย / เลื่อนขั้น / สูญหาย) |
 | **Monotonic survival** | คุณสมบัติว่าเมื่อตายแล้วไม่กลับมามีชีวิต |
-| **Control arm** | กลุ่มเปรียบเทียบที่บันทึกแบบนับรวม (Natural breeding, IVF) |
 | **Clutch** | ชุดไข่จากแม่ปลาชุดเดียวกัน (`E1`, `E4`, `E6`, `E7`) |
 | **CSOF** | ล็อตน้ำยา/อาหารเลี้ยงที่ใช้ในรอบทดลอง |
 | **Enucleation** | การดูดนิวเคลียสของไข่ผู้รับออก |
@@ -115,7 +114,7 @@ graph LR
 
     SYS["🖥️ KUVTH Zebrafish LIMS"]
 
-    XL["📄 Excel Workbook<br/>(14 sheets)"]
+    XL["📄 Excel Workbook<br/>(13 sheets)"]
     PDF["📄 PDF Summary"]
     R["📊 R / survival analysis"]
 
@@ -140,7 +139,6 @@ graph LR
 | F4 | บันทึกผลติดตาม Stage 1 (ตัวอ่อน) | FR-400 |
 | F5 | เลื่อนขั้นตัวอ่อนเป็นปลาโคลน | FR-500 |
 | F6 | ลงทะเบียนและติดตามปลาโคลน Stage 2 | FR-600 |
-| F7 | บันทึกกลุ่มเปรียบเทียบแบบนับรวม | FR-700 |
 | F8 | แสดง Dashboard | FR-800 |
 | F9 | ส่งออกข้อมูล | FR-900 |
 | F10 | ความทนทานต่อเครือข่ายและการซิงก์ | FR-1000 |
@@ -241,7 +239,6 @@ graph LR
 | SCR-08 | ทะเบียนปลาโคลน | ทุกคน | ทุกอุปกรณ์ |
 | SCR-09 | รายละเอียดปลา 1 ตัว (timeline) | ทุกคน | ทุกอุปกรณ์ |
 | SCR-10 | เช็คชื่อปลารายวัน | Care Staff | iPad / มือถือ |
-| SCR-11 | บันทึกกลุ่มเปรียบเทียบ (Control arm) | Technician | Desktop / iPad |
 | SCR-12 | Dashboard — Stage 1 | PI | Desktop |
 | SCR-13 | Dashboard — Stage 2 | PI | Desktop |
 | SCR-14 | Dashboard — ภาพรวม | PI | Desktop |
@@ -295,7 +292,6 @@ graph LR
 | UC-03 | สร้างรอบทดลอง | Technician | FR-301 ถึง FR-305 |
 | UC-04 | เพิ่มล็อตการฉีดและสร้างตัวอ่อน | Technician | FR-306 ถึง FR-310 |
 | UC-05 | บันทึกผล checkpoint | Technician | FR-401 ถึง FR-412 |
-| UC-06 | บันทึกกลุ่มเปรียบเทียบ | Technician | FR-701 ถึง FR-703 |
 | UC-07 | เลื่อนขั้นเป็นปลาโคลน | Technician | FR-501 ถึง FR-506 |
 | UC-08 | เช็คชื่อปลารายวัน | Care Staff | FR-601 ถึง FR-606 |
 | UC-09 | บันทึกข้อมูลย้อนหลัง | ทุกคน | FR-413, FR-607 |
@@ -462,15 +458,6 @@ graph LR
 | FR-612 | ระบบต้องให้ผู้ใช้ย้ายปลาไป Fish Box อื่นได้ | SHOULD |
 | FR-613 | ระบบต้องให้ผู้ใช้แก้ `remarks` ของปลาได้ | MUST |
 
-## 4.7 FR-700 — กลุ่มเปรียบเทียบแบบนับรวม
-
-| ID | ข้อกำหนด | ระดับ |
-|---|---|---|
-| FR-701 | ระบบต้องให้ผู้ใช้บันทึกจำนวน `n_normal` และ `n_abnormal` ของกลุ่ม `NATURAL_BREEDING` และ `IVF` ต่อรอบทดลอง ณ checkpoint ที่กำหนด | MUST |
-| FR-702 | checkpoint ที่ต้องรองรับอย่างน้อย: `4-cell`, `Shield` ถึง `75% epiboly`, `Day 1`, `Day 2`, `Day 3` | MUST |
-| FR-703 | ระบบต้องไม่สร้างระเบียนตัวอ่อนรายฟองสำหรับกลุ่มเหล่านี้ | MUST |
-| FR-704 | Dashboard ต้องแสดงกลุ่มเหล่านี้เทียบกับกลุ่ม SCNT ได้ | MUST |
-
 ## 4.8 FR-800 — Dashboard
 
 ### 4.8.1 ทั่วไป
@@ -494,7 +481,6 @@ graph LR
 | FR-810 | Timing evidence | ตาราง `deviation_h` ต่อ checkpoint พร้อมจำนวนตัวอย่าง ค่าเฉลี่ย มัธยฐาน ต่ำสุด และสูงสุด; ไม่ใช้ box plot ในหน้าหลัก | SHOULD |
 | FR-811 | Timing deviation เทียบกลุ่ม | ตารางเปรียบเทียบต่อ Treatment Group / Donor Cell Line ในส่วนวิเคราะห์เพิ่มเติมหรือไฟล์ส่งออก | SHOULD |
 | FR-812 | จุดเริ่มผิดปกติ | ฮิสโทแกรมว่าความผิดปกติถูกพบครั้งแรกที่ checkpoint ใด | MUST |
-| FR-813 | เปรียบเทียบกลุ่มควบคุม | ตารางเทียบ SCNT vs Natural breeding vs IVF ที่ checkpoint หลัก | MUST |
 | FR-814 | ตารางผลรายรอบ | เรียงรอบทดลองตาม % รอดถึง Day 5 | SHOULD |
 
 ### 4.8.3 แท็บ Stage 2
@@ -521,12 +507,12 @@ graph LR
 
 | ID | ข้อกำหนด | ระดับ |
 |---|---|---|
-| FR-901 | ระบบต้องส่งออกไฟล์ Excel (`.xlsx`) ที่มี 14 sheet ตามภาคผนวก B | MUST |
+| FR-901 | ระบบต้องส่งออกไฟล์ Excel (`.xlsx`) ที่มี 13 sheet ตามภาคผนวก B | MUST |
 | FR-902 | ทุก sheet ต้องเป็นตารางแบน **หัวตารางแถวเดียว ไม่มีเซลล์ผสาน (merged cell)** | MUST |
 | FR-903 | sheet `00_Metadata` ต้องระบุ ช่วงข้อมูล, ตัวกรองที่ใช้, วันเวลาที่ส่งออก, เวอร์ชันระบบ, **เวอร์ชัน Timing Profile**, และจำนวนแถวของแต่ละ sheet | MUST |
 | FR-904 | sheet `12_R_Analysis_Table` ต้องมีคอลัมน์ `Sites`, `Strain`, `Replicate`, `Strain_Rep` ตามด้วยคอลัมน์ checkpoint และต้องอ่านด้วย `readxl::read_excel()` ได้โดยไม่ต้องข้ามแถว | MUST |
 | FR-905 | การส่งออกต้องใช้ตัวกรองเดียวกับที่เลือกอยู่บน dashboard | MUST |
-| FR-906 | ระบบต้องสร้างไฟล์สรุป Dashboard เป็น PDF ที่มี KPI, funnel, survival curve, แผง timing deviation และตารางเปรียบเทียบกลุ่ม | MUST |
+| FR-906 | ระบบต้องสร้างไฟล์สรุป Dashboard เป็น PDF ที่มี KPI, funnel, survival curve และแผง timing deviation | MUST |
 | FR-907 | PDF ต้องสร้างจากฝั่งเบราว์เซอร์ผ่าน print stylesheet — ห้าม backend พึ่งพา headless browser | MUST |
 | FR-908 | ระบบต้องส่งออก CSV รายตารางได้ | SHOULD |
 | FR-909 | ไฟล์ส่งออกต้องสร้างสด ๆ ต่อคำขอ ห้ามเขียนลง local filesystem ถาวร | MUST |
@@ -671,7 +657,7 @@ erDiagram
 | `id` | CHAR(36) | ไม่ | PK |
 | `code` | VARCHAR(50) | ไม่ | unique (normalize) เช่น `CONTROL`, `RK701` |
 | `name` | VARCHAR(200) | ได้ | |
-| `arm_type` | VARCHAR(20) | ไม่ | CHECK ∈ {`SCNT`,`NATURAL_BREEDING`,`IVF`} |
+| `arm_type` | VARCHAR(20) | ไม่ | CHECK ∈ {`SCNT`} |
 | `active` | BOOLEAN | ไม่ | |
 
 ### `fish_box`
@@ -804,18 +790,6 @@ erDiagram
 | `is_backdated` | BOOLEAN | ไม่ | ค่าเริ่มต้น `false` |
 | `override_reason` | VARCHAR(500) | ได้ | บังคับเมื่อละเมิด monotonic (FR-420) |
 | `notes` | TEXT | ได้ | |
-
-### `control_arm_count`
-
-| คอลัมน์ | ชนิด | Null | หมายเหตุ |
-|---|---|---|---|
-| `id` | CHAR(36) | ไม่ | PK |
-| `batch_id` | CHAR(36) | ไม่ | FK → `experiment_batch` |
-| `arm_type` | VARCHAR(20) | ไม่ | CHECK ∈ {`NATURAL_BREEDING`,`IVF`} |
-| `stage_definition_id` | CHAR(36) | ไม่ | FK → `stage_definition` |
-| `n_normal` | INT | ไม่ | CHECK ≥ 0 |
-| `n_abnormal` | INT | ไม่ | CHECK ≥ 0 |
-| | | | unique (`batch_id`,`arm_type`,`stage_definition_id`) |
 
 ## 5.6 ตารางปลาโคลน
 
@@ -1323,7 +1297,6 @@ stateDiagram-v2
 | GET | `/injection-lots/{id}/embryos` | รายการตัวอ่อนในล็อต | FR-308 |
 | PATCH | `/embryos/{id}` | แก้ไข well position ฯลฯ | FR-309 |
 | POST/DELETE | `/injection-lots/{id}/embryos` | เพิ่ม/ลบตัวอ่อนภายหลัง | FR-310 |
-| POST | `/batches/{id}/control-arm-counts` | บันทึกกลุ่มเปรียบเทียบ | FR-701 |
 
 ## 8.4 การบันทึกผล
 
@@ -1408,7 +1381,7 @@ stateDiagram-v2
 | GET | `/analytics/fish-survival` | เส้นรอดรายวัน | FR-816, FR-817 |
 | GET | `/analytics/observation-gaps` | ปลาที่ขาดการเช็คชื่อ | FR-822 |
 | GET | `/analytics/pipeline` | funnel ต่อเนื่องทั้งสอง stage | FR-823 |
-| POST | `/exports/excel` | สร้างไฟล์ `.xlsx` 14 sheet | FR-901 |
+| POST | `/exports/excel` | สร้างไฟล์ `.xlsx` 13 sheet | FR-901 |
 | GET | `/exports/r-table` | ตาราง R แบบ CSV | FR-904 |
 | GET | `/audit-log?table=&recordId=` | ประวัติการแก้ไข | FR-1103 |
 
@@ -1501,7 +1474,6 @@ stateDiagram-v2
 | 9 | ย้าย stage เมื่ออายุเกิน 5 วันและยังมีชีวิตรอด | FR-501–FR-509, BR-09, BR-10 | AC-505 |
 | 10 | Abnormal ติดตามต่อจนตาย แค่ mark ว่าพบช่วงไหน | FR-506, FR-605, FR-812, BR-12 | — |
 | 11 | ต้องการ R-ready export | FR-904, BR-15, BR-16 | AC-904 |
-| 12 | Natural breeding / IVF นับรวมตาม Excel | FR-701–FR-704 | — |
 | 13 | Stage 2 เช็คทุกวัน + กรอกย้อนหลังได้ | FR-602, FR-607, FR-413, FR-822, BR-19 | AC-606 |
 | 14 | รองรับ desktop, iPad, smartphone | UI-01–UI-10, NFR-401–NFR-403, 3.1.3 | — |
 | 15 | ทนต่อเน็ตที่หลุดเป็นครั้งคราว | FR-1001–FR-1007, NFR-201, NFR-202 | AC-1002, AC-1003 |
@@ -1522,7 +1494,6 @@ stateDiagram-v2
 | SCR-08 ทะเบียนปลาโคลน | FR-601, FR-509 |
 | SCR-09 รายละเอียดปลา | FR-608, FR-609, FR-613 |
 | SCR-10 เช็คชื่อรายวัน | FR-602–FR-607 |
-| SCR-11 กลุ่มเปรียบเทียบ | FR-701–FR-703 |
 | SCR-12/13/14 Dashboard | FR-801–FR-824 |
 | SCR-15 ตั้งค่าเวลามาตรฐาน | FR-203–FR-208 |
 | SCR-16 ข้อมูลหลัก | FR-101–FR-111 |
@@ -1544,11 +1515,10 @@ stateDiagram-v2
 | 7 | `06_Fish_Register` | `fish_code`, `running_no`, `dob`, `strain`, `donor_batch_code`, `site`, `fish_box`, `status`, `condition`, `first_abnormal_on`, `first_abnormal_age_days`, `sex`, `fin_clipped`, `exit_date`, `exit_reason`, `age_days_current`, `embryo_code`, `remarks` |
 | 8 | `07_Fish_Observations` | `fish_code`, `observed_on`, `age_days`, `outcome`, `condition`, `operator`, `is_backdated`, `notes` |
 | 9 | `08_Fish_Matrix` | `fish_code`, `dob`, `strain`, `status` + คอลัมน์ `d1`…`dN` โดย N = อายุสูงสุดที่มีข้อมูลจริง |
-| 10 | `09_Control_Arms` | `batch_code`, `experiment_date`, `site`, `arm_type`, `stage_label`, `n_normal`, `n_abnormal` |
-| 11 | `10_Specimens` | `specimen_code`, `fish_code`, `specimen_kind`, `specimen_type`, `collected_on`, `frozen_on`, `storage`, `notes` |
-| 12 | `11_Summary` | `strain`, `n_batches`, `n_eggs`, `n_activated`, `n_reached_shield`, `n_reached_day1`, `n_promoted`, `n_normal`, `n_abnormal`, `pct_normal`, `pct_abnormal` |
-| 13 | `12_R_Analysis_Table` | `Sites`, `Strain`, `Replicate`, `Strain_Rep` + คอลัมน์ checkpoint 26 คอลัมน์ (ค่าเป็นจำนวนตัวอ่อนที่รอด) |
-| 14 | `13_Stage_Timing_Reference` | `stage_order`, `stage_code`, `stage_label`, `expected_hpa`, `phase`, `stage_scope`, `profile_version`, `reference_temp_c`, `source_note` |
+| 10 | `10_Specimens` | `specimen_code`, `fish_code`, `specimen_kind`, `specimen_type`, `collected_on`, `frozen_on`, `storage`, `notes` |
+| 11 | `11_Summary` | `strain`, `n_batches`, `n_eggs`, `n_activated`, `n_reached_shield`, `n_reached_day1`, `n_promoted`, `n_normal`, `n_abnormal`, `pct_normal`, `pct_abnormal` |
+| 12 | `12_R_Analysis_Table` | `Sites`, `Strain`, `Replicate`, `Strain_Rep` + คอลัมน์ checkpoint 26 คอลัมน์ (ค่าเป็นจำนวนตัวอ่อนที่รอด) |
+| 13 | `13_Stage_Timing_Reference` | `stage_order`, `stage_code`, `stage_label`, `expected_hpa`, `phase`, `stage_scope`, `profile_version`, `reference_temp_c`, `source_note` |
 
 > sheet ที่ 13 มีเพื่อให้ผู้รับไฟล์รู้ว่าค่า `deviation` ในไฟล์นั้นเทียบกับเวลามาตรฐานชุดใด — จำเป็นต่อการทำซ้ำผลวิเคราะห์
 
@@ -1606,7 +1576,7 @@ stateDiagram-v2
 | `site` | `KU`, `MSU` |
 | `operator` | `Jan`, `June`, `Bee`, `Toon` |
 | `donor_cell_line` | strain `AB`, `TU`, `NHGRI` × preparation `DISSOCIATED`, `CHUNKS` |
-| `treatment_group` | `CONTROL` (SCNT), `RK701` (SCNT), `NATURAL_BREEDING`, `IVF` |
+| `treatment_group` | `CONTROL` (SCNT), `RK701` (SCNT) |
 | `protocol` | `SCNT standard` โดย `stage1_max_age_days = 5` |
 
 ---

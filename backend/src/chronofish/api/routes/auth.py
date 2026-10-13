@@ -13,7 +13,7 @@ from ...services.auth import SESSION_COOKIE, SESSION_COOKIE_MAX_AGE, AuthService
 
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    role: Literal["admin", "member"] | None = None
+    role: Literal["admin", "member", "guest"] | None = None
     active: bool | None = None
     operatorId: str | None = None
     acknowledgePendingDataRisk: bool | None = None
@@ -46,6 +46,29 @@ def build_auth_router(auth: AuthService) -> APIRouter:
         email = auth.validate_code_request(body)
         background_tasks.add_task(auth.deliver_code, email)
         return {"status": "If this email is invited, check its inbox for a sign-in code."}
+
+    @router.post("/register", status_code=202)
+    def register(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
+        email = auth.validate_registration(body)
+        background_tasks.add_task(auth.register, email)
+        return {"status": "If this account is active, a verification code has been sent."}
+
+    @router.post("/login")
+    def login(request: Request, response: Response, body: dict[str, Any]) -> dict[str, Any]:
+        user, token = auth.login(body, request.headers.get("X-Device-Id", ""))
+        set_session_cookie(response, token)
+        return {"user": user}
+
+    def set_session_cookie(response: Response, token: str) -> None:
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=SESSION_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=auth.config.session_cookie_secure,
+            samesite="lax",
+            path="/",
+        )
 
     @router.post("/verify-code")
     def verify_code(

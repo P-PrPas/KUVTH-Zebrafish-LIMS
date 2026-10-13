@@ -74,10 +74,12 @@ describe("export page", () => {
     expect(dashboardCalls).toHaveLength(1);
     expect(String(dashboardCalls[0][0])).toContain("siteId=site-1");
     expect(String(dashboardCalls[0][0])).not.toContain("status=DEAD");
-    expect(document.body.textContent).toContain("Filters: siteId=site-1");
+    expect(document.body.textContent).toContain("Filters: Site: site-1");
     expect(document.body.textContent).not.toContain("status=DEAD");
-    expect(document.body.textContent).toContain("Timing profile versions: 1");
-    expect(document.body.textContent).toContain("Generated: 2026-08-24T10:00:00Z");
+    expect(document.querySelector(".print-report__meta > div:last-child dd")?.textContent).toBe("1");
+    expect(document.querySelector(".print-report__meta > div:first-child dd")?.textContent).toBe(
+      "24/08/2026 17:00 UTC+7",
+    );
     expect(document.body.textContent).toContain("Unknown");
     expect(document.body.textContent).toContain("Download R CSV");
 
@@ -103,7 +105,7 @@ describe("export page", () => {
     await act(async () => {
       root.render(<PrintableDashboard filters={{}} t={text.en} />);
     });
-    expect(document.body.textContent).toContain("Loading dashboard panels...");
+    expect(document.body.textContent).toContain("Preparing report…");
     await act(async () => {
       resolveDashboard(new Response("unavailable", { status: 500 }));
       await dashboardResponse;
@@ -116,7 +118,10 @@ describe("export page", () => {
   });
 
   it("renders populated analytical panels and opens a print preview", async () => {
+    window.history.replaceState(null, "", "/?siteId=site-1#export");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/sites"))
+        return json({ items: [{ id: "site-1", code: "KUVACB", name: "Animal Cell Bank" }] });
       if (String(input).includes("/analytics/dashboard"))
         return json({
           reportMeta: { generatedAt: "2026-09-02T01:00:00Z", timingProfileVersions: [3, 4] },
@@ -140,6 +145,8 @@ describe("export page", () => {
             items: [
               {
                 treatmentGroup: "SCNT",
+                siteId: "site-1",
+                strain: "AB",
                 stageLabel: "Shield",
                 n: 3,
                 meanDeviationH: 1,
@@ -191,10 +198,86 @@ describe("export page", () => {
       await Promise.resolve();
     });
     expect(document.querySelector(".report-preview")?.className).toContain("report-preview--open");
+    expect(document.querySelector(".print-report--meeting")).not.toBeNull();
+    expect(document.body.textContent).toContain("Filters: Site: Animal Cell Bank");
+    expect(document.body.textContent).toContain("KUVACB / AB / SCNT");
+    await act(async () => {
+      (document.querySelector('input[name="report-format"][value="full"]') as HTMLInputElement).click();
+    });
+    expect(document.querySelector(".print-report--full")).not.toBeNull();
     expect(document.body.textContent).toContain("Stage 1 survival curve");
-    expect(document.body.textContent).toContain("SCNT / control comparison");
+    expect(document.body.textContent).not.toContain("SCNT / control comparison");
     expect(document.body.textContent).toContain("F-1");
-    expect(document.body.textContent).toContain("Timing profile versions: 3, 4");
+    expect(document.querySelector(".print-report__meta > div:last-child dd")?.textContent).toBe("3, 4");
+    root.unmount();
+  });
+
+  it("keeps a large meeting brief bounded, ranks follow-up rows and preserves every row in full mode", async () => {
+    const gaps = Array.from({ length: 500 }, (_, i) => ({
+      fishCode: `F-${i}`,
+      lastObservedOn: "2026-09-01",
+      missedDays: i,
+    }));
+    const deviations = Array.from({ length: 500 }, (_, i) => ({
+      treatmentGroup: `Group-${i}`,
+      stageLabel: "Shield",
+      n: 5,
+      medianDeviationH: -i / 10,
+    }));
+    const comparisons = Array.from({ length: 500 }, (_, i) => ({
+      armType: `Arm-${i}`,
+      stageLabel: "Shield",
+      n: i,
+      nNormal: 0,
+      nAbnormal: 0,
+      pctNormal: null,
+    }));
+    const fetchMock = vi.fn(async () =>
+      json({
+        reportMeta: { generatedAt: "2026-09-02T01:00:00Z" },
+        kpi: {
+          stage1: { nActivated: 1200, controlComparison: comparisons },
+          stage2: { nAlive: 100 },
+          meta: { unknown: { fishSex: 3 } },
+        },
+        survival: { items: [{ stageLabel: "Unconfirmed checkpoint", riskSet: null, alive: null, surv: null }] },
+        observationGaps: { items: gaps },
+        timingDeviation: { items: deviations },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () => {
+      root.render(<PrintableDashboard filters={{}} t={text.en} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const tables = document.querySelectorAll(".meeting-page--review table");
+    expect(tables).toHaveLength(2);
+    for (const table of tables) expect(table.querySelectorAll("tbody tr")).toHaveLength(5);
+    expect(tables[0].querySelector("tbody tr")?.textContent).toContain("F-499");
+    expect(tables[1].querySelector("tbody tr")?.textContent).toContain("Group-499");
+    expect(document.body.textContent).not.toContain("Arm-499");
+    expect(document.body.textContent).toContain("Showing 5 of 500 rows");
+    expect(document.body.textContent).toContain("Incomplete source data");
+    expect(document.querySelector(".report-headline-metrics strong")?.textContent).toBe("1,200");
+    expect(document.querySelectorAll(".report-headline-metrics strong")[1].textContent).toBe("—");
+    expect(gaps[0].fishCode).toBe("F-0");
+    await act(async () => {
+      root.render(<PrintableDashboard filters={{}} t={text.en} mode="full" />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelectorAll(".print-report--full tbody tr").length).toBeGreaterThanOrEqual(1000);
+    expect(document.body.textContent).not.toContain("Arm-499");
+    expect(document.body.textContent).toContain("F-0");
+    expect(document.body.textContent).toContain("F-499");
+    const survivalPanel = Array.from(document.querySelectorAll(".report-panel")).find(
+      (panel) => panel.querySelector("h2")?.textContent === "Stage 1 survival curve",
+    );
+    expect(survivalPanel?.querySelector(":scope > .table-wrap tbody tr")?.textContent).toContain(
+      "Unconfirmed checkpoint——Unknown",
+    );
     root.unmount();
   });
 

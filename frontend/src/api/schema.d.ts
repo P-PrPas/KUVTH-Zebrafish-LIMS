@@ -4,6 +4,57 @@
  */
 
 export interface paths {
+    "/analytics/guest-dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Central dashboard totals available to guests; ignores filters and exposes no record details */
+        get: operations["guestDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in to a verified Guest account with a password */
+        post: operations["passwordLogin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a KU guest or request a password reset verification code */
+        post: operations["registerGuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/inspect": {
         parameters: {
             query?: never;
@@ -1806,7 +1857,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Build a clean analysis table or the detailed 14-sheet workbook
+         * Build a clean analysis table or the detailed 13-sheet workbook
          * @description Uses the same filters as the dashboard (FR-905). Every sheet is a flat
          *     table with a single header row and no merged cells (FR-902) so pandas
          *     and readxl can read it directly — which is precisely what the current
@@ -1855,7 +1906,10 @@ export interface paths {
         /** List own correction requests or all requests for an admin */
         get: operations["listCorrections"];
         put?: never;
-        /** Submit a single-field correction request */
+        /**
+         * Submit a single-field correction request
+         * @description Members may also request a linked operator change using targetTable auth_user, their own account id, fieldName operatorId, and an active unassigned operator. Only an admin may approve; the account change, request decision and audits commit together. This does not allow members to change their role or another account.
+         */
         post: operations["createCorrection"];
         delete?: never;
         options?: never;
@@ -1969,6 +2023,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        PasswordInput: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
         ImportJob: {
             /** Format: uuid */
             id: string;
@@ -3054,7 +3113,7 @@ export interface components {
             format: "full" | "clean";
             /** @description Required for clean format. Strictly increasing Fry, Juvenile and Adult age milestones in days from birth. Counts require an ALIVE fish observation at or beyond each age; zero means no documented survivors, not confirmed mortality. Ages are included in the download filename. Manual fish without embryo lineage are excluded. */
             fishStageAgeDays?: number[];
-            /** @description Only for full format; omit for all 14 sheets. Clean format always contains the single v4 sheet. */
+            /** @description Only for full format; omit for all 13 sheets. Clean format always contains the single v4 sheet. */
             sheets?: string[] | null;
             /**
              * @default th
@@ -3094,6 +3153,8 @@ export interface components {
             /** Format: email */
             email: string;
             code: string;
+            /** @description Required for guests; set or reset password after verifying email and revoke previous sessions */
+            password?: string;
         };
         AuthMember: components["schemas"]["AuthUser"] & {
             active: boolean;
@@ -3117,7 +3178,7 @@ export interface components {
             /** Format: email */
             email: string;
             /** @enum {string} */
-            role: "admin" | "member";
+            role: "admin" | "member" | "guest";
             /** Format: uuid */
             operatorId?: string | null;
             /** Format: uuid */
@@ -3126,7 +3187,7 @@ export interface components {
         };
         MemberUpdate: {
             /** @enum {string} */
-            role?: "admin" | "member";
+            role?: "admin" | "member" | "guest";
             active?: boolean;
             /** Format: uuid */
             operatorId?: string | null;
@@ -3197,6 +3258,127 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    guestDashboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unfiltered aggregate counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        nBatches: number;
+                        nActivated: number;
+                        nPromoted: number;
+                        nFish: number;
+                        nAlive: number;
+                        nDead: number;
+                    };
+                };
+            };
+        };
+    };
+    passwordLogin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordInput"];
+            };
+        };
+        responses: {
+            /** @description Session created in an HttpOnly cookie */
+            200: {
+                headers: {
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        user: components["schemas"]["AuthUser"];
+                    };
+                };
+            };
+            /** @description Invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Proxy request rate limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Password authentication capacity is busy; try again shortly */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    registerGuest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordInput"];
+            };
+        };
+        responses: {
+            /** @description Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid email or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Proxy request rate limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email delivery unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     inspectImportSources: {
         parameters: {
             query?: never;

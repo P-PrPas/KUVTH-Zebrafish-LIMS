@@ -1,5 +1,13 @@
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useEffect } from "react";
+import { notify } from "./notifications";
 import { text } from "./types";
+
+export const RecordingOperatorContext = createContext<string | null>(null);
+
+export function RecordingOperator() {
+  const label = useContext(RecordingOperatorContext);
+  return label ? <small className="recording-operator">{label}</small> : null;
+}
 
 // Sentinel codes thrown by the API client are not user-facing copy. Mapping
 // them here covers every page at once, and <html lang> already carries the
@@ -148,9 +156,12 @@ export function Empty({
   );
 }
 
-export function ErrorMessage({ message }: { message: string }) {
+export function ErrorMessage({ message, toast = false }: { message: string; toast?: boolean }) {
   const key = errorCopy[message];
   const copy = key ? text[document.documentElement.lang === "en" ? "en" : "th"][key] : message;
+  useEffect(() => {
+    if (toast) notify(copy, "danger");
+  }, [copy, toast]);
   return (
     <p className="error" role="alert" tabIndex={-1} autoFocus>
       {copy}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 from datetime import datetime
 from typing import Any
 
@@ -10,11 +11,13 @@ from ..runtime.errors import APIError
 from ..runtime.values import utc_now, uuid7
 from ..store.auth import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW, AuthRepository
 from .mail import Mailer
+from .passwords import validate_password
 
 SESSION_COOKIE = "chronofish_session"
 SESSION_COOKIE_MAX_AGE = 90 * 24 * 60 * 60
 LOGGER = logging.getLogger("chronofish.auth")
 LOGIN_LOCK_ALERT_SUBJECT = "KUVACB sign-in attempts blocked"
+PASSWORD_LOGINS = threading.BoundedSemaphore(2)
 
 
 def _email(value: Any) -> str:
@@ -92,6 +95,42 @@ class AuthService:
             except APIError:
                 LOGGER.exception("Sign-in attempt alert delivery failed for %s", admin["email"])
 
+    def validate_registration(self, body: dict[str, Any]) -> str:
+        email = _email(body.get("email"))
+        validate_password(body.get("password"))
+        if not self.mailer.configured:
+            raise APIError(503, "email_unavailable", "Email delivery is not configured on this server")
+        return email
+
+    def register(self, email: str) -> None:
+        try:
+            self.repository.register_guest(email, utc_now())
+            self.deliver_code(email)
+        except Exception:
+            LOGGER.exception("Registration code delivery failed")
+
+    @staticmethod
+    def validate_device(device_id: str) -> None:
+        if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
+            raise APIError(400, "invalid_device", "Device id is invalid")
+
+    def login(self, body: dict[str, Any], device_id: str) -> tuple[dict[str, Any], str]:
+        email = _email(body.get("email"))
+        password = validate_password(body.get("password"))
+        self.validate_device(device_id)
+        token = secrets.token_urlsafe(48)
+        if not PASSWORD_LOGINS.acquire(blocking=False):
+            raise APIError(503, "authentication_busy", "Sign-in is busy. Try again shortly")
+        try:
+            user = self.repository.password_login(
+                email, password, uuid7(), self.repository.token_hash(token), device_id, utc_now()
+            )
+        finally:
+            PASSWORD_LOGINS.release()
+        if not user:
+            raise APIError(401, "invalid_credentials", "Email or password is incorrect, or email is not verified")
+        return self.public_user(user), token
+
     def verify_code(
         self, body: dict[str, Any], device_id: str, background_tasks: Any = None
     ) -> tuple[dict[str, Any], str]:
@@ -101,6 +140,7 @@ class AuthService:
             raise APIError(400, "invalid_code", "Enter the six-digit code from your email")
         if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
             raise APIError(400, "invalid_device", "Device id is invalid")
+        password = validate_password(body["password"]) if "password" in body else None
         token = secrets.token_urlsafe(48)
         result = self.repository.verify_and_create_session(
             email=email,
@@ -109,6 +149,7 @@ class AuthService:
             token_hash=self.repository.token_hash(token),
             device_id=device_id,
             now=utc_now(),
+            password=password,
         )
         user = result.user
         if result.lock_reached:

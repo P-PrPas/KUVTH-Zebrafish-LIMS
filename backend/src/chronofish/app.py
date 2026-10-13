@@ -136,6 +136,8 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             "/api/v1/health",
             "/api/v1/auth/request-code",
             "/api/v1/auth/verify-code",
+            "/api/v1/auth/register",
+            "/api/v1/auth/login",
             "/api/v1/auth/logout",
         }
         if not is_public and request.method != "OPTIONS" and path.startswith("/api/v1/"):
@@ -143,6 +145,14 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             if not user:
                 return secure(error_response(APIError(401, "authentication_required", "Sign in to continue")))
             request.state.user = user
+            guest_allowed = path in {
+                "/api/v1/analytics/guest-dashboard",
+                "/api/v1/auth/me",
+                "/api/v1/auth/sessions",
+                "/api/v1/auth/devices/sync-status",
+            } or path.startswith("/api/v1/auth/sessions/")
+            if user["role"] == "guest" and not guest_allowed:
+                return secure(error_response(APIError(403, "member_required", "An admin must grant member access")))
             if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not path.startswith("/api/v1/auth/"):
                 actor_id = request.headers.get("X-Actor-User-Id", "")
                 if actor_id != user["id"]:

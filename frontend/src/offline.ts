@@ -1,5 +1,6 @@
 import { deviceId, mutationHeaders, operatorId, request } from "./api/client";
 import { cachedUser } from "./auth";
+import { notify, saveNotice } from "./notifications";
 import { uuidv7 } from "./uuidv7";
 
 export type QueueStatus = "pending" | "rejected" | "auth-required";
@@ -256,41 +257,49 @@ export async function putQueue(
   contentType = "application/json",
   method = "POST",
 ): Promise<ApiQueueResult> {
-  const key = uuidv7();
-  const actor = cachedUser();
-  if (!actor) throw new Error("AUTHENTICATION_REQUIRED");
-  const headers = mutationHeaders(key);
-  const item: QueuedWrite = {
-    path,
-    method,
-    body,
-    contentType,
-    key,
-    operatorId: headers["X-Operator-Id"],
-    deviceId: headers["X-Device-Id"],
-    actorUserId: actor.id,
-    actorEmail: actor.email,
-    createdAt: Date.now(),
-    attempt: 0,
-    nextAttempt: Date.now(),
-    status: "pending",
-    identity: writeIdentity(path, method, body, headers["X-Operator-Id"], headers["X-Device-Id"], actor.id),
-  };
-  // Durable intent is written before any network attempt. A tab close between
-  // fetch() and IndexedDB used to lose the mutation (and its idempotency key).
-  if (!("indexedDB" in window)) {
-    const serialized = contentType === "application/json" ? JSON.stringify(body) : String(body);
-    return responseValue(
-      await request(path, { method, body: serialized, headers: { ...headers, "Content-Type": contentType } }),
-    );
+  try {
+    const key = uuidv7();
+    const actor = cachedUser();
+    if (!actor) throw new Error("AUTHENTICATION_REQUIRED");
+    const headers = mutationHeaders(key);
+    const item: QueuedWrite = {
+      path,
+      method,
+      body,
+      contentType,
+      key,
+      operatorId: headers["X-Operator-Id"],
+      deviceId: headers["X-Device-Id"],
+      actorUserId: actor.id,
+      actorEmail: actor.email,
+      createdAt: Date.now(),
+      attempt: 0,
+      nextAttempt: Date.now(),
+      status: "pending",
+      identity: writeIdentity(path, method, body, headers["X-Operator-Id"], headers["X-Device-Id"], actor.id),
+    };
+    // Durable intent is written before any network attempt. A tab close between
+    // fetch() and IndexedDB used to lose the mutation (and its idempotency key).
+    if (!("indexedDB" in window)) {
+      const serialized = contentType === "application/json" ? JSON.stringify(body) : String(body);
+      const result = await responseValue(
+        await request(path, { method, body: serialized, headers: { ...headers, "Content-Type": contentType } }),
+      );
+      const notice = saveNotice(result);
+      notify(notice.message, notice.tone);
+      return result;
+    }
+    const stored = await queueWrite(item);
+    if (!navigator.onLine) return { queued: true, key: stored.key };
+    // Return the optimistic queued state immediately. The durable record is the
+    // source of truth; replay runs independently so a slow network never blocks
+    // a lab form or loses the original headers/key.
+    void drainQueue(true);
+    return { queued: true, key: stored.key };
+  } catch (error) {
+    notify((error as Error).message, "danger");
+    throw error;
   }
-  const stored = await queueWrite(item);
-  if (!navigator.onLine) return { queued: true, key: stored.key };
-  // Return the optimistic queued state immediately. The durable record is the
-  // source of truth; replay runs independently so a slow network never blocks
-  // a lab form or loses the original headers/key.
-  void drainQueue(true);
-  return { queued: true, key: stored.key };
 }
 
 export type ApiQueueResult = { queued?: boolean; key?: string; [key: string]: unknown };
@@ -366,7 +375,10 @@ async function transmit(db: IDBDatabase, record: { key: IDBValidKey; value: Queu
     contentType,
   });
   try {
-    const response = await request(item.path, { method: item.method || "POST", body, headers });
+    let method = item.method || "POST";
+    // Older forms queued POST even though control counts are replaced with PUT.
+    if (method === "POST" && /^\/batches\/[^/]+\/control-arm-counts$/.test(item.path)) method = "PUT";
+    const response = await request(item.path, { method, body, headers });
     const result = await responseValue(response);
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(storeName, "readwrite");
@@ -394,6 +406,7 @@ async function transmit(db: IDBDatabase, record: { key: IDBValidKey; value: Queu
       );
       throw error;
     }
+    if (item.attempt === 0) window.dispatchEvent(new CustomEvent("chronofish:queue-deferred", { detail: item }));
     const attempt = item.attempt + 1;
     await updateQueued(db, record.key, {
       ...item,
