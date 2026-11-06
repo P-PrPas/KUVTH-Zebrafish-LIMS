@@ -162,6 +162,69 @@ paths:
         '429': { description: Proxy request rate limit reached }
         '503': { description: Email delivery unavailable }
 
+  /imports/template:
+    get:
+      tags: [Imports]
+      summary: Download an original customer v5 Excel form (admin)
+      operationId: downloadImportTemplate
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string, enum: [experiment, registry], default: experiment }
+      responses:
+        '200':
+          description: Original v5 experiment or registry workbook, including reference formulas
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '400': { description: Invalid template kind }
+        '403': { description: Admin access required }
+  /imports/{jobId}/validate-template:
+    post:
+      tags: [Imports]
+      summary: Validate all template records without writing canonical data (admin)
+      operationId: validateImportTemplate
+      parameters:
+        - { $ref: '#/components/parameters/OperatorId' }
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer }
+      responses:
+        '200': { description: Validated record count and unchanged revision }
+        '409': { description: Stale revision, committed job, or unresolved issues }
+        '422': { description: Invalid data with sheet and row location }
+  /imports/{jobId}/confirm-template:
+    post:
+      tags: [Imports]
+      summary: Validate and atomically commit every template record (admin)
+      operationId: confirmImportTemplate
+      parameters:
+        - { $ref: '#/components/parameters/OperatorId' }
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer }
+      responses:
+        '200': { description: Committed record count and incremented revision }
+        '409': { description: Stale revision, committed job, or unresolved issues }
+        '422': { description: Invalid data; no canonical changes committed }
   /imports/inspect:
     post:
       x-account-write: true

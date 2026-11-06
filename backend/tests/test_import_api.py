@@ -25,6 +25,204 @@ from chronofish.store.sql import SQLStore
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def v5_master_data(client, book):
+    from chronofish.services.import_v5 import EXPERIMENT, FISH
+
+    suffix = uuid7()[-10:]
+    site, operator, group = f"V5-{suffix}", f"V5 operator {suffix}", f"V5-{suffix}"
+    for resource, body in [
+        ("sites", {"code": site, "name": site, "timeZone": "Asia/Bangkok"}),
+        ("operators", {"name": operator}),
+        (
+            "donor-cell-lines",
+            {"strain": "AB", "preparation": "DISSOCIATED", "preservation": "FRESH", "batchCode": suffix},
+        ),
+        ("treatment-groups", {"code": group, "name": group, "armType": "SCNT"}),
+    ]:
+        response = client.post(f"/api/v1/{resource}", json=body, headers={"X-Idempotency-Key": uuid7()})
+        assert response.status_code == 201, response.text
+    if EXPERIMENT in book:
+        for cell, value in {"H5": site, "B6": operator, "E6": group, "G13": suffix, "B13": "B" + suffix}.items():
+            book[EXPERIMENT][cell] = value
+        from chronofish.services.import_v5 import EMBRYOS
+
+        book[EMBRYOS]["G8"] = operator
+    else:
+        for row in (9, 13):
+            for col, value in {
+                "A": f"F{row}-{suffix}",
+                "M": site,
+                "U": operator,
+                "H": suffix,
+                "W": "RT" + suffix,
+                "X": "DC" + suffix,
+            }.items():
+                book[FISH][f"{col}{row}"] = value
+        from chronofish.services.import_v5 import SPECIMENS
+
+        book[SPECIMENS]["B8"] = "RT" + suffix
+        book[SPECIMENS]["B9"] = "DC" + suffix
+    return suffix
+
+
+def v5_job(client, book, sheets):
+    content = io.BytesIO()
+    book.save(content)
+    return create_job(client, content.getvalue(), sheets=sheets)
+
+
+def test_v5_forms_inspect_download_validate_commit_and_atomic_failure(import_client):
+    from test_import_v5 import experiment, registry
+
+    from chronofish.services.import_v5 import EMBRYOS, EXPERIMENT, FISH, SPECIMENS, download_bytes
+
+    client = import_client
+    for kind in ("experiment", "registry"):
+        response = client.get(f"/api/v1/imports/template?kind={kind}")
+        assert response.status_code == 200
+        assert response.content == download_bytes(kind)
+    assert client.get("/api/v1/imports/template?kind=other").status_code == 400
+    book = experiment()
+    v5_master_data(client, book)
+    inspected = client.post("/api/v1/imports/inspect", files={"files": ("v5.xlsx", download_bytes("experiment"), XLSX)})
+    assert inspected.json()["files"][0]["templateSheets"] == [EXPERIMENT, EMBRYOS]
+    created = v5_job(client, book, [EXPERIMENT, EMBRYOS])
+    job_id = created["job"]["id"]
+    before = client.get("/api/v1/batches").json()
+    response = client.post(f"/api/v1/imports/{job_id}/validate-template", json={"revision": 1})
+    assert response.status_code == 200, response.text
+    assert client.get("/api/v1/batches").json() == before
+    response = client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1})
+    assert response.status_code == 200, response.text
+    assert response.json()["recordCount"] == 2
+    book = registry()
+    v5_master_data(client, book)
+    before = client.get("/api/v1/fish").json()
+    book[SPECIMENS]["C9"] = "wrong type"
+    failed = v5_job(client, book, [FISH, SPECIMENS])
+    response = client.post(f"/api/v1/imports/{failed['job']['id']}/confirm-template", json={"revision": 1})
+    assert response.status_code == 422, response.text
+    assert client.get("/api/v1/fish").json() == before
+    book[SPECIMENS]["C9"] = "left over cells"
+    created = v5_job(client, book, [FISH, SPECIMENS])
+    response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-template", json={"revision": 1})
+    assert response.status_code == 200, response.text
+    if getattr(client.app.state.store, "engine", None) is not None:
+        assert (
+            scalar(client, "SELECT COUNT(*) FROM specimen_fish_link WHERE import_job_id = :job", created["job"]["id"])
+            == 4
+        )
+
+
+def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
+    from test_import_v5 import experiment
+
+    from chronofish.services.import_v5 import EXPERIMENT
+
+    client = import_client
+    if getattr(client.app.state.store, "engine", None) is None:
+        pytest.skip("historical aggregates require SQL")
+    book = experiment()
+    v5_master_data(client, book)
+    s = book[EXPERIMENT]
+    s["B13"] = "B" * 120 + uuid7()[-10:]
+    s["E6"] = None
+    s["H13"] = 120
+    s["A68"], s["C68"], s["D68"], s["B68"] = 1, 120, 0, "Source label"
+    created = v5_job(client, book, [EXPERIMENT])
+    job_id = created["job"]["id"]
+    for action in ("validate-template", "confirm-template"):
+        response = client.post(f"/api/v1/imports/{job_id}/{action}", json={"revision": 1})
+        assert response.status_code == 200, response.text
+    assert scalar(client, "SELECT COUNT(*) FROM historical_stage_count WHERE import_job_id = :job", job_id) == 2
+    assert (
+        scalar(
+            client,
+            "SELECT n_alive FROM historical_stage_count WHERE import_job_id = :job AND stage_label = '1C'",
+            job_id,
+        )
+        == 0
+    )
+
+
+def test_schema_template_download_validate_and_atomic_commit(import_client):
+    from test_import_template import records
+
+    client = import_client
+    suffix = uuid7()[-10:]
+    master_values = [
+        ("sites", {"code": f"T-{suffix}", "name": "Template site", "timeZone": "Asia/Bangkok"}),
+        ("operators", {"name": f"Template operator {suffix}"}),
+        (
+            "donor-cell-lines",
+            {"strain": "AB", "preparation": "DISSOCIATED", "preservation": "FRESH", "batchCode": suffix},
+        ),
+        ("treatment-groups", {"code": f"T-{suffix}", "name": "Template group", "armType": "SCNT"}),
+    ]
+    for resource, body in master_values:
+        response = client.post(f"/api/v1/{resource}", json=body, headers={"X-Idempotency-Key": uuid7()})
+        assert response.status_code == 201, response.text
+    template = client.get("/api/v1/imports/template")
+    assert template.status_code == 200
+    assert "experiment-template-v5.xlsx" in template.headers["content-disposition"]
+    from chronofish.domain.state import State
+    from chronofish.services.import_template import template_bytes
+
+    book = __import__("openpyxl").load_workbook(io.BytesIO(template_bytes(State.seeded())))
+    from chronofish.services.import_template import SHEETS
+
+    for record in records():
+        name, values = record["sheet_name"], record["values"]
+        for key, value in {
+            "site": f"T-{suffix}",
+            "operator": f"Template operator {suffix}",
+            "observer": f"Template operator {suffix}",
+            "donor_batch_code": suffix,
+            "treatment_group": f"T-{suffix}",
+            "batch_code": f"B-{suffix}",
+            "fish_code": f"F-{suffix}",
+            "specimen_code": f"CL-{suffix}",
+        }.items():
+            if key in values:
+                values[key] = value
+        if values.get("embryo_code"):
+            values["embryo_code"] = f"B-{suffix}_1_1"
+        book[name].append([values.get(column) for column in SHEETS[name]])
+    output = io.BytesIO()
+    book.save(output)
+    # A failure in the final sheet must roll back batches, lots, embryos, fish and observations.
+    before_fish = client.get("/api/v1/fish").json()
+    before_batches = client.get("/api/v1/batches").json()
+    type_column = SHEETS["specimen"].index("specimen_type") + 1
+    book["specimen"].cell(2, type_column).value = "INVALID"
+    invalid_output = io.BytesIO()
+    book.save(invalid_output)
+    invalid = create_job(client, invalid_output.getvalue(), sheets=list(SHEETS))
+    failed = client.post(f"/api/v1/imports/{invalid['job']['id']}/confirm-template", json={"revision": 1})
+    assert failed.status_code == 422, failed.text
+    assert "specimen row 2" in failed.text
+    assert client.get("/api/v1/fish").json() == before_fish
+    assert client.get("/api/v1/batches").json() == before_batches
+    job = create_job(client, output.getvalue(), sheets=list(SHEETS))
+    job_id = job["job"]["id"]
+    assert client.get(f"/api/v1/imports/{job_id}/mapping-requirements").json()["canConfirmTemplate"]
+    before = client.get("/api/v1/fish").json()
+    validation = client.post(f"/api/v1/imports/{job_id}/validate-template", json={"revision": 1})
+    assert validation.status_code == 200, validation.text
+    assert validation.json()["recordCount"] == 7
+    assert client.get("/api/v1/fish").json() == before
+    committed = client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1})
+    assert committed.status_code == 200, committed.text
+    assert committed.json()["status"] == "committed"
+    assert client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1}).status_code == 409
+    imported = client.get(f"/api/v1/imports/{job_id}/records").json()["items"]
+    assert all(row["status"] == "imported" for row in imported)
+    duplicate = create_job(client, output.getvalue(), sheets=list(SHEETS))
+    response = client.post(f"/api/v1/imports/{duplicate['job']['id']}/confirm-template", json={"revision": 1})
+    assert response.status_code == 422
+    assert "already exists" in response.text
+
+
 @pytest.fixture(params=["memory", "sql"])
 def import_client(request):
     driver = "memory" if request.param == "memory" else os.getenv("CHRONOFISH_TEST_DATABASE_DRIVER")
