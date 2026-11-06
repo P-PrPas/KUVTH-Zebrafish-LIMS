@@ -28,7 +28,6 @@ from ...services.fish import (
     enrich_fish,
     find_fish_for_embryo,
     fish_box_is_assignable,
-    fish_is_disabled,
     fish_was_alive_on,
     is_disability_record,
     latest_embryo_observation,
@@ -546,6 +545,10 @@ def build_fish_router(store: Store) -> APIRouter:
             observed_date = date.fromisoformat(value)
         except ValueError as error:
             raise APIError(422, "validation_error", "invalid Bangkok date") from error
+        recorded_by_fish = {}
+        for observation in state.fish_observations.values():
+            if observation.get("observedOn") == value and observation.get("deletedAt") is None:
+                recorded_by_fish.setdefault(str(observation.get("cloneFishId")), observation)
         items = []
         for fish in state.entities["fish"].values():
             if fish.get("active") is False or fish.get("deletedAt") is not None:
@@ -559,16 +562,8 @@ def build_fish_router(store: Store) -> APIRouter:
             lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
             donor = state.entities["donor-cell-lines"].get(str(lot.get("donorCellLineId")), {})
             box = state.entities["fish-boxes"].get(str(fish.get("fishBoxId")), {})
-            recorded = next(
-                (
-                    item
-                    for item in state.fish_observations.values()
-                    if item.get("cloneFishId") == fish["id"]
-                    and item.get("observedOn") == value
-                    and item.get("deletedAt") is None
-                ),
-                None,
-            )
+            recorded = recorded_by_fish.get(str(fish["id"]))
+            disabled = bool(fish.get("isDisabled"))
             items.append(
                 {
                     "fishId": fish["id"],
@@ -576,9 +571,9 @@ def build_fish_router(store: Store) -> APIRouter:
                     "injectionLotId": lot.get("id"),
                     "ageDays": age_days_on(date.fromisoformat(fish["dob"]), observed_date),
                     "status": "ALIVE",
-                    "condition": "ABNORMAL" if fish_is_disabled(state, fish) else fish["condition"],
+                    "condition": "ABNORMAL" if disabled else fish["condition"],
                     "healthStatus": fish.get("healthStatus", "UNDETERMINED"),
-                    "isDisabled": fish_is_disabled(state, fish),
+                    "isDisabled": disabled,
                     "sickNote": fish.get("sickNote"),
                     "strain": donor.get("strain"),
                     "fishBoxCode": box.get("boxCode"),

@@ -98,7 +98,8 @@ def enrich_fish(state: State, fish: dict[str, Any]) -> dict[str, Any]:
     box = state.entities["fish-boxes"].get(str(fish.get("fishBoxId")), {})
     result["fishBoxCode"] = box.get("boxCode")
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
-    result["isDisabled"] = fish_is_disabled(state, fish)
+    # Mutations maintain this cache; list/report reads must not rescan history per fish.
+    result["isDisabled"] = bool(fish.get("isDisabled"))
     if result["isDisabled"]:
         result["condition"] = "ABNORMAL"
     lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
