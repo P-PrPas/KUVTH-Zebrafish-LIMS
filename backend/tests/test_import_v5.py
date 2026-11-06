@@ -60,7 +60,7 @@ def experiment():
         "F13": "FRESH",
         "G13": "AB1",
         "H13": 2,
-            "I13": "Activation note from the customer",
+        "I13": "Activation note from the customer",
     }.items():
         s[cell] = value
     s = book[EMBRYOS]
