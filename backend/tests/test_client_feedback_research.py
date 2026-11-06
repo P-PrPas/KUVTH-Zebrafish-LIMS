@@ -331,3 +331,16 @@ def test_disability_recorded_at_registration_is_independent_evidence(client, wri
     )
     assert saved.json()["results"][0]["status"] == "created", saved.text
     assert client.get(f"/api/v1/fish/{fish_id}").json()["isDisabled"] is True
+
+
+def test_promotion_preserves_an_undetermined_recorded_condition(client, write_headers):
+    embryo = setup_eligible_embryo(client, write_headers, condition="UNDETERMINED")
+    response = client.post(
+        "/api/v1/promotions",
+        headers=headers(write_headers, 890),
+        json={"promotions": [{"clientUuid": uuid7(), "embryoId": embryo["id"]}]},
+    )
+    assert response.status_code == 201, response.text
+    fish = response.json()["items"][0]["fish"]
+    assert fish["condition"] == "UNDETERMINED"
+    assert fish["isDisabled"] is False

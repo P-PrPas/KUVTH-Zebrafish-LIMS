@@ -161,7 +161,8 @@ def recompute_fish(state: State, fish_id: str) -> None:
         "firstAbnormalStageId",
     ):
         fish.pop(field, None)
-    fish["condition"] = "NORMAL"
+    embryo_latest = latest_embryo_observation(state, str(fish.get("embryoId")))
+    fish["condition"] = (embryo_latest or {}).get("condition", "NORMAL")
     if latest:
         fish["condition"] = latest["condition"]
         fish["healthStatus"] = latest.get("healthStatus", "UNDETERMINED")
