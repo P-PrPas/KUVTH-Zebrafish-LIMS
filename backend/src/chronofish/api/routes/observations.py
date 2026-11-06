@@ -25,7 +25,7 @@ from ...runtime.edit_policy import recent_creator
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
-from ...services.fish import find_fish_for_embryo, recompute_fish
+from ...services.fish import abnormal_observations, find_fish_for_embryo, recompute_fish, record_disability
 from ...store import Store
 
 BANGKOK = ZoneInfo("Asia/Bangkok")
@@ -133,17 +133,13 @@ def _recompute_embryo(state: State, embryo_id: str) -> None:
         for item in state.observations.values()
         if item.get("embryoId") == embryo_id and item.get("deletedAt") is None
     ]
-    embryo["isDisabled"] = bool(
-        embryo.get("isDisabled")
-        or embryo.get("firstAbnormalObservationId")
-        or any(item.get("condition") == "ABNORMAL" for item in values)
-    )
     terminal = _terminal_embryo_observation(state, embryo_id)
     abnormal = min(
-        (item for item in values if item.get("condition") == "ABNORMAL"),
+        abnormal_observations(values, "embryoId", embryo_id),
         key=lambda item: (str(item.get("observedAt", "")), stage_number(str(item.get("stageCode", "")))),
         default=None,
     )
+    embryo["isDisabled"] = abnormal is not None
     abnormal_fields = (
         "firstAbnormalObservationId",
         "firstAbnormalStageCode",
@@ -215,16 +211,7 @@ def _validate_observation(
         return "observedAt ห้ามอยู่ในอนาคตเกิน 5 นาที"
     if item["outcome"] not in EMBRYO_OUTCOMES or not condition_valid(str(item["condition"])):
         return "outcome หรือ condition ไม่ถูกต้อง"
-    abnormal_times = [
-        parse_datetime(str(value["observedAt"]))
-        for value in state.observations.values()
-        if value.get("embryoId") == embryo["id"]
-        and value.get("condition") == "ABNORMAL"
-        and value.get("deletedAt") is None
-    ]
-    if (embryo.get("isDisabled") or abnormal_times) and (not abnormal_times or observed >= min(abnormal_times)):
-        item["condition"] = "ABNORMAL"
-    item["isDisabled"] = item["condition"] == "ABNORMAL"
+    record_disability(item)
     terminal = _terminal_embryo_observation(state, str(embryo["id"]))
     if terminal and str(terminal.get("id")) != str(correcting_observation_id or ""):
         exit_order = stage_number(str(terminal.get("stageCode") or ""))

@@ -3635,7 +3635,7 @@ components:
       type: object
       required: [id, injectionLotId, seqInLot, embryoCode]
       properties:
-        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; persists through adulthood }
+        isDisabled: { type: boolean, readOnly: true, description: Derived from non-deleted Abnormal observations; inherited by promoted fish }
         id: { type: string, format: uuid }
         injectionLotId: { type: string, format: uuid }
         seqInLot: { type: integer, examples: [1] }
@@ -3795,7 +3795,7 @@ components:
       type: object
       required: [id, embryoId, stageCode, observedAt, hpaActual, hpaExpectedSnapshot, deviationH, outcome, condition]
       properties:
-        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; retained across subsequent observations }
+        isDisabled: { type: boolean, readOnly: true, description: Derived from this recorded condition; current disability is computed across non-deleted history }
         id: { type: string, format: uuid }
         clientUuid: { type: string, format: uuid }
         embryoId: { type: string, format: uuid }
@@ -3932,7 +3932,7 @@ components:
       type: object
       required: [id, fishCode, runningNo, dob, donorCellLineId, status, condition, sex, finClipped]
       properties:
-        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; retained across subsequent observations }
+        isDisabled: { type: boolean, readOnly: true, description: Derived from registration evidence and non-deleted embryo or fish observations }
         sickNote: { type: [string, 'null'], maxLength: 2000 }
         id: { type: string, format: uuid }
         embryoId: { type: [string, 'null'], format: uuid }

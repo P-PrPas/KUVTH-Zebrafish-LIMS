@@ -990,5 +990,28 @@ def test_sql_store_round_trips_feedback_fields():
         assert reloaded.fish_observations[observation_id]["sickNote"] == "Not eating"
         assert reloaded.entities["fish"][fish_id]["healthStatus"] == "SICK"
         assert reloaded.fish_observations[observation_id]["healthStatus"] == "SICK"
+        # Migration adds derived flags without rewriting the recorded registry condition.
+        assert reloaded.entities["fish"][fish_id]["condition"] == "NORMAL"
+        assert reloaded.entities["fish"][fish_id]["disabilityAtRegistration"] is False
+        browser = _client(store)
+        assert browser.get(f"/api/v1/fish/{fish_id}").json()["condition"] == "ABNORMAL"
+        corrected = browser.patch(
+            f"/api/v1/observations/fish/{observation_id}",
+            headers=_headers(),
+            json={"condition": "NORMAL", "correctionReason": "Source transcription error"},
+        )
+        assert corrected.status_code == 200, corrected.text
+        assert corrected.json()["condition"] == "NORMAL"
+        corrected_embryo = browser.patch(
+            f"/api/v1/observations/embryo/{embryo_observation.json()['results'][0]['id']}",
+            headers=_headers(),
+            json={"condition": "NORMAL", "correctionReason": "Source transcription error"},
+        )
+        assert corrected_embryo.status_code == 200, corrected_embryo.text
+        reloaded = store.snapshot()
+        assert reloaded.entities["embryos"][embryo_id]["isDisabled"] is False
+        assert reloaded.entities["fish"][fish_id]["isDisabled"] is False
+        assert browser.get(f"/api/v1/fish/{fish_id}").json()["condition"] == "NORMAL"
+        browser.close()
     finally:
         store.close()

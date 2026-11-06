@@ -9,6 +9,7 @@ ALTER TABLE experiment_batch ADD CONSTRAINT ck_experiment_batch_well_plate_size 
 ALTER TABLE embryo ADD COLUMN is_disabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE embryo_observation ADD COLUMN is_disabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE clone_fish ADD COLUMN is_disabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE clone_fish ADD COLUMN disability_at_registration BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE fish_observation ADD COLUMN is_disabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE clone_fish ADD COLUMN sick_note TEXT;
 ALTER TABLE fish_observation ADD COLUMN sick_note TEXT;
@@ -26,4 +27,8 @@ OR first_abnormal_on IS NOT NULL OR EXISTS (
     AND (fish_observation.biological_condition = 'ABNORMAL' OR fish_observation.health_status = 'DISABLED')
     AND fish_observation.deleted_at IS NULL
 );
-UPDATE clone_fish SET biological_condition = 'ABNORMAL' WHERE is_disabled = TRUE;
+-- Preserve recorded conditions. Standalone registry entries without observation
+-- history are independent evidence; observation-derived flags can be recomputed.
+UPDATE clone_fish SET disability_at_registration = TRUE
+WHERE embryo_id IS NULL AND (biological_condition = 'ABNORMAL' OR health_status = 'DISABLED')
+AND NOT EXISTS (SELECT 1 FROM fish_observation WHERE fish_observation.clone_fish_id = clone_fish.id);

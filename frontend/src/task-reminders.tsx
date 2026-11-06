@@ -73,7 +73,7 @@ export function TaskReminders({
         {counts && (
           <>
             <button type="button" onClick={() => navigate("due")}>
-              {thai ? "รอบตรวจตัวอ่อนที่ถึงเวลา" : "Embryo checkpoints due"} <strong>{counts.embryos}</strong>
+              {thai ? "รอบตรวจตัวอ่อนที่เลยเวลา" : "Overdue embryo checkpoints"} <strong>{counts.embryos}</strong>
             </button>
             <button type="button" onClick={() => navigate("fish")}>
               {thai ? "ปลาที่ยังไม่ตรวจวันนี้" : "Fish not checked today"} <strong>{counts.fish}</strong>

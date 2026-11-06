@@ -35,7 +35,7 @@ The uncertain "connect from another one" item is excluded as requested.
 
 ## Deployment and verification
 
-Apply migration `000026_client_feedback` before running the updated API. PostgreSQL and MySQL variants add plate size, disability and Sick-note columns; existing embryos/fish with Abnormal history or the Disabled health status are backfilled. No deployment or real-account changes have been made.
+Back up the database before applying migration `000026_client_feedback`, and verify real inbox delivery on the intended production host before switching accounts to password login. Accounts without a password must use Invited / forgot password; existing password hashes remain valid. Apply the migration before running the updated API. PostgreSQL and MySQL variants add plate size, disability and Sick-note columns; existing embryos/fish with Abnormal history or the Disabled health status are backfilled. No deployment or real-account changes have been made.
 
 Browser visual verification could not run: the browser host returned “The browser access host is unavailable”. Frontend DOM tests cover the 96-position map/48 gray cells, reminders, navigation, password setup and error handling. Validation results are recorded below once the final runs finish.
 
@@ -66,3 +66,17 @@ The Abnormal semantics, two-column cards and migration backfill were revised aft
 The TLS certificate regression was observed failing with the old generic error before the dedicated error mapping was added. SMTP configuration was validated for both Compose stacks: the CA mount is read-only, does not auto-create missing paths, and omitting SMTP_CA_FILE rejects the override. Full message delivery has not been tested; no existing application container, database volume, account credential or Windows trust setting was changed.
 
 The final targeted authentication/mail run passed all 49 cases, including the new TLS certificate error regression.
+
+## PR #45 review corrections
+
+- B1: the PR contract contains 126 operations. The old 129 assertion counted three uncommitted import operations; it is corrected to 126. Earlier local suite totals above were run with the existing import work in the workspace and must not be interpreted as CI results for the PR commit.
+- B2: observations retain the recorded condition. The current disability is derived from non-deleted Abnormal/Disabled evidence, not OR-ed with the previous cache. Correcting or cancelling the source observation recomputes the embryo and promoted fish, including removal of first-abnormal metadata; a later Normal entry alone still cannot erase valid earlier evidence. Independent later Abnormal observations still count. Direct and approved corrections are audited.
+- Standalone fish may have disability recorded at registration without an observation. The new internal disability_at_registration source flag preserves that independent evidence instead of treating an observation-derived current flag as a source. The migration sets it only for standalone registry rows without observation history. Newly promoted fish always set this source flag false.
+- M1: migration 000026 no longer overwrites any existing biological_condition value. It adds/backfills source/derived flags; read-time enrichment displays the effective condition. Back up the DB before migration; no deployment has been performed.
+- M2: sick_note and is_disabled are appended to both fish sheets. All existing column positions remain unchanged, with regression assertions for the complete header order and existing values.
+- SMTP test uses a public service method. smtplib already has a 15-second socket timeout for both SSL and STARTTLS; the synchronous FastAPI route runs in its worker thread and reports the SMTP result. No real message has been sent.
+- Invitations and password setup share one email validator. Admin lockout remains intentional and can be recovered through verified password reset.
+- Embryo codes are creation-time identifiers: the date is a snapshot, is not renamed when experimentDate is corrected, and only new embryos receive the date suffix as requested. Older and newer code formats can coexist in an existing lot.
+- Sidebar wording now explicitly says overdue embryo checkpoints; upcoming checkpoints remain visible on the checkpoints page and are not counted as unfinished overdue work.
+
+Verification for the new PR head is recorded in its CI checks. Local review regressions were first reproduced as four failures (embryo/fish source correction and cancellation) and passed after the fix. No worktree, stash, project copy, existing container change or user-file cleanup was used.

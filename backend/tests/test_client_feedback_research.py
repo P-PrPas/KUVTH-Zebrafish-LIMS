@@ -136,7 +136,7 @@ def test_embryo_disability_is_inherited_on_promotion(client, write_headers):
     )
     assert later.json()["results"][0]["status"] == "created", later.text
     saved_id = later.json()["results"][0]["id"]
-    assert client.app.state.store.snapshot().observations[saved_id]["condition"] == "ABNORMAL"
+    assert client.app.state.store.snapshot().observations[saved_id]["condition"] == "NORMAL"
     checkpoint = client.get(f"/api/v1/injection-lots/{embryo['injectionLotId']}/checkpoints/stage_27_6D").json()
     assert checkpoint["embryos"][0]["defaultCondition"] == "ABNORMAL"
     assert checkpoint["embryos"][0]["isDisabled"] is True
@@ -148,3 +148,186 @@ def test_embryo_disability_is_inherited_on_promotion(client, write_headers):
     assert response.status_code == 201
     assert response.json()["items"][0]["fish"]["isDisabled"] is True
     assert response.json()["items"][0]["fish"]["condition"] == "ABNORMAL"
+
+
+@pytest.mark.parametrize("action", ["correct", "delete"])
+def test_fixing_source_embryo_abnormal_clears_promoted_fish(client, write_headers, action):
+    embryo = setup_eligible_embryo(client, write_headers, condition="ABNORMAL")
+    source = next(o for o in client.app.state.store.snapshot().observations.values() if o["embryoId"] == embryo["id"])
+    promoted = client.post(
+        "/api/v1/promotions",
+        headers=headers(write_headers, 850),
+        json={"promotions": [{"clientUuid": uuid7(), "embryoId": embryo["id"]}]},
+    )
+    assert promoted.status_code == 201, promoted.text
+    fish_id = promoted.json()["items"][0]["fish"]["id"]
+    assert client.get(f"/api/v1/fish/{fish_id}").json()["isDisabled"] is True
+    path = f"/api/v1/observations/embryo/{source['id']}"
+    if action == "correct":
+        response = client.patch(
+            path, headers=headers(write_headers, 851), json={"condition": "NORMAL", "correctionReason": "Entry error"}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["condition"] == "NORMAL"
+    else:
+        response = client.delete(path, headers=headers(write_headers, 851), params={"reason": "Entry error"})
+        assert response.status_code == 204, response.text
+    state = client.app.state.store.snapshot()
+    assert state.entities["embryos"][embryo["id"]]["isDisabled"] is False
+    fish = client.get(f"/api/v1/fish/{fish_id}").json()
+    assert fish["isDisabled"] is False
+    assert fish["condition"] == "NORMAL"
+    assert not fish.get("firstAbnormalOn")
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from test_contract_exports_audit import worksheet_rows
+
+    exported = client.post(
+        "/api/v1/exports/excel", headers={**write_headers, "X-Idempotency-Key": uuid7()}, json={"filters": {}}
+    )
+    assert exported.status_code == 200, exported.text
+    with ZipFile(BytesIO(exported.content)) as archive:
+        rows = worksheet_rows(archive.read("xl/worksheets/sheet7.xml"))
+    columns = {name: index for index, name in enumerate(rows[0])}
+    row = next(row for row in rows[1:] if row[columns["fish_code"]] == fish["fishCode"])
+    assert row[columns["condition"]] == "NORMAL"
+    assert row[columns["is_disabled"]] in {"0", "False"}
+
+
+@pytest.mark.parametrize("action", ["correct", "delete"])
+def test_fixing_source_fish_abnormal_clears_current_disability(client, write_headers, action):
+    batch, donor = create_batch(client, write_headers)
+    today = datetime.now(ZoneInfo("Asia/Bangkok")).date().isoformat()
+    created = client.post(
+        "/api/v1/fish",
+        headers=headers(write_headers, 860),
+        json={
+            "fishCode": "fix-source-fish",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    fish_id = created.json()["id"]
+    saved = client.post(
+        "/api/v1/observations/fish",
+        headers=headers(write_headers, 861),
+        json={
+            "observations": [
+                {
+                    "clientUuid": uuid7(),
+                    "cloneFishId": fish_id,
+                    "observedOn": today,
+                    "outcome": "ALIVE",
+                    "condition": "ABNORMAL",
+                    "healthStatus": "HEALTHY",
+                }
+            ]
+        },
+    )
+    source_id = saved.json()["results"][0]["id"]
+    path = f"/api/v1/observations/fish/{source_id}"
+    if action == "correct":
+        response = client.patch(
+            path, headers=headers(write_headers, 862), json={"condition": "NORMAL", "correctionReason": "Entry error"}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["condition"] == "NORMAL"
+    else:
+        response = client.delete(path, headers=headers(write_headers, 862), params={"reason": "Entry error"})
+        assert response.status_code == 204, response.text
+    fish = client.get(f"/api/v1/fish/{fish_id}").json()
+    assert fish["isDisabled"] is False
+    assert fish["condition"] == "NORMAL"
+    assert not fish.get("firstAbnormalOn")
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from test_contract_exports_audit import worksheet_rows
+
+    exported = client.post(
+        "/api/v1/exports/excel", headers={**write_headers, "X-Idempotency-Key": uuid7()}, json={"filters": {}}
+    )
+    assert exported.status_code == 200, exported.text
+    with ZipFile(BytesIO(exported.content)) as archive:
+        rows = worksheet_rows(archive.read("xl/worksheets/sheet7.xml"))
+    columns = {name: index for index, name in enumerate(rows[0])}
+    row = next(row for row in rows[1:] if row[columns["fish_code"]] == fish["fishCode"])
+    assert row[columns["condition"]] == "NORMAL"
+    assert row[columns["is_disabled"]] in {"0", "False"}
+
+
+@pytest.mark.parametrize("later_condition", ["NORMAL", "ABNORMAL"])
+def test_only_remaining_recorded_evidence_determines_disability(client, write_headers, later_condition):
+    embryo = setup_eligible_embryo(client, write_headers, condition="ABNORMAL")
+    source = next(o for o in client.app.state.store.snapshot().observations.values() if o["embryoId"] == embryo["id"])
+    later = client.post(
+        "/api/v1/observations/embryo",
+        headers=headers(write_headers, 870),
+        json={
+            "observations": [
+                {
+                    "clientUuid": uuid7(),
+                    "embryoId": embryo["id"],
+                    "stageCode": "stage_27_6D",
+                    "observedAt": datetime.now(ZoneInfo("UTC")).isoformat(),
+                    "outcome": "ALIVE",
+                    "condition": later_condition,
+                }
+            ]
+        },
+    )
+    assert later.json()["results"][0]["status"] == "created", later.text
+    assert client.app.state.store.snapshot().entities["embryos"][embryo["id"]]["isDisabled"] is True
+    fixed = client.patch(
+        f"/api/v1/observations/embryo/{source['id']}",
+        headers=headers(write_headers, 871),
+        json={
+            "condition": "NORMAL",
+            "correctionReason": "Incorrect original entry",
+        },
+    )
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["condition"] == "NORMAL"
+    assert client.app.state.store.snapshot().entities["embryos"][embryo["id"]]["isDisabled"] == (
+        later_condition == "ABNORMAL"
+    )
+
+
+@pytest.mark.parametrize("registration", [{"condition": "ABNORMAL"}, {"healthStatus": "DISABLED"}])
+def test_disability_recorded_at_registration_is_independent_evidence(client, write_headers, registration):
+    batch, donor = create_batch(client, write_headers)
+    today = datetime.now(ZoneInfo("Asia/Bangkok")).date().isoformat()
+    created = client.post(
+        "/api/v1/fish",
+        headers=headers(write_headers, 880),
+        json={
+            "fishCode": "registration-disability",
+            "dob": today,
+            "donorCellLineId": donor["id"],
+            "recipientEggLotId": batch["recipientEggLotId"],
+            **registration,
+        },
+    )
+    assert created.status_code == 201, created.text
+    fish_id = created.json()["id"]
+    saved = client.post(
+        "/api/v1/observations/fish",
+        headers=headers(write_headers, 881),
+        json={
+            "observations": [
+                {
+                    "clientUuid": uuid7(),
+                    "cloneFishId": fish_id,
+                    "observedOn": today,
+                    "outcome": "ALIVE",
+                    "condition": "NORMAL",
+                    "healthStatus": "HEALTHY",
+                }
+            ]
+        },
+    )
+    assert saved.json()["results"][0]["status"] == "created", saved.text
+    assert client.get(f"/api/v1/fish/{fish_id}").json()["isDisabled"] is True

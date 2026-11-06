@@ -2609,7 +2609,7 @@ export interface components {
             warnings?: string[];
         };
         Embryo: {
-            /** @description Derived from Abnormal; persists through adulthood */
+            /** @description Derived from non-deleted Abnormal observations; inherited by promoted fish */
             readonly isDisabled?: boolean;
             /** Format: uuid */
             id: string;
@@ -2770,7 +2770,7 @@ export interface components {
             } | null;
         };
         EmbryoObservation: {
-            /** @description Derived from Abnormal; retained across subsequent observations */
+            /** @description Derived from this recorded condition; current disability is computed across non-deleted history */
             readonly isDisabled?: boolean;
             /** Format: uuid */
             id: string;
@@ -2905,7 +2905,7 @@ export interface components {
             } | null;
         };
         CloneFish: {
-            /** @description Derived from Abnormal; retained across subsequent observations */
+            /** @description Derived from registration evidence and non-deleted embryo or fish observations */
             readonly isDisabled?: boolean;
             sickNote?: string | null;
             /** Format: uuid */

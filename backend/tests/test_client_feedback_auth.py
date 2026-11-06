@@ -1,7 +1,9 @@
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
+from chronofish.runtime.errors import APIError
 from chronofish.runtime.values import utc_now
 
 
@@ -70,3 +72,11 @@ def test_mail_test_explains_an_untrusted_smtp_certificate(client, monkeypatch):
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "email_tls_verification_failed"
     assert "CA" in response.json()["error"]["message"]
+
+
+@pytest.mark.parametrize("email", ["a..b@example.org", "a" * 250 + "@example.org"])
+def test_repository_invitation_uses_the_same_email_validation(client, email):
+    repository = client.app.state.auth.repository
+    with pytest.raises(APIError) as error:
+        repository.invite_user(email, {"id": "unused"}, utc_now())
+    assert error.value.code == "invalid_email"

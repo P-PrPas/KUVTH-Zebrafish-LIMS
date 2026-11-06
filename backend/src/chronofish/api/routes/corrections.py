@@ -29,7 +29,7 @@ from ...services.fish import (
     apply_fish_update,
     find_fish_for_embryo,
     recompute_fish,
-    retain_disability,
+    record_disability,
     validate_fish_health,
 )
 from ...store import Store
@@ -276,7 +276,7 @@ def _validate_and_apply(
     elif table == "fish_observation":
         candidate["overrideReason"] = reason
         candidate.setdefault("healthStatus", "UNDETERMINED")
-        retain_disability(state.entities["fish"].get(str(candidate.get("cloneFishId")), {}), candidate)
+        record_disability(candidate)
         if message := validate_fish_health(candidate):
             raise APIError(422, "validation_error", message)
         if (
