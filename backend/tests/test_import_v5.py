@@ -60,6 +60,7 @@ def experiment():
         "F13": "FRESH",
         "G13": "AB1",
         "H13": 2,
+            "I13": "Activation note from the customer",
     }.items():
         s[cell] = value
     s = book[EMBRYOS]
@@ -92,6 +93,7 @@ def test_experiment_original_form_recomputes_uncached_codes_and_preserves_zero_a
     assert len(targets) == 2
     assert not extra["aggregates"]
     assert len(state.entities["embryos"]) == 1  # n_activated is not an instruction to create embryos.
+    assert next(iter(state.entities["injection-lots"].values()))["notes"] == "Activation note from the customer"
     assert next(iter(state.entities["batches"].values()))["batchCode"] == "1_Demo operator_CONTROL_1_240426"
     assert next(iter(state.entities["embryos"].values()))["embryoCode"] == "1_Demo operator_CONTROL_1_1_240426"
     observations = list(state.observations.values())

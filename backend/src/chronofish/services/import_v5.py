@@ -588,9 +588,7 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
     for key, payload in extra["lots"].items():
         item = state.entities["injection-lots"][targets[key][1]]
         old = item.copy()
-        import json
-
-        item["notes"] = json.dumps(payload, ensure_ascii=False)
+        item["notes"] = payload["cells"].get("I")
         audit(state, request, "UPDATE", "injection_lot", item["id"], old, item)
     for notes in extra["embryos"].values():
         # Embryos have no notes column; the immutable import record retains it.
