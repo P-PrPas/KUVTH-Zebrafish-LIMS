@@ -11,6 +11,7 @@ import {
   saveObservationLocation,
 } from "../observation-draft";
 import { type ApiQueueResult, putQueue, type QueuedWrite, queuedWriteItems } from "../offline";
+import { allWells, plateWells } from "../plates";
 import { dateTimeLocalToRFC3339 } from "../time";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
@@ -283,9 +284,12 @@ function outcomeLabel(value: EmbryoOutcome, thai: boolean): string {
 
 function conditionLabel(value: string, thai: boolean): string {
   return (
-    ({ NORMAL: thai ? "ปกติ" : "Normal", ABNORMAL: thai ? "พบความผิดปกติ" : "Abnormal" } as Record<string, string>)[
-      value
-    ] ?? value
+    (
+      {
+        NORMAL: thai ? "ปกติ" : "Normal",
+        ABNORMAL: thai ? "Abnormal / พิการถาวร" : "Abnormal / permanently disabled",
+      } as Record<string, string>
+    )[value] ?? value
   );
 }
 
@@ -713,7 +717,7 @@ function ObservationRound({
       stageCode: stageCodes[id],
       observedAt,
       outcome: embryoOutcomes[id] ?? "ALIVE",
-      condition: embryoConditions[id] ?? "NORMAL",
+      condition: embryo.isDisabled ? "ABNORMAL" : (embryoConditions[id] ?? "NORMAL"),
       notes: notes[id] || null,
     };
   };
@@ -770,7 +774,7 @@ function ObservationRound({
               observedAt:
                 correctedAt || (embryo.priorObservationId === savedIds[id] ? embryo.priorObservedAt : confirmedAt),
               outcome: embryoOutcomes[id],
-              condition: embryoConditions[id],
+              condition: embryo.isDisabled ? "ABNORMAL" : embryoConditions[id],
               notes: notes[id] || null,
               correctionReason: correctionReason.trim(),
             },
@@ -919,6 +923,70 @@ function ObservationRound({
     window.setTimeout(() => wellButtons.current[nextId]?.focus(), 0);
   };
 
+  const renderPlateCell = (cell: ApiItem | string) => {
+    if (typeof cell === "string") {
+      const available = plateWells(Number(entry?.wellPlateSize ?? 96)).includes(cell);
+      return (
+        <div
+          key={cell}
+          role="gridcell"
+          aria-disabled="true"
+          className={`well-cell ${available ? "well-cell--empty" : "well-cell--unused"}`}
+          aria-label={`${cell}: ${available ? (thai ? "ไม่มีตัวอ่อนหรือถูกกรองออก" : "Empty or filtered") : thai ? "ไม่ใช้ในเพลทนี้" : "Outside this Well Plate"}`}
+        >
+          <strong>{cell}</strong>
+          <span aria-hidden="true">—</span>
+        </div>
+      );
+    }
+    const embryo = cell;
+    const index = matchingEmbryos.indexOf(embryo);
+    const id = String(embryo.embryoId);
+    const well = String(embryo.wellPosition ?? (thai ? "ไม่ระบุหลุม" : "Unassigned"));
+    const state = stateFor(embryo);
+    const abnormal =
+      state !== "dead" &&
+      (embryoOutcomes[id] || embryo.priorOutcome) === "ALIVE" &&
+      embryoConditions[id] === "ABNORMAL";
+    return (
+      <div role="gridcell" aria-selected={id === selectedId} key={id}>
+        <button
+          ref={(button) => {
+            wellButtons.current[id] = button;
+          }}
+          id={wellButtonId(id)}
+          data-well={well}
+          type="button"
+          className={`well-cell well-cell--${state}${abnormal ? " well-cell--abnormal" : ""}${!embryo.wellPosition ? " well-cell--unassigned" : ""}${id === selectedId ? " well-cell--selected" : ""}`}
+          aria-label={`${thai ? "หลุม" : "Well"} ${well}, ${String(embryo.embryoCode ?? "")}, ${stateLabel(state)}${abnormal ? `, ${outcomeLabel("ALIVE", thai)}, ${conditionLabel("ABNORMAL", thai)}` : ""}${id === selectedId ? `, ${thai ? "กำลังเลือก" : "selected"}` : ""}`}
+          aria-pressed={id === selectedId}
+          tabIndex={id === selectedId || (!selectedId && index === 0) ? 0 : -1}
+          onClick={() => selectWell(id, true)}
+          onKeyDown={(event) => moveWell(event, index)}
+        >
+          <strong>{embryo.wellPosition ? well : `— ${Number(embryo.seqInLot) || index + 1}`}</strong>
+          {!embryo.wellPosition && <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>}
+          {abnormal && <small>{conditionLabel("ABNORMAL", thai)}</small>}
+          <span title={stateLabel(state)}>
+            <b aria-hidden="true">
+              {state === "dead"
+                ? "×"
+                : state === "saved"
+                  ? "✓"
+                  : state === "exception"
+                    ? "!"
+                    : state === "unreviewed"
+                      ? "○"
+                      : state === "queued"
+                        ? "↺"
+                        : "•"}
+            </b>
+            <span className="sr-only">{stateLabel(state)}</span>
+          </span>
+        </button>
+      </div>
+    );
+  };
   return (
     <section className="work-screen checkpoint-round">
       <button className="back" onClick={leaveRound}>
@@ -1155,68 +1223,23 @@ function ObservationRound({
               </button>
             </div>
           ) : (
-            <div
-              className="well-grid checkpoint-grid"
-              role="grid"
-              aria-label={thai ? "แผ่นหลุมตัวอ่อน" : "Embryo plate wells"}
-              aria-colcount={12}
-            >
-              {matchingEmbryos.map((embryo, index) => {
-                const id = String(embryo.embryoId);
-                const well = String(embryo.wellPosition ?? (thai ? "ไม่ระบุหลุม" : "Unassigned"));
-                const state = stateFor(embryo);
-                const abnormal =
-                  state !== "dead" &&
-                  (embryoOutcomes[id] || embryo.priorOutcome) === "ALIVE" &&
-                  embryoConditions[id] === "ABNORMAL";
-                return (
-                  <div role="gridcell" aria-selected={id === selectedId} key={id}>
-                    <button
-                      ref={(button) => {
-                        wellButtons.current[id] = button;
-                      }}
-                      id={wellButtonId(id)}
-                      data-well={well}
-                      type="button"
-                      className={`well-cell well-cell--${state}${abnormal ? " well-cell--abnormal" : ""}${!embryo.wellPosition ? " well-cell--unassigned" : ""}${id === selectedId ? " well-cell--selected" : ""}`}
-                      aria-label={`${thai ? "หลุม" : "Well"} ${well}, ${String(embryo.embryoCode ?? "")}, ${stateLabel(state)}${abnormal ? `, ${outcomeLabel("ALIVE", thai)}, ${conditionLabel("ABNORMAL", thai)}` : ""}${id === selectedId ? `, ${thai ? "กำลังเลือก" : "selected"}` : ""}`}
-                      aria-pressed={id === selectedId}
-                      tabIndex={id === selectedId || (!selectedId && index === 0) ? 0 : -1}
-                      onClick={() => selectWell(id, true)}
-                      onKeyDown={(event) => moveWell(event, index)}
-                    >
-                      <strong>
-                        {embryo.wellPosition
-                          ? well
-                          : `— ${
-                              String(embryo.embryoCode ?? "")
-                                .split("_")
-                                .at(-1) || index + 1
-                            }`}
-                      </strong>
-                      {!embryo.wellPosition && <small>{thai ? "ไม่ระบุหลุม" : "Unassigned"}</small>}
-                      {abnormal && <small>{conditionLabel("ABNORMAL", thai)}</small>}
-                      <span title={stateLabel(state)}>
-                        <b aria-hidden="true">
-                          {state === "dead"
-                            ? "×"
-                            : state === "saved"
-                              ? "✓"
-                              : state === "exception"
-                                ? "!"
-                                : state === "unreviewed"
-                                  ? "○"
-                                  : state === "queued"
-                                    ? "↺"
-                                    : "•"}
-                        </b>
-                        <span className="sr-only">{stateLabel(state)}</span>
-                      </span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            <>
+              <div className="well-grid checkpoint-grid" role="grid" aria-label="Well Plate" aria-colcount={12}>
+                {allWells.map((well) =>
+                  renderPlateCell(matchingEmbryos.find((embryo) => embryo.wellPosition === well) ?? well),
+                )}
+              </div>
+              {matchingEmbryos.some((embryo) => !embryo.wellPosition) && (
+                <section className="checkpoint-unassigned">
+                  <h3>
+                    {thai
+                      ? "\u0e15\u0e31\u0e27\u0e2d\u0e48\u0e2d\u0e19\u0e17\u0e35\u0e48\u0e22\u0e31\u0e07\u0e44\u0e21\u0e48\u0e01\u0e33\u0e2b\u0e19\u0e14\u0e2b\u0e25\u0e38\u0e21"
+                      : "Unassigned embryos"}
+                  </h3>
+                  {matchingEmbryos.filter((embryo) => !embryo.wellPosition).map(renderPlateCell)}
+                </section>
+              )}
+            </>
           )}
         </section>
         <aside className="checkpoint-editor" aria-labelledby="checkpoint-editor-heading">
@@ -1297,7 +1320,8 @@ function ObservationRound({
                       <select
                         id="active-condition"
                         aria-label={`${thai ? "สภาพของหลุม" : "Condition for well"} ${activeWell}`}
-                        value={embryoConditions[activeId] ?? "NORMAL"}
+                        value={activeEmbryo.isDisabled ? "ABNORMAL" : (embryoConditions[activeId] ?? "NORMAL")}
+                        disabled={Boolean(activeEmbryo.isDisabled)}
                         onChange={(event) =>
                           setEmbryoConditions((current) => ({ ...current, [activeId]: event.target.value }))
                         }
@@ -1310,6 +1334,13 @@ function ObservationRound({
                       </select>
                     </label>
                   </fieldset>
+                  {activeEmbryo.isDisabled === true && (
+                    <p className="disabled-status" role="note">
+                      {thai
+                        ? "Abnormal ถือเป็นพิการถาวร และติดตามไปถึงปลาโต"
+                        : "Abnormal means permanent disability and remains through adulthood."}
+                    </p>
+                  )}
                   <details className="checkpoint-notes">
                     <summary>
                       {notes[activeId]

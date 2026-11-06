@@ -27,7 +27,13 @@ async function submitForm() {
   });
 }
 
-describe("email OTP login", () => {
+async function beginSetup() {
+  await act(async () => document.querySelector<HTMLButtonElement>(".auth-actions button")?.click());
+  await changeValue("#login-password", "test-password");
+  await changeValue("#confirm-password", "test-password");
+}
+
+describe("invited password setup", () => {
   let onLogin: ReturnType<typeof vi.fn>;
   let unmount: (() => Promise<void>) | undefined;
 
@@ -45,19 +51,19 @@ describe("email OTP login", () => {
     document.body.innerHTML = "";
   });
 
-  it("requests a code for a normalized KU email and enforces a cooldown", async () => {
+  it("requests a code for a normalized invited email and enforces a cooldown", async () => {
     request.mockResolvedValueOnce(jsonResponse({}));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     expect(rendered.element.querySelector<HTMLInputElement>("#login-email")?.checkValidity()).toBe(false);
     await changeValue("#login-email", " PEERAPAS.C@KU.TH ");
     await changeValue("#login-email", "PEERAPAS.C@KU.TH");
     expect(rendered.element.querySelector<HTMLInputElement>("#login-email")?.checkValidity()).toBe(true);
     await submitForm();
-    expect(request).toHaveBeenCalledWith("/auth/request-code", {
+    expect(request).toHaveBeenCalledWith("/auth/password/request-code", {
       method: "POST",
-      body: JSON.stringify({ email: "peerapas.c@ku.th" }),
+      body: JSON.stringify({ email: "peerapas.c@ku.th", password: "test-password" }),
     });
     expect(rendered.element.textContent).toContain("รหัสยืนยัน 6 หลัก");
     expect(rendered.element.textContent).toContain("ส่งอีกครั้งใน 60s");
@@ -72,7 +78,7 @@ describe("email OTP login", () => {
     );
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     await changeValue("#login-code", "12a345678");
@@ -81,7 +87,7 @@ describe("email OTP login", () => {
     expect(request).toHaveBeenLastCalledWith("/auth/verify-code", {
       method: "POST",
       headers: { "X-Device-Id": "device-1" },
-      body: JSON.stringify({ email: "member@ku.th", code: "123456" }),
+      body: JSON.stringify({ email: "member@ku.th", password: "test-password", code: "123456" }),
     });
     expect(onLogin).toHaveBeenCalledWith({
       id: "user-1",
@@ -94,13 +100,13 @@ describe("email OTP login", () => {
 
   it.each([
     [429, "กรุณารอสักครู่ก่อนขอรหัสใหม่"],
-    [503, "ระบบส่งอีเมลยังตั้งค่าไม่เสร็จ กรุณาติดต่อผู้ดูแลระบบ"],
+    [503, "ระบบส่งอีเมลขัดข้อง กรุณาติดต่อผู้ดูแลระบบ"],
     [500, "HTTP 500"],
   ])("shows the appropriate request-code error for HTTP %s", async (status, message) => {
     request.mockRejectedValueOnce(Object.assign(new Error(`HTTP ${status}`), { status }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(message);
@@ -112,7 +118,7 @@ describe("email OTP login", () => {
       .mockRejectedValueOnce(Object.assign(new Error("invalid"), { status: 401 }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     await changeValue("#login-code", "123456");
@@ -121,7 +127,7 @@ describe("email OTP login", () => {
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".auth-actions button")?.click());
     expect(rendered.element.querySelector("#login-email")).not.toBeNull();
     await act(async () => rendered.element.querySelector<HTMLButtonElement>(".language")?.click());
-    expect(rendered.element.textContent).toContain("Guest sign in");
+    expect(rendered.element.textContent).toContain("Sign in to your lab");
     expect(localStorage.getItem("chronofish.language")).toBe("en");
   });
 
@@ -130,13 +136,13 @@ describe("email OTP login", () => {
     request.mockResolvedValue(jsonResponse({}));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     await changeValue("#login-email", "member@ku.th");
     await submitForm();
     expect(request).toHaveBeenNthCalledWith(1, "/auth/logout", { method: "POST" });
-    expect(request).toHaveBeenNthCalledWith(2, "/auth/request-code", {
+    expect(request).toHaveBeenNthCalledWith(2, "/auth/password/request-code", {
       method: "POST",
-      body: JSON.stringify({ email: "member@ku.th" }),
+      body: JSON.stringify({ email: "member@ku.th", password: "test-password" }),
     });
     expect(localStorage.getItem("chronofish.logout_pending")).toBeNull();
   });
@@ -150,7 +156,7 @@ describe("email OTP login", () => {
       .mockRejectedValueOnce(Object.assign(new Error("invalid"), { status: 401 }));
     const rendered = await renderPage(<Login onLogin={onLogin} />);
     unmount = rendered.unmount;
-    await act(async () => rendered.element.querySelector<HTMLButtonElement>('[data-login-mode="otp"]')?.click());
+    await beginSetup();
     await changeValue("#login-email", "member@KU.TH");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
@@ -158,13 +164,13 @@ describe("email OTP login", () => {
     );
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
-      "Email delivery is not configured yet. Contact an administrator.",
+      "Email delivery is unavailable. Contact an administrator.",
     );
     await submitForm();
     await changeValue("#login-code", "123456");
     await submitForm();
     expect(rendered.element.querySelector('[role="alert"]')?.textContent).toBe(
-      "That code is invalid or expired. After 15 incorrect attempts within 24 hours, contact an admin to unlock your account.",
+      "That code is invalid or expired. Request a new code and try again.",
     );
   });
 });

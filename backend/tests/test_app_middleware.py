@@ -153,7 +153,7 @@ def test_authentication_errors_include_cors_headers():
             client.post(
                 "/api/v1/auth/verify-code",
                 headers={"X-Device-Id": "admin-browser"},
-                json={"email": "admin@ku.th", "code": code},
+                json={"password": "correct horse battery staple", "email": "admin@ku.th", "code": code},
             ).status_code
             == 200
         )
@@ -165,7 +165,7 @@ def test_authentication_errors_include_cors_headers():
             client.post(
                 "/api/v1/auth/verify-code",
                 headers={"X-Device-Id": "member-browser"},
-                json={"email": "member@ku.th", "code": code},
+                json={"password": "correct horse battery staple", "email": "member@ku.th", "code": code},
             ).status_code
             == 200
         )

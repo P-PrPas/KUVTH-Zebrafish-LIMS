@@ -43,6 +43,12 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
     email = f"sql-guest-{uuid7()}@ku.th"
     password = "a secure sql test password"
     headers = {"X-Device-Id": "sql-guest-device"}
+    invited = admin.post("/api/v1/auth/admin/users", json={"email": email})
+    assert invited.status_code == 201
+    assert (
+        admin.patch(f"/api/v1/auth/admin/users/{invited.json()['user']['id']}", json={"role": "guest"}).status_code
+        == 200
+    )
     assert guest.post("/api/v1/auth/register", json={"email": email, "password": password}).status_code == 202
     code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
     verified = guest.post(
@@ -94,7 +100,7 @@ def test_sql_guest_password_persists_roles_lockout_and_reset():
     assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
     assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
     assert other.get("/api/v1/batches").status_code == 200
-    assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 401
+    assert other.post("/api/v1/auth/login", headers=headers, json=body).status_code == 200
     assert admin.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "guest"}).status_code == 200
     assert other.get("/api/v1/batches").status_code == 403
     guest.close()
@@ -193,7 +199,7 @@ def _client(store: SQLStore, bootstrap_email: str | None = None, session_token: 
         verified = client.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "pytest-sql"},
-            json={"email": bootstrap_email, "code": code.group()},
+            json={"password": "correct horse battery staple", "email": bootstrap_email, "code": code.group()},
         )
         assert verified.status_code == 200, verified.text
     _bootstrap_email = bootstrap_email
@@ -271,16 +277,21 @@ def test_main_v24_upgrade_and_legacy_passwords_are_preserved(legacy_passwords):
         repository = AuthRepository(SimpleNamespace(engine=engine), "upgrade-test-secret")
         now = datetime.now(UTC)
         repository.ensure_bootstrap("upgrade@ku.th", now)
-        repository.issue_code("upgrade@ku.th", repository.code_hash("upgrade@ku.th", "123456"), now)
-        result = repository.verify_and_create_session(
-            "upgrade@ku.th",
-            repository.code_hash("upgrade@ku.th", "123456"),
-            uuid7(),
-            "upgrade-session",
-            "upgrade-device",
-            now,
-        )
-        assert result.user
+        # Seed a pre-password deployment session directly; the current sign-in flow requires v25 columns.
+        stored_now = now.replace(tzinfo=None)
+        with engine.begin() as connection:
+            user_id = connection.execute(text("SELECT id FROM auth_user WHERE email = 'upgrade@ku.th'")).scalar_one()
+            connection.execute(
+                text("UPDATE auth_user SET verified_at = :now WHERE id = :id"), {"now": stored_now, "id": user_id}
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO auth_session "
+                    "(id, token_hash, user_id, device_id, created_at, last_seen_at, absolute_expires_at) "
+                    "VALUES (:id, 'upgrade-session', :user, 'upgrade-device', :now, :now, :expires)"
+                ),
+                {"id": uuid7(), "user": user_id, "now": stored_now, "expires": stored_now + timedelta(days=90)},
+            )
         if legacy_passwords:
             with engine.begin() as connection:
                 connection.execute(
@@ -309,7 +320,7 @@ def test_main_v24_upgrade_and_legacy_passwords_are_preserved(legacy_passwords):
             )
             assert all(after[key] == value for key, value in before.items())
             assert "password_hash" in after and "password_locked_until" in after
-            assert connection.execute(text("SELECT version FROM schema_migrations")).scalar_one() == 25
+            assert connection.execute(text("SELECT version FROM schema_migrations")).scalar_one() == 26
             assert (
                 dict(
                     connection.execute(text("SELECT * FROM auth_session WHERE token_hash = 'upgrade-session'"))
@@ -319,8 +330,9 @@ def test_main_v24_upgrade_and_legacy_passwords_are_preserved(legacy_passwords):
                 == session
             )
             assert list(connection.execute(text("SELECT * FROM protocol ORDER BY id")).mappings()) == protocols
-        repository.register_guest("after-upgrade@ku.th", now)
-        assert repository.user_by_email("after-upgrade@ku.th")["role"] == "guest"
+        actor = repository.user_by_email("upgrade@ku.th")
+        repository.invite_user("after-upgrade@example.org", actor, now)
+        assert repository.user_by_email("after-upgrade@example.org")["role"] == "member"
     finally:
         if engine:
             engine.dispose()
@@ -354,8 +366,15 @@ def test_sql_guest_invitation_and_password_policy():
         )
     assert browser.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
     code = re.search(r"\b\d{6}\b", admin.app.state.auth.mailer.messages[-1][2]).group()
-    assert browser.post("/api/v1/auth/verify-code", json={**body, "code": code}, headers=headers).status_code == 400
-    verified = browser.post("/api/v1/auth/verify-code", json={"email": email, "code": code}, headers=headers)
+    assert (
+        browser.post("/api/v1/auth/verify-code", json={"email": email, "code": code}, headers=headers).status_code
+        == 400
+    )
+    verified = browser.post(
+        "/api/v1/auth/verify-code",
+        json={"password": "correct horse battery staple", "email": email, "code": code},
+        headers=headers,
+    )
     assert verified.status_code == 200, verified.text
     assert verified.json()["user"]["role"] == "member"
     browser.close()
@@ -383,6 +402,7 @@ def test_sql_otp_reuse_daily_limit_and_session_identity():
                     repository.token_hash(uuid7()),
                     "sql-device",
                     issued_at + timedelta(seconds=62 + attempt),
+                    password="correct horse battery staple",
                 )
                 assert user is None
                 assert alert == (batch == 2 and attempt == 4)
@@ -396,6 +416,7 @@ def test_sql_otp_reuse_daily_limit_and_session_identity():
             repository.token_hash(uuid7()),
             "sql-device",
             now + timedelta(days=1, minutes=25),
+            password="correct horse battery staple",
         )
         assert alert is False
         assert user and user["sessionId"] and user["deviceId"] == "sql-device"
@@ -443,7 +464,7 @@ def test_member_duplicate_is_owned_by_linked_operator_on_sql():
     verified = member.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "sql-member-browser"},
-        json={"email": invited_email, "code": code},
+        json={"password": "correct horse battery staple", "email": invited_email, "code": code},
     )
     assert verified.status_code == 200, verified.text
     member_headers = {
@@ -860,6 +881,7 @@ def test_sql_store_round_trips_feedback_fields():
             json={
                 "batchCode": f"RT-{suffix}",
                 "experimentDate": lab_today,
+                "wellPlateSize": 48,
                 "siteId": site["id"],
                 "operatorId": DEMO_OPERATOR_ID,
                 "protocolId": PROTOCOL_ID,
@@ -881,6 +903,24 @@ def test_sql_store_round_trips_feedback_fields():
         )
         assert lot_response.status_code == 201, lot_response.text
         injection_lot_id = lot_response.json()["id"]
+        embryo_id = lot_response.json()["embryos"][0]["id"]
+        embryo_observation = client.post(
+            "/api/v1/observations/embryo",
+            headers=_headers(),
+            json={
+                "observations": [
+                    {
+                        "clientUuid": uuid7(),
+                        "embryoId": embryo_id,
+                        "stageCode": "stage_01_1C",
+                        "observedAt": datetime.now(UTC).isoformat(),
+                        "outcome": "ALIVE",
+                        "condition": "ABNORMAL",
+                    }
+                ]
+            },
+        )
+        assert embryo_observation.json()["results"][0]["status"] == "created", embryo_observation.text
 
         fish_response = client.post(
             "/api/v1/fish",
@@ -907,8 +947,9 @@ def test_sql_store_round_trips_feedback_fields():
                         "cloneFishId": fish_id,
                         "observedOn": lab_today,
                         "outcome": "ALIVE",
-                        "condition": "NORMAL",
+                        "condition": "ABNORMAL",
                         "healthStatus": "SICK",
+                        "sickNote": "Not eating",
                     }
                 ]
             },
@@ -916,6 +957,23 @@ def test_sql_store_round_trips_feedback_fields():
         assert observation_response.status_code == 200, observation_response.text
         observation_id = observation_response.json()["results"][0]["id"]
 
+        # Simulate legacy Normal rows after an earlier Abnormal observation, then exercise the migration backfill.
+        with store.engine.begin() as connection:
+            connection.execute(text("UPDATE embryo SET is_disabled = FALSE WHERE id = :id"), {"id": embryo_id})
+            connection.execute(
+                text("UPDATE embryo_observation SET is_disabled = FALSE WHERE embryo_id = :id"), {"id": embryo_id}
+            )
+            connection.execute(
+                text("UPDATE clone_fish SET is_disabled = FALSE, biological_condition = 'NORMAL' WHERE id = :id"),
+                {"id": fish_id},
+            )
+            connection.execute(
+                text("UPDATE fish_observation SET is_disabled = FALSE WHERE id = :id"), {"id": observation_id}
+            )
+            migration = (_config("unused@example.org").migrations_dir / "000026_client_feedback.up.sql").read_text(
+                encoding="utf-8"
+            )
+            _execute_script(connection, migration[migration.index("UPDATE embryo_observation") :])
         store.close()
         store = SQLStore(_config(f"sql-store-{uuid7()}@ku.th"))
         reloaded = store.snapshot()
@@ -924,7 +982,36 @@ def test_sql_store_round_trips_feedback_fields():
         assert reloaded.entities["recipient-egg-lots"][recipient["id"]]["donorFishCode"] == f"EGG-DONOR-{suffix}"
         assert reloaded.entities["injection-lots"][injection_lot_id]["nManipulated"] == 3
         assert reloaded.entities["fish"][fish_id]["recipientEggLotId"] == recipient["id"]
+        assert reloaded.entities["batches"][batch_response.json()["id"]]["wellPlateSize"] == 48
+        assert reloaded.entities["embryos"][embryo_id]["isDisabled"] is True
+        assert reloaded.entities["fish"][fish_id]["isDisabled"] is True
+        assert reloaded.entities["fish"][fish_id]["sickNote"] == "Not eating"
+        assert reloaded.fish_observations[observation_id]["isDisabled"] is True
+        assert reloaded.fish_observations[observation_id]["sickNote"] == "Not eating"
         assert reloaded.entities["fish"][fish_id]["healthStatus"] == "SICK"
         assert reloaded.fish_observations[observation_id]["healthStatus"] == "SICK"
+        # Migration adds derived flags without rewriting the recorded registry condition.
+        assert reloaded.entities["fish"][fish_id]["condition"] == "NORMAL"
+        assert reloaded.entities["fish"][fish_id]["disabilityAtRegistration"] is False
+        browser = _client(store)
+        assert browser.get(f"/api/v1/fish/{fish_id}").json()["condition"] == "ABNORMAL"
+        corrected = browser.patch(
+            f"/api/v1/observations/fish/{observation_id}",
+            headers=_headers(),
+            json={"condition": "NORMAL", "correctionReason": "Source transcription error"},
+        )
+        assert corrected.status_code == 200, corrected.text
+        assert corrected.json()["condition"] == "NORMAL"
+        corrected_embryo = browser.patch(
+            f"/api/v1/observations/embryo/{embryo_observation.json()['results'][0]['id']}",
+            headers=_headers(),
+            json={"condition": "NORMAL", "correctionReason": "Source transcription error"},
+        )
+        assert corrected_embryo.status_code == 200, corrected_embryo.text
+        reloaded = store.snapshot()
+        assert reloaded.entities["embryos"][embryo_id]["isDisabled"] is False
+        assert reloaded.entities["fish"][fish_id]["isDisabled"] is False
+        assert browser.get(f"/api/v1/fish/{fish_id}").json()["condition"] == "NORMAL"
+        browser.close()
     finally:
         store.close()

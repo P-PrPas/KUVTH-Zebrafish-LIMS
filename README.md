@@ -40,6 +40,29 @@ npm run dev
 
 Open `http://localhost:5173`. Vite proxies `/api` to the Python server on port 8080.
 
+The plain Python command above reads environment variables already exported to
+the terminal; it does **not** load the repository's `.env` file. For local
+invitation and password-reset emails, create `.env` from `.env.example` if it
+does not already exist, then configure `BOOTSTRAP_ADMIN_EMAIL` and the `MAIL_*`
+settings. With [uv](https://docs.astral.sh/uv/reference/cli/#uv-run--env-file)
+installed, start the backend from `backend/` with:
+
+```powershell
+uv run --env-file ../.env python -m chronofish
+```
+
+Use "Invited / forgot password" with the bootstrap admin email to verify and set
+the password, then sign in and use Members → System sender settings → Send a test email to me.
+SMTP acceptance does not guarantee inbox delivery; also check spam. Docker
+Compose loads the root `.env` through the Compose configuration instead.
+
+If Compose reports `email_tls_verification_failed` and SMTP fails with a
+self-signed certificate in the chain, follow the
+[local SMTP certificate guide](docs/operations/SMTP_LOCAL_TLS.md). Antivirus
+mail inspection can use a root CA trusted by Windows but absent from the Linux
+container. The guide provides optional read-only CA mounts for both database
+stacks while keeping certificate and hostname verification enabled.
+
 ## Validate
 
 ```powershell

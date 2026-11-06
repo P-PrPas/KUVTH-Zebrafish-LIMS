@@ -65,7 +65,7 @@ TABLE_COLUMNS = {
         created_by_operator_id created_at updated_at deleted_at
     """,
     "experiment_batch": """
-        id batch_code experiment_date day_no site_id operator_id protocol_id timing_profile_id
+        id batch_code experiment_date day_no well_plate_size site_id operator_id protocol_id timing_profile_id
         experiment_group_id treatment_group_id recipient_egg_lot_id csof_lot_id
         clutch_code replicate_no incubation_temp_c
         notes created_at updated_at deleted_at
@@ -75,12 +75,12 @@ TABLE_COLUMNS = {
         enu_finish_at activated_at n_eggs n_manipulated n_activated notes created_at updated_at deleted_at
     """,
     "embryo": """
-        id injection_lot_id seq_in_lot embryo_code well_position exit_stage_id exit_at exit_reason
+        id injection_lot_id seq_in_lot embryo_code well_position is_disabled exit_stage_id exit_at exit_reason
         first_abnormal_observation_id created_at updated_at deleted_at
     """,
     "embryo_observation": """
         id client_uuid embryo_id stage_definition_id observed_at hpa_actual hpa_expected_snapshot
-        deviation_h outcome biological_condition operator_id device_id is_backdated override_reason
+        deviation_h outcome biological_condition is_disabled operator_id device_id is_backdated override_reason
         notes created_at updated_at deleted_at
     """,
     "control_arm_count": """
@@ -90,12 +90,12 @@ TABLE_COLUMNS = {
         id embryo_id fish_code running_no dob donor_cell_line_id site_id fish_box_id status
         import_job_id life_state disposition
         biological_condition first_abnormal_on first_abnormal_age_days first_abnormal_stage_id sex
-        recipient_egg_lot_id health_status
+        recipient_egg_lot_id health_status sick_note is_disabled disability_at_registration
         fin_clipped exit_date exit_reason remarks created_at updated_at deleted_at
     """,
     "fish_observation": """
         id client_uuid clone_fish_id observed_on age_days outcome biological_condition operator_id
-        device_id is_backdated health_status notes created_at updated_at deleted_at
+        device_id is_backdated health_status sick_note is_disabled notes created_at updated_at deleted_at
     """,
     "specimen": """
         id clone_fish_id specimen_code specimen_kind specimen_type preservation_state
@@ -134,7 +134,15 @@ def _api_value(column: str, value: Any) -> Any:
         return float(value)
     if isinstance(value, bytes):
         return value.decode()
-    if column in {"active", "auto_temp_adjust", "is_current", "fin_clipped", "is_backdated"}:
+    if column in {
+        "active",
+        "auto_temp_adjust",
+        "is_current",
+        "fin_clipped",
+        "is_backdated",
+        "is_disabled",
+        "disability_at_registration",
+    }:
         return bool(value)
     return value
 

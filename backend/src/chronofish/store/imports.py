@@ -1585,10 +1585,12 @@ class ImportRepository:
                     text(
                         "INSERT INTO clone_fish (id, fish_code, running_no, dob, donor_cell_line_id, "
                         "site_id, import_job_id, "
-                        "status, life_state, disposition, biological_condition, sex, fin_clipped, "
+                        "status, life_state, disposition, biological_condition, "
+                        "disability_at_registration, is_disabled, sex, fin_clipped, "
                         "exit_date, exit_reason, created_at, updated_at) VALUES "
                         "(:id, :code, :running, :dob, :donor, :site, :job, :status, :life, :disposition, "
-                        ":condition, 'UNKNOWN', FALSE, :exit_date, :exit_reason, :now, :now)"
+                        ":condition, :disabled, :disabled, "
+                        "'UNKNOWN', FALSE, :exit_date, :exit_reason, :now, :now)"
                     ),
                     {
                         "id": fish_id,
@@ -1602,6 +1604,7 @@ class ImportRepository:
                         "life": meaning["lifeState"],
                         "disposition": meaning["disposition"],
                         "condition": meaning["biologicalCondition"],
+                        "disabled": meaning["biologicalCondition"] == "ABNORMAL",
                         "exit_date": exit_date,
                         "exit_reason": exit_reason,
                         "now": now,
@@ -1615,7 +1618,12 @@ class ImportRepository:
                     actor,
                     "clone_fish",
                     fish_id,
-                    {"fishCode": meaning["fishCode"], "sourceRecordId": record["id"]},
+                    {
+                        "fishCode": meaning["fishCode"],
+                        "sourceRecordId": record["id"],
+                        "disabilityAtRegistration": meaning["biologicalCondition"] == "ABNORMAL",
+                        "isDisabled": meaning["biologicalCondition"] == "ABNORMAL",
+                    },
                     now,
                 )
                 for code in meaning["sourceSpecimenCodes"]:

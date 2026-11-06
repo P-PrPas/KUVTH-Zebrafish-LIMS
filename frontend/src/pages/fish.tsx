@@ -28,7 +28,7 @@ const outcomeLabel = (value: FishOutcome, t: AppText) =>
 const conditionLabel = (value: unknown, thai: boolean) =>
   ({
     NORMAL: thai ? "ปกติ" : "Normal",
-    ABNORMAL: thai ? "พบความผิดปกติ" : "Abnormal",
+    ABNORMAL: thai ? "Abnormal / พิการถาวร" : "Abnormal / permanently disabled",
     UNDETERMINED: thai ? "ยังประเมินไม่ได้" : "Undetermined",
   })[String(value)] ?? "—";
 const healthStatusLabel = (value: unknown, thai: boolean) =>
@@ -76,6 +76,7 @@ export function Fish({ t }: { t: AppText }) {
   const [correctionReason, setCorrectionReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [sickNotesByFish, setSickNotesByFish] = useState<Record<string, string>>({});
   const [notesByFish, setNotesByFish] = useState<Record<string, string>>({});
   const [healthStatusByFish, setHealthStatusByFish] = useState<Record<string, FishHealthStatus>>({});
   const [clock, setClock] = useState(() => new Date());
@@ -103,6 +104,11 @@ export function Fish({ t }: { t: AppText }) {
       .then((data) => {
         const rows = data.items ?? [];
         setItems(rows);
+        setSickNotesByFish(
+          Object.fromEntries(
+            rows.map((fish: ApiItem) => [String(fish.fishId), String(fish.recordedSickNote ?? fish.sickNote ?? "")]),
+          ),
+        );
         setNotesByFish(
           Object.fromEntries(rows.map((fish: ApiItem) => [String(fish.fishId), String(fish.recordedNotes ?? "")])),
         );
@@ -167,7 +173,8 @@ export function Fish({ t }: { t: AppText }) {
       ((outcome != null && outcome !== String(fish.recordedOutcome ?? "ALIVE")) ||
         (healthStatusByFish[id] != null &&
           healthStatusByFish[id] !== String(fish.recordedHealthStatus ?? fish.healthStatus ?? "UNDETERMINED")) ||
-        (notesByFish[id] ?? "").trim() !== String(fish.recordedNotes ?? "").trim())
+        (notesByFish[id] ?? "").trim() !== String(fish.recordedNotes ?? "").trim() ||
+        (sickNotesByFish[id] ?? "").trim() !== String(fish.recordedSickNote ?? fish.sickNote ?? "").trim())
     );
   };
 
@@ -192,6 +199,17 @@ export function Fish({ t }: { t: AppText }) {
       setError(thai ? "บันทึกหมายเหตุได้ครั้งละวัน" : "Notes can only be saved for one day at a time");
       return;
     }
+    if (
+      items.some(
+        (fish) =>
+          (!fish.alreadyRecorded || needsCorrection(fish)) &&
+          (healthStatusByFish[String(fish.fishId)] ?? fish.healthStatus) === "SICK" &&
+          !(sickNotesByFish[String(fish.fishId)] ?? "").trim(),
+      )
+    ) {
+      setError(thai ? "กรุณากรอกรายละเอียดอาการป่วยให้ครบ" : "A separate sick note is required for every sick fish");
+      return;
+    }
     const corrections = items.filter(needsCorrection);
     if (corrections.length && !correctionReason.trim()) {
       setError(thai ? "โปรดระบุเหตุผลที่แก้ไขผลการตรวจ" : "Correction reason is required");
@@ -214,6 +232,7 @@ export function Fish({ t }: { t: AppText }) {
             outcome: dates.length === 1 ? (outcomesByFish[String(fish.fishId)] ?? "ALIVE") : "ALIVE",
             condition: fish.condition ?? "UNDETERMINED",
             healthStatus: healthStatusByFish[String(fish.fishId)] ?? fish.healthStatus ?? "UNDETERMINED",
+            sickNote: (sickNotesByFish[String(fish.fishId)] ?? "").trim() || null,
             notes: dates.length === 1 ? (notesByFish[String(fish.fishId)] ?? "").trim() || null : null,
             ...(dates[index] < bangkokDate() ? { overrideReason: backdateReason.trim() } : {}),
           })),
@@ -229,6 +248,7 @@ export function Fish({ t }: { t: AppText }) {
             outcome: outcomesByFish[String(fish.fishId)],
             condition: fish.recordedCondition ?? fish.condition ?? "UNDETERMINED",
             healthStatus: healthStatusByFish[String(fish.fishId)] ?? fish.recordedHealthStatus ?? "UNDETERMINED",
+            sickNote: (sickNotesByFish[String(fish.fishId)] ?? "").trim() || null,
             notes: (notesByFish[String(fish.fishId)] ?? "").trim() || null,
             overrideReason: correctionReason.trim(),
           },
@@ -509,6 +529,23 @@ export function Fish({ t }: { t: AppText }) {
                             ))}
                           </select>
                         </label>
+                        {fish.isDisabled === true && (
+                          <span className="status-label">{thai ? "พิการถาวร" : "Permanently disabled"}</span>
+                        )}
+                        {(healthStatusByFish[id] ?? fish.healthStatus) === "SICK" && (
+                          <label>
+                            {thai ? "รายละเอียดอาการป่วย (จำเป็น)" : "Sick note (required)"}
+                            <textarea
+                              required
+                              maxLength={2000}
+                              aria-label={`${thai ? "อาการป่วย" : "Sick note"} ${String(fish.fishCode)}`}
+                              value={sickNotesByFish[id] ?? ""}
+                              onChange={(event) =>
+                                setSickNotesByFish((current) => ({ ...current, [id]: event.target.value }))
+                              }
+                            />
+                          </label>
+                        )}
                         <div
                           className="record-row__actions"
                           aria-label={
@@ -716,6 +753,7 @@ export function Fish({ t }: { t: AppText }) {
                         {thai ? "เกิด" : "DOB"} {String(fish.dob ?? "—")}
                       </span>
                       <span>{healthStatusLabel(fish.healthStatus, thai)}</span>
+                      {fish.isDisabled === true && <span>{thai ? "พิการถาวร" : "Permanently disabled"}</span>}
                     </small>
                   </span>
                   <span className="pill">{outcomeLabel((fish.status ?? "ALIVE") as FishOutcome, t)}</span>
@@ -987,6 +1025,7 @@ function FishDetail({
           condition: corrected.condition,
           healthStatus: corrected.healthStatus,
           notes: corrected.notes,
+          sickNote: corrected.sickNote,
         },
         "application/json",
         "PATCH",
@@ -1214,6 +1253,17 @@ function FishDetail({
                 {thai ? "เหตุผลที่แก้ไข" : "Correction reason"}
                 <input required value={reason} onChange={(event) => setReason(event.target.value)} />
               </label>
+              {editing.healthStatus === "SICK" && (
+                <label>
+                  {thai ? "รายละเอียดอาการป่วย (จำเป็น)" : "Sick note (required)"}
+                  <textarea
+                    required
+                    maxLength={2000}
+                    value={String(editing.sickNote ?? "")}
+                    onChange={(event) => setEditing({ ...editing, sickNote: event.target.value })}
+                  />
+                </label>
+              )}
               <label>
                 {thai ? "หมายเหตุสถานะปลา" : "Fish status notes"}
                 <textarea

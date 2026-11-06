@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query, Request
 
+from ...domain.plates import embryo_code, plate_wells
 from ...domain.rules import enu_window, stage_label, stage_number
 from ...domain.state import State
 from ...runtime.edit_policy import recent_creator
@@ -34,6 +35,7 @@ BATCH_INPUT_FIELDS = {
     "replicateNo",
     "incubationTempC",
     "notes",
+    "wellPlateSize",
 }
 
 
@@ -60,6 +62,19 @@ def _next_day_no(state: State, body: dict[str, Any]) -> int:
 
 
 def _validate_batch(state: State, body: dict[str, Any], current_id: str = "") -> None:
+    allowed_wells = plate_wells(body.get("wellPlateSize", 96))
+    if current_id:
+        lot_ids = {lot["id"] for lot in state.entities["injection-lots"].values() if lot.get("batchId") == current_id}
+        for lot_id in lot_ids:
+            embryos = [
+                e
+                for e in state.entities["embryos"].values()
+                if e.get("injectionLotId") == lot_id and not e.get("deletedAt")
+            ]
+            if len(embryos) > len(allowed_wells) or any(
+                e.get("wellPosition") and e["wellPosition"] not in allowed_wells for e in embryos
+            ):
+                raise APIError(422, "validation_error", "Existing embryos do not fit this Well Plate")
     group_id = body.get("experimentGroupId")
     if group_id is not None and (not isinstance(group_id, str) or not group_id.strip()):
         raise APIError(422, "validation_error", "experimentGroupId ต้องเป็นรหัสกลุ่มหรือ null")
@@ -146,6 +161,7 @@ def _create_batch(state: State, request: Request, body: dict[str, Any], source_i
         "id": batch_id,
         "batchCode": batch_code,
         "dayNo": day_no,
+        "wellPlateSize": body.get("wellPlateSize", 96),
         "timingProfileId": profile_id,
         "active": True,
         "createdAt": now,
@@ -156,7 +172,7 @@ def _create_batch(state: State, request: Request, body: dict[str, Any], source_i
     return batch
 
 
-def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str | None]:
+def _lot_inputs(state: State, body: dict[str, Any], batch: dict[str, Any]) -> tuple[int, list[str], str | None]:
     for field in ("donorCellLineId", "activatedAt"):
         if not body.get(field):
             raise APIError(422, "validation_error", "ต้องระบุ donorCellLineId และ activatedAt")
@@ -174,8 +190,9 @@ def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str
         if body.get(field) is not None and (isinstance(body[field], bool) or not isinstance(body[field], int)):
             raise APIError(422, "validation_error", "ค่าจำนวนต้องเป็นจำนวนเต็ม")
     count = body["nActivated"]
-    if count not in range(1, 97):
-        raise APIError(422, "validation_error", "nActivated ต้องอยู่ระหว่าง 1 ถึง 96")
+    allowed_wells = plate_wells(batch.get("wellPlateSize", 96))
+    if count not in range(1, len(allowed_wells) + 1):
+        raise APIError(422, "validation_error", "nActivated exceeds the selected Well Plate capacity")
     if (
         any(int(body.get(field) or 0) < 0 for field in ("enuPulseUs", "enuLed", "nEggs", "nManipulated"))
         or not 0 <= int(body.get("enuPowerPct") or 0) <= 100
@@ -189,9 +206,9 @@ def _lot_inputs(state: State, body: dict[str, Any]) -> tuple[int, list[str], str
         len(positions) > count
         or any(not isinstance(value, str) for value in positions)
         or len(set(positions)) != len(positions)
-        or any(re.fullmatch(r"[A-H](?:1[0-2]|[1-9])", value) is None for value in positions)
+        or any(value not in allowed_wells for value in positions)
     ):
-        raise APIError(422, "validation_error", "wellPositions ต้องไม่ซ้ำและอยู่ในช่วง A1 ถึง H12")
+        raise APIError(422, "validation_error", "wellPositions must be unique and inside the selected Well Plate")
     body.pop("wellPositions", None)
     return count, positions, warning
 
@@ -212,7 +229,7 @@ def _create_embryos(
             "id": embryo_id,
             "injectionLotId": lot["id"],
             "seqInLot": sequence,
-            "embryoCode": f"{batch['batchCode']}_{lot['lotNo']}_{sequence}",
+            "embryoCode": embryo_code(batch, lot, sequence),
             "wellPosition": positions[sequence - 1] if sequence <= len(positions) else None,
             "active": True,
             "createdAt": now,
@@ -475,7 +492,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             batch = state.entities["batches"].get(batch_id)
             if not batch or batch.get("active") is False or batch.get("deletedAt") is not None:
                 raise APIError(404, "not_found", "ไม่พบ batch")
-            count, positions, warning = _lot_inputs(state, body)
+            count, positions, warning = _lot_inputs(state, body, batch)
             lot_id, now = uuid7(), iso_now()
             lot = {
                 **body,
@@ -524,10 +541,10 @@ def build_experiments_router(store: Store) -> APIRouter:
                 "notes",
             }
             updated = {**current, **{key: value for key, value in body.items() if key in allowed}}
-            count, positions, warning = _lot_inputs(state, updated)
             batch = state.entities["batches"].get(str(updated.get("batchId")))
             if not batch or batch.get("deletedAt") is not None:
                 raise APIError(409, "invalid_state", "injection lot ไม่มี batch ที่ถูกต้อง")
+            count, positions, warning = _lot_inputs(state, updated, batch)
             old, now = copy.deepcopy(current), iso_now()
             updated.update({"nActivated": count, "updatedAt": now})
             state.entities["injection-lots"][lot_id] = updated
@@ -573,11 +590,11 @@ def build_experiments_router(store: Store) -> APIRouter:
                 raise APIError(422, "validation_error", "count ต้องเป็นจำนวนเต็ม")
             existing = [item for item in state.entities["embryos"].values() if item.get("injectionLotId") == lot_id]
             max_sequence = max((int(item.get("seqInLot", 0)) for item in existing), default=0)
-            if count < 1 or max_sequence + count > 96:
-                raise APIError(422, "validation_error", "จำนวน embryo รวมต้องอยู่ระหว่าง 1 ถึง 96")
             batch = state.entities["batches"].get(str(lot.get("batchId")))
             if not batch:
-                raise APIError(409, "invalid_state", "injection lot ไม่มี batch ที่ถูกต้อง")
+                raise APIError(409, "invalid_state", "Injection lot has no batch")
+            if count < 1 or max_sequence + count > len(plate_wells(batch.get("wellPlateSize", 96))):
+                raise APIError(422, "validation_error", "Embryos exceed the selected Well Plate capacity")
             created = []
             for sequence in range(max_sequence + 1, max_sequence + count + 1):
                 item_id, now = uuid7(), iso_now()
@@ -585,7 +602,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                     "id": item_id,
                     "injectionLotId": lot_id,
                     "seqInLot": sequence,
-                    "embryoCode": f"{batch['batchCode']}_{lot['lotNo']}_{sequence}",
+                    "embryoCode": embryo_code(batch, lot, sequence),
                     "active": True,
                     "createdAt": now,
                     "updatedAt": now,
@@ -618,8 +635,10 @@ def build_experiments_router(store: Store) -> APIRouter:
                 raise APIError(422, "validation_error", "A correction reason is required")
             old = copy.deepcopy(embryo)
             well = body.get("wellPosition") if "wellPosition" in body else embryo.get("wellPosition")
-            if well is not None and (not isinstance(well, str) or re.fullmatch(r"[A-H](?:1[0-2]|[1-9])", well) is None):
-                raise APIError(422, "validation_error", "wellPosition ต้องอยู่ในช่วง A1 ถึง H12")
+            lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
+            batch = state.entities["batches"].get(str(lot.get("batchId")), {})
+            if well is not None and well not in plate_wells(batch.get("wellPlateSize", 96)):
+                raise APIError(422, "validation_error", "wellPosition is outside the selected Well Plate")
             if well is not None and any(
                 item.get("id") != embryo_id
                 and item.get("injectionLotId") == embryo.get("injectionLotId")

@@ -6,6 +6,7 @@ import { parseFilters, withFilters } from "../filters";
 import { notify } from "../notifications";
 import { saveObservationLocation } from "../observation-draft";
 import { putQueue, type QueuedWrite } from "../offline";
+import { embryoCode, plateShapes, plateWells } from "../plates";
 import { dateTimeLocalToRFC3339, formatBangkokDate, formatBangkokDateTime, rfc3339ToDateTimeLocal } from "../time";
 import { type AppText, text } from "../types";
 import { CorrectionRequestButton } from "./corrections";
@@ -13,10 +14,6 @@ import { CorrectionRequestButton } from "./corrections";
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
 const dateTimeInput = (value: string) =>
   value ? rfc3339ToDateTimeLocal(value) : rfc3339ToDateTimeLocal(new Date().toISOString());
-const wells = Array.from(
-  { length: 96 },
-  (_, index) => `${String.fromCharCode(65 + Math.floor(index / 12))}${(index % 12) + 1}`,
-);
 
 const masterName = (items: ApiItem[] | undefined, id: unknown) => {
   const item = items?.find((candidate) => candidate.id === id);
@@ -236,6 +233,7 @@ function BatchForm({
     batchCode: String(batch?.batchCode ?? ""),
     dayNo: String(batch?.dayNo ?? ""),
     experimentDate: String(batch?.experimentDate ?? today()),
+    wellPlateSize: String(batch?.wellPlateSize ?? 96),
     siteId: String(batch?.siteId ?? ""),
     operatorId: String(batch?.operatorId ?? operatorId()),
     protocolId: String(batch?.protocolId ?? ""),
@@ -291,6 +289,7 @@ function BatchForm({
     setError("");
     const payload = {
       ...form,
+      wellPlateSize: Number(form.wellPlateSize),
       dayNo: form.dayNo ? Number(form.dayNo) : null,
       batchCode: form.batchCode || null,
       experimentGroupId: form.experimentGroupId || null,
@@ -365,6 +364,16 @@ function BatchForm({
               placeholder={thai ? "เว้นว่างเพื่อสร้างรหัสอัตโนมัติ" : "Leave blank to generate a code"}
               onChange={(e) => set("batchCode", e.target.value)}
             />
+          </label>
+          <label>
+            Well Plate
+            <select value={form.wellPlateSize} onChange={(event) => set("wellPlateSize", event.target.value)}>
+              {Object.keys(plateShapes).map((size) => (
+                <option key={size} value={size}>
+                  {size}-well
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             {thai ? "วันที่ทดลอง" : "Experiment date"}
@@ -667,7 +676,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
           [optimisticId]: Array.from({ length: Math.min(Math.max(nActivated, 0), 96) }, (_, index) => ({
             id: `${optimisticId}-${index + 1}`,
             injectionLotId: optimisticId,
-            embryoCode: `${String(detail?.batchCode ?? batch.batchCode)}_${lot.lotNo}_${index + 1}`,
+            embryoCode: embryoCode(detail ?? batch, currentLotNo, index + 1),
             seqInLot: index + 1,
             wellPosition: null,
             queued: true,
@@ -798,9 +807,10 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
       notify((e as Error).message, "danger");
     }
   };
-  const preview = Array.from(
-    { length: Math.min(Math.max(Number(lot.nActivated) || 0, 0), 96) },
-    (_, index) => `${String(detail?.batchCode ?? batch.batchCode)}_${currentLotNo}_${index + 1}`,
+  const wellPlateSize = Number(detail?.wellPlateSize ?? batch.wellPlateSize ?? 96);
+  const wells = plateWells(wellPlateSize);
+  const preview = Array.from({ length: Math.min(Math.max(Number(lot.nActivated) || 0, 0), 96) }, (_, index) =>
+    embryoCode(detail ?? batch, currentLotNo, index + 1),
   );
   const openHistoricalCheckpoint = (item: ApiItem) => {
     saveObservationLocation(operatorId(), {
@@ -988,7 +998,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
               <input
                 type="number"
                 min="1"
-                max="96"
+                max={wellPlateSize}
                 required
                 value={lot.nActivated}
                 onChange={(event) => setLotValue("nActivated", event.target.value)}
@@ -1003,7 +1013,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 <input
                   type="number"
                   min="0"
-                  max="96"
+                  max={wellPlateSize}
                   value={lot.nManipulated}
                   onChange={(event) => setLotValue("nManipulated", event.target.value)}
                 />
@@ -1117,7 +1127,7 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
               <input
                 type="number"
                 min="1"
-                max="96"
+                max={wellPlateSize}
                 value={count}
                 onChange={(event) => setCount(Number(event.target.value))}
               />
@@ -1129,60 +1139,54 @@ function BatchDetail({ batch, t, onBack }: { batch: ApiItem; t: AppText; onBack:
                 ? `จัดการตัวอ่อน ${String((embryos[String(item.id)] ?? []).length)} รายการ`
                 : `Manage ${(embryos[String(item.id)] ?? []).length} embryos`}
             </summary>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{thai ? "หมายเลขลำดับ" : "Running no."}</th>
-                    <th>{thai ? "ตำแหน่งหลุม" : "Physical well"}</th>
-                    <th>{thai ? "รหัสตัวอ่อน" : "Embryo"}</th>
-                    <th>{thai ? "จัดการ" : "Action"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(embryos[String(item.id)] ?? []).map((embryo) => (
-                    <tr key={String(embryo.id)}>
-                      <td>{Number(embryo.seqInLot ?? 0)}</td>
-                      <td>
-                        <select
-                          aria-label={`${thai ? "หลุมของ" : "Well for"} ${String(embryo.embryoCode)}`}
-                          value={String(embryo.wellPosition ?? "")}
-                          onChange={(event) => void updateWell(embryo, event.target.value)}
+            <div className="embryo-card-grid" role="list" aria-label={thai ? "รายการตัวอ่อน" : "Embryos"}>
+              {(embryos[String(item.id)] ?? []).map((embryo) => (
+                <article className="embryo-card" role="listitem" key={String(embryo.id)}>
+                  <div className="embryo-card__heading">
+                    <span className="embryo-card__sequence">{Number(embryo.seqInLot ?? 0)}</span>
+                    <div>
+                      <span className="eyebrow">{thai ? "รหัสตัวอ่อน" : "Embryo code"}</span>
+                      <strong>{String(embryo.embryoCode)}</strong>
+                    </div>
+                  </div>
+                  <label className="embryo-card__well">
+                    {thai ? "ตำแหน่งหลุม" : "Well"}
+                    <select
+                      aria-label={`${thai ? "หลุมของ" : "Well for"} ${String(embryo.embryoCode)}`}
+                      value={String(embryo.wellPosition ?? "")}
+                      onChange={(event) => void updateWell(embryo, event.target.value)}
+                    >
+                      <option value="">{thai ? "ยังไม่กำหนด" : "Unassigned"}</option>
+                      {wells.map((well) => (
+                        <option key={well}>{well}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="embryo-card__actions">
+                    {embryo.wellPosition != null && (
+                      <CorrectionRequestButton table="embryo" item={embryo} language={thai ? "th" : "en"} />
+                    )}
+                    {signedInUser?.role === "admin" && (
+                      <>
+                        <button
+                          className="inline-action inline-action--danger"
+                          type="button"
+                          onClick={() => void updateWell(embryo, null)}
                         >
-                          <option value="">{thai ? "ยังไม่กำหนด" : "Unassigned"}</option>
-                          {wells.map((well) => (
-                            <option key={well}>{well}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>{String(embryo.embryoCode)}</td>
-                      <td>
-                        {embryo.wellPosition != null && (
-                          <CorrectionRequestButton table="embryo" item={embryo} language={thai ? "th" : "en"} />
-                        )}
-                        {signedInUser?.role === "admin" && (
-                          <button
-                            className="inline-action inline-action--danger"
-                            type="button"
-                            onClick={() => void updateWell(embryo, null)}
-                          >
-                            {thai ? "เอาออกจากหลุม" : "Clear well"}
-                          </button>
-                        )}
-                        {signedInUser?.role === "admin" && (
-                          <button
-                            className="inline-action inline-action--danger"
-                            type="button"
-                            onClick={() => void deleteEmbryo(embryo)}
-                          >
-                            {thai ? "ลบตัวอ่อน" : "Delete embryo"}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          {thai ? "เอาออกจากหลุม" : "Clear well"}
+                        </button>
+                        <button
+                          className="inline-action inline-action--danger"
+                          type="button"
+                          onClick={() => void deleteEmbryo(embryo)}
+                        >
+                          {thai ? "ลบตัวอ่อน" : "Delete embryo"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </article>
+              ))}
             </div>
           </details>
         </article>
