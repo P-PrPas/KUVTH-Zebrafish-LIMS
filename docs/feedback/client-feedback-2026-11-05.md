@@ -80,3 +80,11 @@ The final targeted authentication/mail run passed all 49 cases, including the ne
 - Sidebar wording now explicitly says overdue embryo checkpoints; upcoming checkpoints remain visible on the checkpoints page and are not counted as unfinished overdue work.
 
 Verification for the new PR head is recorded in its CI checks. Local review regressions were first reproduced as four failures (embryo/fish source correction and cancellation) and passed after the fix. No worktree, stash, project copy, existing container change or user-file cleanup was used.
+
+## PR #45 second review: read performance and imported evidence
+
+- N1 reproduced with a scan-budget test before the fix. Fish list/report enrichment and roll-call now read the maintained isDisabled cache. Only recompute_fish derives disability from evidence after a mutation. Roll-call also indexes that day's non-deleted observations once per snapshot, replacing a separate full-history search per fish. The regression uses 2,000 fish, 40,000 embryo observations and 60,000 fish observations, and asserts zero embryo-history scans and one fish-history scan across enrichment and the entire roll-call. It passed locally in 0.13 seconds of test-call time; this is a synthetic in-memory measurement, not total HTTP/database latency.
+- N2 reproduced on PostgreSQL after migration: importing Abnormal produced a false registration-source flag. The importer now writes both disability_at_registration and is_disabled from the recorded condition, and includes these values in the insert audit. Normal/Abnormal/Undetermined import cases verify stored flags and the returned fish record. Python boolean bind values are used so PostgreSQL and MySQL share the same SQL without parameter-type ambiguity.
+- Observation-row condition remains the recorded value. Current fish disability remains permanent while valid source evidence exists. Whether to add an appended effective_condition export column was asked separately and is pending a product decision; this performance/import patch does not change that export format.
+
+The disposable PostgreSQL reproduction uses task-owned data only. Existing application containers, accounts and database volumes remain untouched. CI on the new PR head is the verification of the committed snapshot; unrelated local template-import edits remain outside this PR.
