@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -26,25 +27,31 @@ def validate_fish_health(item: dict[str, Any]) -> str | None:
     return None
 
 
-def permanently_disabled(item: dict[str, Any]) -> bool:
+def is_disability_record(item: dict[str, Any]) -> bool:
+    """Only recorded evidence counts; cached flags and first markers are derived."""
+    return item.get("condition") == "ABNORMAL" or item.get("healthStatus") == "DISABLED"
+
+
+def abnormal_observations(values: Iterable[dict[str, Any]], owner_field: str, owner_id: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in values
+        if item.get(owner_field) == owner_id and item.get("deletedAt") is None and is_disability_record(item)
+    ]
+
+
+def fish_is_disabled(state: State, fish: dict[str, Any]) -> bool:
     return bool(
-        item.get("isDisabled")
-        or item.get("condition") == "ABNORMAL"
-        or item.get("healthStatus") == "DISABLED"
-        or item.get("firstAbnormalOn")
-        or item.get("firstAbnormalObservationId")
+        fish.get("disabilityAtRegistration")
+        or abnormal_observations(state.observations.values(), "embryoId", str(fish.get("embryoId")))
+        or abnormal_observations(state.fish_observations.values(), "cloneFishId", str(fish["id"]))
     )
 
 
-def retain_disability(fish: dict[str, Any], observation: dict[str, Any]) -> None:
-    disabled = bool(
-        permanently_disabled(fish)
-        or observation.get("condition") == "ABNORMAL"
-        or observation.get("healthStatus") == "DISABLED"
-    )
-    observation["isDisabled"] = disabled
-    if disabled:
-        observation["condition"] = "ABNORMAL"
+def record_disability(observation: dict[str, Any]) -> None:
+    # Preserve the entered condition; carrying a derived value into another row
+    # would turn it into independent evidence after a source correction.
+    observation["isDisabled"] = is_disability_record(observation)
 
 
 def find_fish_for_embryo(state: State, embryo_id: str) -> dict[str, Any] | None:
@@ -91,7 +98,7 @@ def enrich_fish(state: State, fish: dict[str, Any]) -> dict[str, Any]:
     box = state.entities["fish-boxes"].get(str(fish.get("fishBoxId")), {})
     result["fishBoxCode"] = box.get("boxCode")
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
-    result["isDisabled"] = permanently_disabled(fish) or permanently_disabled(embryo)
+    result["isDisabled"] = fish_is_disabled(state, fish)
     if result["isDisabled"]:
         result["condition"] = "ABNORMAL"
     lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
@@ -135,21 +142,26 @@ def recompute_fish(state: State, fish_id: str) -> None:
     ]
     latest = max(values, key=lambda item: str(item.get("observedOn", "")), default=None)
     abnormal = min(
-        (item for item in values if item.get("condition") == "ABNORMAL"),
+        abnormal_observations(values, "cloneFishId", fish_id),
         key=lambda item: str(item.get("observedOn", "")),
         default=None,
     )
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
-    fish["isDisabled"] = bool(
-        permanently_disabled(fish)
-        or permanently_disabled(embryo)
-        or any(item.get("condition") == "ABNORMAL" or item.get("healthStatus") == "DISABLED" for item in values)
-    )
+    fish["isDisabled"] = fish_is_disabled(state, fish)
     inherited = {
         field: embryo[field]
         for field in ("firstAbnormalOn", "firstAbnormalAgeDays", "firstAbnormalStageCode", "firstAbnormalStageId")
         if embryo.get(field) is not None
     }
+    for field in (
+        "firstAbnormalOn",
+        "firstAbnormalAgeDays",
+        "firstAbnormalSource",
+        "firstAbnormalStageCode",
+        "firstAbnormalStageId",
+    ):
+        fish.pop(field, None)
+    fish["condition"] = "NORMAL"
     if latest:
         fish["condition"] = latest["condition"]
         fish["healthStatus"] = latest.get("healthStatus", "UNDETERMINED")
@@ -181,15 +193,6 @@ def recompute_fish(state: State, fish_id: str) -> None:
     elif inherited:
         fish.update(inherited)
         fish["firstAbnormalSource"] = "embryo"
-    elif fish.get("firstAbnormalSource") == "fish":
-        for field in (
-            "firstAbnormalOn",
-            "firstAbnormalAgeDays",
-            "firstAbnormalSource",
-            "firstAbnormalStageCode",
-            "firstAbnormalStageId",
-        ):
-            fish.pop(field, None)
     fish["updatedAt"] = iso_now()
 
 

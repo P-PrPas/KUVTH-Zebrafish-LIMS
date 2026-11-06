@@ -90,7 +90,7 @@ TABLE_COLUMNS = {
         id embryo_id fish_code running_no dob donor_cell_line_id site_id fish_box_id status
         import_job_id life_state disposition
         biological_condition first_abnormal_on first_abnormal_age_days first_abnormal_stage_id sex
-        recipient_egg_lot_id health_status sick_note is_disabled
+        recipient_egg_lot_id health_status sick_note is_disabled disability_at_registration
         fin_clipped exit_date exit_reason remarks created_at updated_at deleted_at
     """,
     "fish_observation": """
@@ -134,7 +134,15 @@ def _api_value(column: str, value: Any) -> Any:
         return float(value)
     if isinstance(value, bytes):
         return value.decode()
-    if column in {"active", "auto_temp_adjust", "is_current", "fin_clipped", "is_backdated", "is_disabled"}:
+    if column in {
+        "active",
+        "auto_temp_adjust",
+        "is_current",
+        "fin_clipped",
+        "is_backdated",
+        "is_disabled",
+        "disability_at_registration",
+    }:
         return bool(value)
     return value
 

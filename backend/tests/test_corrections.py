@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from test_experiments import create_batch
-from test_fish import BANGKOK
+from test_fish import BANGKOK, setup_eligible_embryo
 
 from chronofish.api.routes import corrections
 from chronofish.runtime.values import uuid7
@@ -312,3 +312,36 @@ def test_member_can_record_unknown_fish_sex_and_move_box_without_correction(corr
         json={"fishBoxId": None},
     )
     assert moved.status_code == 200, moved.text
+
+
+def test_approved_source_correction_updates_embryo_and_audit(correction_context, write_headers):
+    admin, member, admin_id, member_id, _ = correction_context
+    embryo = setup_eligible_embryo(admin, write_headers, condition="ABNORMAL")
+    source = next(o for o in admin.app.state.store.snapshot().observations.values() if o["embryoId"] == embryo["id"])
+    requested = member.post(
+        "/api/v1/corrections",
+        headers=account_headers(member_id),
+        json={
+            "targetTable": "embryo_observation",
+            "targetId": source["id"],
+            "fieldName": "condition",
+            "proposedValue": "NORMAL",
+            "reason": "Transcription error",
+        },
+    )
+    assert requested.status_code == 201, requested.text
+    approved = admin.post(
+        f"/api/v1/corrections/{requested.json()['id']}/decide",
+        headers=account_headers(admin_id),
+        json={"decision": "approve"},
+    )
+    assert approved.status_code == 200, approved.text
+    state = admin.app.state.store.snapshot()
+    assert state.observations[source["id"]]["condition"] == "NORMAL"
+    assert state.entities["embryos"][embryo["id"]]["isDisabled"] is False
+    assert any(
+        a["tableName"] == "embryo_observation"
+        and a["recordId"] == source["id"]
+        and a["newValues"]["condition"] == "NORMAL"
+        for a in state.audits
+    )

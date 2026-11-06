@@ -193,11 +193,7 @@ def build_auth_router(auth: AuthService) -> APIRouter:
     @router.post("/admin/mail-settings/test")
     def test_mail_settings(request: Request) -> dict[str, str]:
         actor = _actor(request)
-        auth._send(
-            actor["email"],
-            "KUVACB email delivery test",
-            "The KUVACB server successfully submitted this test email to SMTP.",
-        )
+        auth.send_delivery_test(actor["email"])
         return {"status": "SMTP accepted the test email. Check your inbox and spam folder."}
 
     return router

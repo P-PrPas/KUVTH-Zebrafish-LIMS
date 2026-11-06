@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import re
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
@@ -10,6 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from ..runtime.email import validated_email
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.passwords import check_password, hash_password
@@ -559,9 +559,7 @@ class AuthRepository:
             )
 
     def invite_user(self, email: str, actor: dict[str, Any], now: datetime) -> dict[str, Any]:
-        email = email.strip().lower()
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-            raise APIError(400, "invalid_email", "Only a valid email can be invited")
+        email = validated_email(email)
         user_id = uuid7()
         if self.engine is None:
             with self.lock:

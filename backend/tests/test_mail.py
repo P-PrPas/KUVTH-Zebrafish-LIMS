@@ -14,6 +14,7 @@ def test_smtp_starttls_is_optional_for_local_mail_catchers(monkeypatch, use_star
 
     class FakeSMTP:
         def __init__(self, *_args, **_kwargs):
+            assert _kwargs["timeout"] == 15
             calls.append("connect")
 
         def starttls(self, **_kwargs):

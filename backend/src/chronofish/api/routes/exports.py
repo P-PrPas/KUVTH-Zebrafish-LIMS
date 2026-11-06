@@ -377,8 +377,6 @@ def _fish_rows(
                 item.get("status"),
                 item.get("condition"),
                 item.get("healthStatus"),
-                item.get("sickNote"),
-                bool(item.get("isDisabled")),
                 item.get("firstAbnormalOn"),
                 item.get("firstAbnormalAgeDays"),
                 item.get("sex"),
@@ -388,6 +386,8 @@ def _fish_rows(
                 item.get("ageDays"),
                 embryo.get("embryoCode"),
                 item.get("remarks"),
+                item.get("sickNote"),
+                bool(item.get("isDisabled")),
             ]
         )
         operator = state.entities["operators"].get(str(item.get("operatorId")), {})
@@ -404,11 +404,11 @@ def _fish_rows(
                     observation.get("outcome"),
                     observation.get("condition"),
                     observation.get("healthStatus"),
-                    observation.get("sickNote"),
-                    bool(observation.get("isDisabled")),
                     observation_operator.get("name", observation.get("operatorId")),
                     observation.get("isBackdated"),
                     observation.get("notes"),
+                    observation.get("sickNote"),
+                    bool(observation.get("isDisabled")),
                 ]
             )
         for specimen in sorted(specimens_by_fish.get(fish_id, []), key=lambda value: _text(value.get("id"))):
@@ -662,8 +662,6 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
                 "status",
                 "condition",
                 "health_status",
-                "sick_note",
-                "is_disabled",
                 "first_abnormal_on",
                 "first_abnormal_age_days",
                 "sex",
@@ -673,6 +671,8 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
                 "age_days_current",
                 "embryo_code",
                 "remarks",
+                "sick_note",
+                "is_disabled",
             ],
             fish_register,
         ),
@@ -685,11 +685,11 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
                 "outcome",
                 "condition",
                 "health_status",
-                "sick_note",
-                "is_disabled",
                 "operator",
                 "is_backdated",
                 "notes",
+                "sick_note",
+                "is_disabled",
             ],
             fish_observations,
         ),

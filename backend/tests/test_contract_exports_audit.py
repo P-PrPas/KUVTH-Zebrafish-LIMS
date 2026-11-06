@@ -47,7 +47,7 @@ def test_fastapi_registers_every_openapi_operation(client):
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 129
+    assert len(expected) == 126
 
 
 def test_r_export_has_stable_30_column_shape(client):
@@ -121,6 +121,42 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
         summary = worksheet_rows(archive.read("xl/worksheets/sheet11.xml"))
         r_table = archive.read("xl/worksheets/sheet12.xml").decode()
         timing = worksheet_rows(archive.read("xl/worksheets/sheet13.xml"))
+    assert fish_register[0] == [
+        "fish_code",
+        "running_no",
+        "dob",
+        "strain",
+        "donor_batch_code",
+        "site",
+        "fish_box",
+        "status",
+        "condition",
+        "health_status",
+        "first_abnormal_on",
+        "first_abnormal_age_days",
+        "sex",
+        "fin_clipped",
+        "exit_date",
+        "exit_reason",
+        "age_days_current",
+        "embryo_code",
+        "remarks",
+        "sick_note",
+        "is_disabled",
+    ]
+    assert fish_observations[0] == [
+        "fish_code",
+        "observed_on",
+        "age_days",
+        "outcome",
+        "condition",
+        "health_status",
+        "operator",
+        "is_backdated",
+        "notes",
+        "sick_note",
+        "is_disabled",
+    ]
     assert len(worksheet_names) == 13
     assert re.findall(r'<sheet name="([^"]+)"', workbook) == [
         "00_Metadata",

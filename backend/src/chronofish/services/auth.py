@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import secrets
 import smtplib
 import ssl
@@ -10,6 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from ..config import Config
+from ..runtime.email import validated_email as _email
 from ..runtime.errors import APIError
 from ..runtime.values import utc_now, uuid7
 from ..store.auth import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW, AuthRepository
@@ -21,18 +21,6 @@ SESSION_COOKIE_MAX_AGE = 90 * 24 * 60 * 60
 LOGGER = logging.getLogger("chronofish.auth")
 LOGIN_LOCK_ALERT_SUBJECT = "KUVACB sign-in attempts blocked"
 PASSWORD_LOGINS = threading.BoundedSemaphore(2)
-
-
-def _email(value: Any) -> str:
-    if not isinstance(value, str):
-        raise APIError(400, "invalid_email", "Enter a valid email address")
-    email = value.strip().lower()
-    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
-        raise APIError(400, "invalid_email", "Enter a valid email address")
-    local = email.partition("@")[0]
-    if not local or local.startswith(".") or local.endswith(".") or ".." in local:
-        raise APIError(400, "invalid_email", "Enter a valid email address")
-    return email
 
 
 class AuthService:
@@ -191,6 +179,13 @@ class AuthService:
             "You have been invited to join the Kasetsart University Animal Cell Bank research workspace.\n\n"
             f"Open {self.config.app_base_url} and choose Set or reset password with this email address. "
             "Verify the code sent to your inbox to set your password, then sign in with email and password.",
+        )
+
+    def send_delivery_test(self, recipient: str) -> None:
+        self._send(
+            recipient,
+            "KUVACB email delivery test",
+            "The KUVACB server successfully submitted this test email to SMTP.",
         )
 
     def _send(self, recipient: str, subject: str, message: str) -> None:

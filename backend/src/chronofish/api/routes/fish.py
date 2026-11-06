@@ -28,12 +28,13 @@ from ...services.fish import (
     enrich_fish,
     find_fish_for_embryo,
     fish_box_is_assignable,
+    fish_is_disabled,
     fish_was_alive_on,
+    is_disability_record,
     latest_embryo_observation,
-    permanently_disabled,
     promotion_threshold,
     recompute_fish,
-    retain_disability,
+    record_disability,
     suggest_fish_code,
     validate_fish_health,
 )
@@ -207,6 +208,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 fish = {
                     "id": fish_id,
                     "embryoId": embryo["id"],
+                    "disabilityAtRegistration": False,
                     "embryoCode": embryo.get("embryoCode"),
                     "fishCode": fish_code,
                     "runningNo": running_no,
@@ -217,14 +219,7 @@ def build_fish_router(store: Store) -> APIRouter:
                     "status": "ALIVE",
                     "recipientEggLotId": batch.get("recipientEggLotId"),
                     "healthStatus": "UNDETERMINED",
-                    "isDisabled": bool(
-                        embryo.get("isDisabled")
-                        or embryo.get("firstAbnormalObservationId")
-                        or latest.get("condition") == "ABNORMAL"
-                    ),
-                    "condition": "ABNORMAL"
-                    if embryo.get("firstAbnormalStageCode")
-                    else latest.get("condition", "NORMAL"),
+                    "condition": latest.get("condition", "NORMAL"),
                     "sex": "UNKNOWN",
                     "finClipped": False,
                     "active": True,
@@ -244,6 +239,7 @@ def build_fish_router(store: Store) -> APIRouter:
                     fish["firstAbnormalSource"] = "embryo"
                 state.next_fish_no += 1
                 state.entities["fish"][fish_id] = fish
+                recompute_fish(state, fish_id)
                 old_embryo = copy.deepcopy(embryo)
                 embryo.update({"exitReason": "PROMOTED", "exitAt": iso_now(), "updatedAt": iso_now()})
                 audit(state, request, "INSERT", "clone_fish", fish_id, None, fish)
@@ -351,7 +347,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 raise APIError(422, "validation_error", "condition ไม่ถูกต้อง")
             if message := validate_fish_health(body):
                 raise APIError(422, "validation_error", message)
-            retain_disability({}, body)
+            record_disability(body)
             if body.get("healthStatus") and not fish_health_status_valid(str(body["healthStatus"])):
                 raise APIError(422, "validation_error", "healthStatus ไม่ถูกต้อง")
             if body.get("sex") and body["sex"] not in SEX_VALUES:
@@ -373,6 +369,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 "healthStatus": body.get("healthStatus") or "UNDETERMINED",
                 "sickNote": body.get("sickNote"),
                 "isDisabled": bool(body.get("isDisabled")),
+                "disabilityAtRegistration": is_disability_record(body),
                 "sex": body.get("sex") or "UNKNOWN",
                 "finClipped": False,
                 "active": True,
@@ -579,9 +576,9 @@ def build_fish_router(store: Store) -> APIRouter:
                     "injectionLotId": lot.get("id"),
                     "ageDays": age_days_on(date.fromisoformat(fish["dob"]), observed_date),
                     "status": "ALIVE",
-                    "condition": "ABNORMAL" if permanently_disabled(fish) else fish["condition"],
+                    "condition": "ABNORMAL" if fish_is_disabled(state, fish) else fish["condition"],
                     "healthStatus": fish.get("healthStatus", "UNDETERMINED"),
-                    "isDisabled": permanently_disabled(fish),
+                    "isDisabled": fish_is_disabled(state, fish),
                     "sickNote": fish.get("sickNote"),
                     "strain": donor.get("strain"),
                     "fishBoxCode": box.get("boxCode"),
@@ -648,7 +645,7 @@ def build_fish_router(store: Store) -> APIRouter:
                 if message := validate_fish_health(item):
                     results.append({"clientUuid": client_id, "status": "rejected", "error": {"message": message}})
                     continue
-                retain_disability(fish, item)
+                record_disability(item)
                 existing = next(
                     (
                         value
@@ -773,7 +770,7 @@ def build_fish_router(store: Store) -> APIRouter:
                     },
                 }
                 candidate.setdefault("healthStatus", "UNDETERMINED")
-                retain_disability(state.entities["fish"].get(str(candidate.get("cloneFishId")), {}), candidate)
+                record_disability(candidate)
                 if message := validate_fish_health(candidate):
                     raise APIError(422, "validation_error", message)
                 if (
