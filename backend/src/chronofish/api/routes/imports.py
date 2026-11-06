@@ -132,6 +132,33 @@ def build_import_router(store: Any) -> APIRouter:
     router = APIRouter(prefix="/api/v1/imports", tags=["imports"])
     repository = ImportRepository(store)
 
+    @router.get("/template")
+    def download_template(request: Request, kind: str = "experiment") -> Response:
+        from ...services.import_v5 import download_bytes
+
+        _actor(request)
+        return Response(
+            download_bytes(kind),
+            media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            headers={"Content-Disposition": f'attachment; filename="{kind}-template-v5.xlsx"'},
+        )
+
+    @router.post("/{job_id}/validate-template")
+    def validate_template(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict:
+        _actor(request)
+        revision = body.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        return repository.confirm_template(job_id, revision, request, validate_only=True)
+
+    @router.post("/{job_id}/confirm-template")
+    def confirm_template(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict:
+        _actor(request)
+        revision = body.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        return repository.confirm_template(job_id, revision, request)
+
     @router.post("/inspect")
     async def inspect(request: Request, files: Annotated[list[UploadFile], File(...)]) -> dict[str, Any]:
         _actor(request)
@@ -141,7 +168,19 @@ def build_import_router(store: Any) -> APIRouter:
                 sheets = xlsx_sheet_names(uploads[0]["content"])
             except (SourceFormatError, OSError, ValueError) as error:
                 raise APIError(422, "invalid_source", "This workbook could not be read") from error
-            return {"inputKind": "xlsx", "files": [{"name": uploads[0]["name"], "sheets": sheets}]}
+            from ...services.import_template import SHEETS
+            from ...services.import_v5 import V5_SHEETS
+
+            return {
+                "inputKind": "xlsx",
+                "files": [
+                    {
+                        "name": uploads[0]["name"],
+                        "sheets": sheets,
+                        "templateSheets": [name for name in sheets if name in SHEETS or name in V5_SHEETS],
+                    }
+                ],
+            }
         result = []
         for upload in uploads:
             try:

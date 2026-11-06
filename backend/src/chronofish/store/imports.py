@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import re
@@ -797,6 +798,7 @@ class ImportRepository:
         }
         return {
             "donorSources": sorted(donor_sources),
+            "canConfirmTemplate": bool(rows) and all(row["record_kind"].startswith("schema:") for row in rows),
             "sheetNames": sorted(sites),
             "recordKinds": sorted(kinds),
             "ambiguousZeroRecords": ambiguous_zero,
@@ -809,6 +811,164 @@ class ImportRepository:
             "canConfirmAggregate": bool(rows) and kinds <= {"legacy_lot", "scnt_aggregate", "control_aggregate"},
             "canConfirmEmbryos": "embryo_candidate" in kinds and kinds <= {"embryo_candidate", "sheet_metadata"},
             "canConfirmMixed": ((groups >= 2 or "reconciliation" in kinds) and kinds <= supported_kinds),
+        }
+
+    def confirm_template(self, job_id: str, revision: int, request: Any, *, validate_only: bool = False) -> dict:
+        from ..runtime.mutations import validate_write_context
+        from ..services.import_template_apply import apply_template
+
+        actor = request.state.user
+
+        def build(job: dict, records: list[dict], state: Any, unresolved: bool) -> tuple[Any, dict, dict]:
+            self._check_draft(job, revision)
+            if unresolved:
+                raise APIError(409, "issues_open", "Resolve template header and formula issues first")
+            if not records:
+                raise APIError(409, "not_ready", "The template contains no data rows")
+            working = copy.deepcopy(state)
+            validate_write_context(request, working, {"revision": revision})
+            for record in records:
+                record["values"] = json.loads(record["working_json"])
+            extra = {}
+            if any(r["record_kind"].startswith("schema:v5_") for r in records):
+                from ..services.import_v5 import apply_v5
+
+                targets, extra = apply_v5(working, records, request, job_id)
+                if extra["aggregates"] and self.engine is None:
+                    raise APIError(
+                        503, "database_required", "Historical aggregate counts require the configured database"
+                    )
+            else:
+                targets = apply_template(working, records, request, job_id)
+            return working, targets, extra
+
+        now = _now()
+        if self.engine is None:
+            with self.lock:
+                job = self.store.import_jobs.get(job_id)
+                if job is None:
+                    raise APIError(404, "not_found", "Import job was not found")
+                records = [dict(r) for r in self.store.import_records.values() if r["job_id"] == job_id]
+                unresolved = any(
+                    i["job_id"] == job_id and i["status"] == "open" and i["severity"] in {"blocking", "overridable"}
+                    for i in self.store.import_issues.values()
+                )
+                working, targets, extra = build(job, records, self.store.state, unresolved)
+                if not validate_only:
+                    self.store.state = working
+                    for record_id, (table, target) in targets.items():
+                        self.store.import_records[record_id].update(
+                            target_table=table, target_id=target, status="imported"
+                        )
+                    job.update(
+                        status="committed",
+                        confirmed_by_user_id=actor["id"],
+                        confirmed_at=now,
+                        updated_at=now,
+                        revision=revision + 1,
+                    )
+        else:
+            with self.engine.begin() as connection:
+                job = (
+                    connection.execute(text("SELECT * FROM import_job WHERE id = :id FOR UPDATE"), {"id": job_id})
+                    .mappings()
+                    .first()
+                )
+                if job is None:
+                    raise APIError(404, "not_found", "Import job was not found")
+                # Same serialization lock used by normal application writes, including fish sequence allocation.
+                connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
+                records = [
+                    dict(r)
+                    for r in connection.execute(
+                        text("SELECT * FROM import_record WHERE job_id = :id ORDER BY sheet_name, row_no, id"),
+                        {"id": job_id},
+                    ).mappings()
+                ]
+                unresolved = bool(
+                    connection.execute(
+                        text(
+                            "SELECT COUNT(*) FROM import_issue WHERE job_id = :id AND status = 'open' "
+                            "AND severity IN ('blocking', 'overridable')"
+                        ),
+                        {"id": job_id},
+                    ).scalar_one()
+                )
+                before = self.store._load_state(connection)
+                working, targets, extra = build(dict(job), records, before, unresolved)
+                if not validate_only:
+                    self.store._persist(connection, before, working)
+                    for specimen_id, fish_id in extra.get("specimen_links", []):
+                        connection.execute(
+                            text(
+                                "INSERT INTO specimen_fish_link (specimen_id, clone_fish_id, linked_at, import_job_id) "
+                                "VALUES (:specimen, :fish, :now, :job)"
+                            ),
+                            {"specimen": specimen_id, "fish": fish_id, "now": now, "job": job_id},
+                        )
+                    for record in extra.get("aggregates", []):
+                        lot = working.entities["injection-lots"][record["v5_lot_id"]]
+                        batch = working.entities["batches"][lot["batchId"]]
+                        experiment_id = self._historical_experiment(
+                            connection,
+                            job_id,
+                            now,
+                            "V5_AGGREGATE",
+                            record["sheet_name"],
+                            batch["experimentDate"],
+                            batch["siteId"],
+                            group=batch["batchCode"],
+                        )
+                        historical_lot = self._historical_lot(connection, job_id, experiment_id, now, lot["lotNo"])
+                        count_rows = []
+                        for count in record["v5_counts"]:
+                            count_id = uuid7()
+                            count_rows.append(
+                                {
+                                    "id": count_id,
+                                    "import_job_id": job_id,
+                                    "import_record_id": record["id"],
+                                    "historical_experiment_id": experiment_id,
+                                    "historical_lot_id": historical_lot,
+                                    "stage_label": count["stage"],
+                                    "observed_on": None,
+                                    "n_total": count["count"] if count["stage"] == "Activated" else None,
+                                    "n_alive": count["count"] if count["stage"] != "Activated" else None,
+                                    "n_normal": None,
+                                    "n_abnormal": None,
+                                    "numerator": None,
+                                    "denominator": None,
+                                    "raw_value": json.dumps(
+                                        {"column": count["column"], "row": record["row_no"], "value": count["count"]}
+                                    ),
+                                    "created_at": now,
+                                }
+                            )
+                        self._insert_many(connection, "historical_stage_count", count_rows)
+                        targets[record["id"]] = ("historical_stage_count", count_rows[0]["id"])
+                    for record_id, (table, target) in targets.items():
+                        self._mark_imported(connection, record_id, table, target, now)
+                    connection.execute(
+                        text(
+                            "UPDATE import_job SET status = 'committed', confirmed_by_user_id = :actor, "
+                            "confirmed_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :id"
+                        ),
+                        {"actor": actor["id"], "now": now, "id": job_id},
+                    )
+                    self._audit(
+                        connection,
+                        actor,
+                        "import_job",
+                        job_id,
+                        {"status": "draft"},
+                        {"status": "committed", "templateVersion": 5 if extra else 1, "recordCount": len(targets)},
+                        now,
+                    )
+        return {
+            "jobId": job_id,
+            "status": "validated" if validate_only else "committed",
+            "revision": revision if validate_only else revision + 1,
+            "recordCount": len(targets),
         }
 
     def confirm_all(
