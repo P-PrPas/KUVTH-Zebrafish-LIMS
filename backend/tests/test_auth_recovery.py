@@ -44,7 +44,13 @@ def recovery_repository(request):
 
 def verify(repository, email, code, now):
     return repository.verify_and_create_session(
-        email, repository.code_hash(email, code), uuid7(), repository.token_hash(uuid7()), "test-device", now
+        email,
+        repository.code_hash(email, code),
+        uuid7(),
+        repository.token_hash(uuid7()),
+        "test-device",
+        now,
+        password="correct horse battery staple",
     )
 
 
@@ -155,7 +161,9 @@ def test_http_smtp_retry_and_sole_admin_recovery(recovery_repository, monkeypatc
         assert browser.post("/api/v1/auth/request-code", json={"email": email}).status_code == 202
         code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
         signed_in = browser.post(
-            "/api/v1/auth/verify-code", headers={"X-Device-Id": "owner"}, json={"email": email, "code": code}
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "owner"},
+            json={"password": "correct horse battery staple", "email": email, "code": code},
         )
         assert signed_in.status_code == 200
         user_id = signed_in.json()["user"]["id"]
@@ -168,7 +176,7 @@ def test_http_smtp_retry_and_sole_admin_recovery(recovery_repository, monkeypatc
                 response = browser.post(
                     "/api/v1/auth/verify-code",
                     headers={"X-Device-Id": "attacker"},
-                    json={"email": email, "code": wrong},
+                    json={"password": "correct horse battery staple", "email": email, "code": wrong},
                 )
                 assert response.status_code == 401
         users = browser.get("/api/v1/auth/admin/users").json()["items"]
@@ -178,7 +186,9 @@ def test_http_smtp_retry_and_sole_admin_recovery(recovery_repository, monkeypatc
         code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
         assert (
             browser.post(
-                "/api/v1/auth/verify-code", headers={"X-Device-Id": "owner"}, json={"email": email, "code": code}
+                "/api/v1/auth/verify-code",
+                headers={"X-Device-Id": "owner"},
+                json={"password": "correct horse battery staple", "email": email, "code": code},
             ).status_code
             == 200
         )
@@ -204,7 +214,9 @@ def test_alert_is_deferred_and_sent_to_every_active_admin(client, caplog):
     tasks = BackgroundTasks()
     sent = len(auth.mailer.messages)
     with pytest.raises(APIError):
-        auth.verify_code({"email": email, "code": "999999"}, "device", tasks)
+        auth.verify_code(
+            {"password": "correct horse battery staple", "email": email, "code": "999999"}, "device", tasks
+        )
     assert len(auth.mailer.messages) == sent
     assert len(tasks.tasks) == 1
     task = tasks.tasks[0]

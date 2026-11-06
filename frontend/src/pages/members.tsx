@@ -1,6 +1,5 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { type ApiItem, get, request } from "../api/client";
-import { KU_EMAIL_PATTERN } from "../auth";
 import { Toast } from "../toast";
 import type { Language } from "../types";
 
@@ -275,13 +274,12 @@ export function Members({ language }: { language: Language }) {
           </p>
         </div>
         <form className="members-inline-form" onSubmit={submitInvitation}>
-          <label htmlFor="invite-email">{th ? "อีเมลมหาวิทยาลัย" : "University email"}</label>
+          <label htmlFor="invite-email">{th ? "อีเมล" : "Email"}</label>
           <input
             id="invite-email"
             type="email"
             required
-            pattern={KU_EMAIL_PATTERN}
-            placeholder="name@ku.th"
+            placeholder="name@example.com"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
           />
@@ -319,7 +317,7 @@ export function Members({ language }: { language: Language }) {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="name@ku.th"
+            placeholder="name@example.com"
           />
         </label>
       </div>
@@ -660,6 +658,29 @@ export function Members({ language }: { language: Language }) {
             {th ? "บันทึกผู้ส่ง" : "Save sender"}
           </button>
         </form>
+        <button
+          className="button button--secondary"
+          type="button"
+          disabled={busy || !smtpConfigured}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await request("/auth/admin/mail-settings/test", { method: "POST", body: "{}" });
+              setNotice({
+                message: th
+                  ? "SMTP รับอีเมลทดสอบแล้ว กรุณาตรวจกล่องจดหมายและสแปมของคุณ"
+                  : "SMTP accepted the test email. Check your inbox and spam folder.",
+                tone: "success",
+              });
+            } catch (cause) {
+              setNotice({ message: (cause as Error).message, tone: "danger" });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {th ? "ส่งอีเมลทดสอบถึงฉัน" : "Send a test email to me"}
+        </button>
       </details>
     </section>
   );

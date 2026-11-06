@@ -58,8 +58,8 @@ def test_batch_lot_and_embryos_are_created_atomically(client, write_headers):
     assert lot.status_code == 201, lot.text
     assert lot.json()["lotNo"] == "1"
     assert [item["embryoCode"] for item in lot.json()["embryos"]] == [
-        f"{batch['batchCode']}_1_1",
-        f"{batch['batchCode']}_1_2",
+        f"{batch['batchCode']}_1_1_2026-08-20",
+        f"{batch['batchCode']}_1_2_2026-08-20",
     ]
     next_lot = client.post(
         f"/api/v1/batches/{batch['id']}/injection-lots",
@@ -581,7 +581,9 @@ def test_uat_batch_three_lots_create_fifteen_embryos_without_partial_lots(client
     )
 
     assert len(created) == 15
-    assert [item["embryoCode"] for item in created[:5]] == [f"1_Jan_Control_1_{index}" for index in range(1, 6)]
+    assert [item["embryoCode"] for item in created[:5]] == [
+        f"1_Jan_Control_1_{index}_2026-08-20" for index in range(1, 6)
+    ]
     assert rejected.status_code == 422
     detail = client.get(f"/api/v1/batches/{batch['id']}").json()
     assert len(detail["injectionLots"]) == 3

@@ -176,7 +176,7 @@ describe("browser shell workflows", () => {
     expect(document.body.textContent).toContain("KUVACB AqLIMS");
     const navigation = document.querySelector('nav[aria-label="เมนูหลัก"]')!;
     expect(navigation).not.toBeNull();
-    expect(navigation.querySelector("details summary")?.textContent).toContain("งานต่อเนื่องและรายงาน");
+    expect(navigation.querySelector(".nav-disclosure summary")?.textContent).toContain("งานต่อเนื่องและรายงาน");
     expect(Array.from(navigation.querySelectorAll("button")).every((button) => button.tabIndex >= 0)).toBe(true);
     expect(document.querySelectorAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
     const language = document.querySelector<HTMLButtonElement>('[aria-label="เปลี่ยนภาษาเป็นอังกฤษ"]');

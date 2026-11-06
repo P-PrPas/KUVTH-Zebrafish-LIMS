@@ -75,12 +75,12 @@ def load_config() -> Config:
         local_part = bootstrap_email.partition("@")[0]
         if (
             len(bootstrap_email) > 254
-            or not re.fullmatch(r"[^\s@]+@ku\.th", bootstrap_email)
+            or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", bootstrap_email)
             or local_part.startswith(".")
             or local_part.endswith(".")
             or ".." in local_part
         ):
-            raise ValueError("BOOTSTRAP_ADMIN_EMAIL must be a valid @ku.th address")
+            raise ValueError("BOOTSTRAP_ADMIN_EMAIL must be a valid email address")
     if sender_email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", sender_email):
         raise ValueError("MAIL_SENDER_EMAIL must be a valid email address")
     mail_use_ssl = os.getenv("MAIL_USE_SSL", "false").strip().lower() in {"1", "true", "yes"}

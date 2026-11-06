@@ -898,3 +898,163 @@
     transform: none;
   }
 }
+.checkpoint-grid {
+  grid-template-columns: repeat(12, minmax(44px, 1fr));
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.checkpoint-unassigned > h3 {
+  grid-column: 1 / -1;
+}
+
+.well-cell--unused,
+.well-cell--empty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: #e5e7e8;
+  color: #5c6665;
+  border: 1px solid #c7cdca;
+  cursor: default;
+}
+
+.well-cell--empty {
+  background: var(--surface, #fafbf8);
+  border-style: dashed;
+}
+.task-reminders {
+  position: relative;
+  margin: 4px 8px 12px;
+  border: 1px solid #d6dfd5;
+  border-radius: 12px;
+  background: #f6f8f1;
+  color: #244d47;
+}
+.task-reminders summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 4px 8px;
+  cursor: pointer;
+  list-style: none;
+}
+.task-reminders summary::-webkit-details-marker {
+  display: none;
+}
+.task-reminders summary > span:last-child {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+.task-reminders summary strong {
+  font-variant-numeric: tabular-nums;
+}
+.task-reminders--pending {
+  border-color: #dcb7a7;
+  background: #fff6ec;
+}
+.task-bird {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  background: url("/brand/task-bird-sprite.svg") 0 0 / 192px 48px no-repeat;
+  image-rendering: pixelated;
+}
+.task-reminders--pending .task-bird {
+  animation: task-bird-flutter 1.4s steps(4) 3;
+}
+@keyframes task-bird-flutter {
+  to {
+    background-position-x: -192px;
+  }
+}
+.task-reminders__panel {
+  padding: 0 12px 12px;
+  font-size: 12px;
+}
+.task-reminders__panel button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 8px;
+  text-align: start;
+  border: 1px solid #d6dfd5;
+  border-radius: 8px;
+  background: #fffdf7;
+  color: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-reminders--pending .task-bird {
+    animation: none;
+  }
+}
+.embryo-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding-top: 14px;
+}
+.embryo-card {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line, #d6dfd5);
+  border-radius: 12px;
+  background: var(--surface, #fffdf7);
+}
+.embryo-card__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.embryo-card__heading > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.embryo-card__heading strong {
+  overflow-wrap: anywhere;
+}
+.embryo-card__sequence {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  min-height: 32px;
+  border-radius: 8px;
+  background: #e8eee4;
+  color: #244d47;
+  font-variant-numeric: tabular-nums;
+}
+.embryo-card__well {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+.embryo-card__well select {
+  width: 100%;
+  min-height: 44px;
+}
+.embryo-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+.embryo-card__actions button {
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .embryo-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

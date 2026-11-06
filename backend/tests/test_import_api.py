@@ -52,7 +52,7 @@ def import_client(request):
         login = client.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "import-test"},
-            json={"email": config.bootstrap_admin_email, "code": code},
+            json={"password": "correct horse battery staple", "email": config.bootstrap_admin_email, "code": code},
         )
         assert login.status_code == 200
         client.headers.update(
@@ -189,7 +189,9 @@ def test_anonymous_and_member_cannot_import(import_client):
         member.post("/api/v1/auth/request-code", json={"email": email})
         code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
         login = member.post(
-            "/api/v1/auth/verify-code", headers={"X-Device-Id": "member"}, json={"email": email, "code": code}
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "member"},
+            json={"password": "correct horse battery staple", "email": email, "code": code},
         ).status_code
         assert login == 200
         member.headers["X-Actor-User-Id"] = client.app.state.auth.repository.user_by_email(email)["id"]

@@ -137,11 +137,16 @@ def create_app(config: Config | None = None, store: Store | None = None, mailer:
             "/api/v1/auth/request-code",
             "/api/v1/auth/verify-code",
             "/api/v1/auth/register",
+            "/api/v1/auth/password/request-code",
             "/api/v1/auth/login",
             "/api/v1/auth/logout",
         }
         if not is_public and request.method != "OPTIONS" and path.startswith("/api/v1/"):
-            user = auth.authenticate(request.cookies.get(SESSION_COOKIE))
+            user = auth.authenticate(
+                request.cookies.get(SESSION_COOKIE),
+                touch=path != "/api/v1/auth/devices/sync-status"
+                and request.headers.get("X-Session-Activity") != "passive",
+            )
             if not user:
                 return secure(error_response(APIError(401, "authentication_required", "Sign in to continue")))
             request.state.user = user

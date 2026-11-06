@@ -1,0 +1,13 @@
+# Optional local trust configuration for antivirus/proxy TLS inspection.
+# SMTP_CA_FILE must contain a CA approved for this machine/network.
+services:
+  api:
+    environment:
+      SSL_CERT_FILE: /run/certs/smtp-ca.pem
+    volumes:
+      - type: bind
+        source: ${SMTP_CA_FILE:?Set SMTP_CA_FILE to an approved PEM CA certificate file}
+        target: /run/certs/smtp-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false

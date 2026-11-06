@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.passwords import check_password, hash_password
 
-IDLE_TTL = timedelta(days=30)
+IDLE_TTL = timedelta(hours=12)
 SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
 ABSOLUTE_TTL = timedelta(days=90)
 OTP_TTL = timedelta(minutes=10)
@@ -105,46 +105,12 @@ class AuthRepository:
     def token_hash(self, token: str) -> str:
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def register_guest(self, email: str, now: datetime) -> None:
-        if self.engine is None:
-            with self.lock:
-                if any(user["email"] == email for user in self.store.auth_users.values()):
-                    return
-                user_id = uuid7()
-                self.store.auth_users[user_id] = {
-                    "id": user_id,
-                    "email": email,
-                    "role": "guest",
-                    "active": True,
-                    "verified_at": None,
-                    "invited_at": now,
-                    "operator_id": None,
-                    "created_at": now,
-                    "updated_at": now,
-                }
-            return
-        try:
-            with self.engine.begin() as connection:
-                if connection.execute(text("SELECT id FROM auth_user WHERE email = :email"), {"email": email}).first():
-                    return
-                connection.execute(
-                    text(
-                        "INSERT INTO auth_user (id, email, role, active, invited_at, created_at, updated_at) "
-                        "VALUES (:id, :email, 'guest', :active, :now, :now, :now)"
-                    ),
-                    {"id": uuid7(), "email": email, "active": True, "now": _stored(now)},
-                )
-        except IntegrityError:
-            if not self.user_by_email(email):
-                raise
-
     def password_login(
         self, email: str, password: str, session_id: str, token_hash: str, device_id: str, now: datetime
     ) -> dict[str, Any] | None:
         def valid(user: Any) -> bool:
             eligible = bool(
                 user
-                and user["role"] == "guest"
                 and user["active"]
                 and user["verified_at"]
                 and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
@@ -156,10 +122,8 @@ class AuthRepository:
                 user = next((u for u in self.store.auth_users.values() if u["email"] == email), None)
                 accepted = valid(user)
                 if not accepted:
-                    if (
-                        user
-                        and user["role"] == "guest"
-                        and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
+                    if user and not (
+                        user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"])
                     ):
                         attempts = 0 if user.get("password_locked_until") else user.get("password_attempts", 0)
                         user["password_attempts"] = attempts + 1
@@ -175,7 +139,7 @@ class AuthRepository:
                     "revoked_at": None,
                     "absolute_expires_at": _utc(now) + ABSOLUTE_TTL,
                 }
-                return dict(user)
+                return {**user, "sessionId": session_id, "deviceId": device_id}
         with self.engine.begin() as connection:
             row = (
                 connection.execute(text("SELECT * FROM auth_user WHERE email = :email FOR UPDATE"), {"email": email})
@@ -184,11 +148,7 @@ class AuthRepository:
             )
             user = dict(row) if row else None
             accepted = valid(user)
-            if (
-                user
-                and user["role"] == "guest"
-                and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
-            ):
+            if user and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"])):
                 attempts = 0 if accepted or user["password_locked_until"] else int(user["password_attempts"])
                 attempts = 0 if accepted else attempts + 1
                 connection.execute(
@@ -219,7 +179,7 @@ class AuthRepository:
                     "expires": _stored(_utc(now) + ABSOLUTE_TTL),
                 },
             )
-            return _user_payload(user)
+            return {**_user_payload(user), "sessionId": session_id, "deviceId": device_id}
 
     def ensure_bootstrap(self, email: str, now: datetime) -> None:
         email = email.strip().lower()
@@ -400,10 +360,8 @@ class AuthRepository:
                     if reached:
                         challenge["locked_until"] = _utc(now) + OTP_DAILY_WINDOW
                     return VerificationResult(None, reached)
-                if password is not None and user["role"] != "guest":
-                    raise APIError(400, "otp_required", "Admin and Member accounts must sign in with an email code")
-                if user["role"] == "guest" and password is None:
-                    raise APIError(400, "password_required", "Set a password to complete registration")
+                if password is None:
+                    raise APIError(400, "password_required", "Set a password to complete email verification")
                 password_hash = hash_password(password) if password is not None else None
                 challenge.update(
                     code_hash="",
@@ -488,10 +446,8 @@ class AuthRepository:
                 )
                 return VerificationResult(None, reached)
             now_db = _stored(now)
-            if password is not None and user["role"] != "guest":
-                raise APIError(400, "otp_required", "Admin and Member accounts must sign in with an email code")
-            if user["role"] == "guest" and password is None:
-                raise APIError(400, "password_required", "Set a password to complete registration")
+            if password is None:
+                raise APIError(400, "password_required", "Set a password to complete email verification")
             password_hash = hash_password(password) if password is not None else None
             if password_hash:
                 connection.execute(
@@ -539,7 +495,7 @@ class AuthRepository:
             result["deviceId"] = device_id
             return VerificationResult(result, False)
 
-    def authenticate(self, token_hash: str, now: datetime) -> dict[str, Any] | None:
+    def authenticate(self, token_hash: str, now: datetime, *, touch: bool = True) -> dict[str, Any] | None:
         if self.engine is None:
             with self.lock:
                 session = self.store.auth_sessions.get(token_hash)
@@ -552,7 +508,7 @@ class AuthRepository:
                     session["absolute_expires_at"]
                 ):
                     return None
-                if _utc(now) - _utc(session["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+                if touch and _utc(now) - _utc(session["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
                     session["last_seen_at"] = now
                 result = dict(user)
                 result["sessionId"] = session["id"]
@@ -579,7 +535,7 @@ class AuthRepository:
                     {"now": _stored(now), "hash": token_hash},
                 )
                 return None
-            if _utc(now) - _utc(row["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+            if touch and _utc(now) - _utc(row["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
                 connection.execute(
                     text("UPDATE auth_session SET last_seen_at = :now WHERE token_hash = :hash AND revoked_at IS NULL"),
                     {"now": _stored(now), "hash": token_hash},
@@ -604,8 +560,8 @@ class AuthRepository:
 
     def invite_user(self, email: str, actor: dict[str, Any], now: datetime) -> dict[str, Any]:
         email = email.strip().lower()
-        if not email.endswith("@ku.th") or email.count("@") != 1 or any(c.isspace() for c in email):
-            raise APIError(400, "invalid_email", "Only a valid @ku.th email can be invited")
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+            raise APIError(400, "invalid_email", "Only a valid email can be invited")
         user_id = uuid7()
         if self.engine is None:
             with self.lock:

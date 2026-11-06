@@ -62,7 +62,7 @@ const valueLabels: Record<string, [string, string]> = {
   DISCARDED: ["คัดทิ้ง", "Discarded"],
   NOT_OBSERVED: ["ไม่ได้ตรวจ", "Not observed"],
   NORMAL: ["ปกติ", "Normal"],
-  ABNORMAL: ["ผิดปกติ", "Abnormal"],
+  ABNORMAL: ["พิการถาวร (Abnormal)", "Permanently disabled (Abnormal)"],
   UNDETERMINED: ["ยังไม่ระบุ", "Undetermined"],
   UNKNOWN: ["ยังไม่ทราบ", "Unknown"],
   HEALTHY: ["สุขภาพดี", "Healthy"],
@@ -76,6 +76,13 @@ const valueLabels: Record<string, [string, string]> = {
 export const correctionFields: Record<string, Field[]> = {
   auth_user: [{ name: "operatorId", th: "ผู้ปฏิบัติงานที่เชื่อมกับบัญชี", en: "Linked operator", resource: "operators" }],
   experiment_batch: [
+    {
+      name: "wellPlateSize",
+      th: "ขนาด Well Plate",
+      en: "Well Plate size",
+      kind: "number",
+      options: ["6", "12", "24", "48", "96"],
+    },
     { name: "experimentDate", th: "วันที่ทดลอง", en: "Experiment date", kind: "date" },
     { name: "dayNo", th: "วันทดลองลำดับที่", en: "Day number", kind: "number" },
     { name: "siteId", th: "สถานที่", en: "Site", resource: "sites" },
@@ -115,6 +122,7 @@ export const correctionFields: Record<string, Field[]> = {
     { name: "remarks", th: "หมายเหตุ", en: "Remarks" },
   ],
   fish_observation: [
+    { name: "sickNote", th: "รายละเอียดอาการป่วย", en: "Sick note" },
     { name: "observedOn", th: "วันที่ตรวจ", en: "Observed on", kind: "date" },
     { name: "outcome", th: "ผลตรวจ", en: "Outcome", options: ["ALIVE", "DEAD", "FROZEN", "DISCARDED"] },
     { name: "condition", th: "สภาพ", en: "Condition", options: ["NORMAL", "ABNORMAL", "UNDETERMINED"] },
