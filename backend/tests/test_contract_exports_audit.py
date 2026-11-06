@@ -114,6 +114,7 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
         metadata = archive.read("xl/worksheets/sheet1.xml").decode()
         batch_sheet = archive.read("xl/worksheets/sheet2.xml").decode()
         batch_rows = worksheet_rows(archive.read("xl/worksheets/sheet2.xml"))
+        embryo_observations = worksheet_rows(archive.read("xl/worksheets/sheet3.xml"))
         fish_register = worksheet_rows(archive.read("xl/worksheets/sheet7.xml"))
         fish_observations = worksheet_rows(archive.read("xl/worksheets/sheet8.xml"))
         embryo_matrix = archive.read("xl/worksheets/sheet4.xml").decode()
@@ -121,6 +122,26 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
         summary = worksheet_rows(archive.read("xl/worksheets/sheet11.xml"))
         r_table = archive.read("xl/worksheets/sheet12.xml").decode()
         timing = worksheet_rows(archive.read("xl/worksheets/sheet13.xml"))
+    assert embryo_observations[0] == [
+        "embryo_code",
+        "batch_code",
+        "lot_no",
+        "well_position",
+        "stage_code",
+        "stage_order",
+        "stage_label",
+        "observed_at",
+        "hpa_actual",
+        "hpa_expected",
+        "deviation_h",
+        "deviation_pct",
+        "outcome",
+        "condition",
+        "operator",
+        "is_backdated",
+        "notes",
+        "effective_condition",
+    ]
     assert fish_register[0] == [
         "fish_code",
         "running_no",
@@ -156,6 +177,7 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
         "notes",
         "sick_note",
         "is_disabled",
+        "effective_condition",
     ]
     assert len(worksheet_names) == 13
     assert re.findall(r'<sheet name="([^"]+)"', workbook) == [
@@ -175,6 +197,8 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
     ]
     assert "00_Metadata" in workbook
     assert "13_Stage_Timing_Reference" in workbook
+    assert "effective_condition_basis" in metadata
+    assert "not a historical as-of value" in metadata
     assert "system_version" in metadata
     assert "timing_profile_version" in metadata
     assert "row_count.12_R_Analysis_Table" in metadata
