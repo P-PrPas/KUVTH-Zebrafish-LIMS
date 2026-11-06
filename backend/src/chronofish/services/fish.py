@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -13,6 +14,44 @@ from ..runtime.values import iso_now
 BANGKOK = ZoneInfo("Asia/Bangkok")
 FISH_UPDATE_FIELDS = {"fishCode", "fishBoxId", "sex", "finClipped", "remarks"}
 SEX_VALUES = {"UNKNOWN", "M", "F"}
+
+
+def validate_fish_health(item: dict[str, Any]) -> str | None:
+    if "isDisabled" in item and not isinstance(item["isDisabled"], bool):
+        return "isDisabled must be a boolean"
+    note = item.get("sickNote")
+    if note is not None and (not isinstance(note, str) or len(note) > 2000):
+        return "Sick note must be text of at most 2000 characters"
+    if item.get("healthStatus") == "SICK" and not (isinstance(note, str) and note.strip()):
+        return "A separate sick note is required when health status is Sick"
+    return None
+
+
+def is_disability_record(item: dict[str, Any]) -> bool:
+    """Only recorded evidence counts; cached flags and first markers are derived."""
+    return item.get("condition") == "ABNORMAL" or item.get("healthStatus") == "DISABLED"
+
+
+def abnormal_observations(values: Iterable[dict[str, Any]], owner_field: str, owner_id: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in values
+        if item.get(owner_field) == owner_id and item.get("deletedAt") is None and is_disability_record(item)
+    ]
+
+
+def fish_is_disabled(state: State, fish: dict[str, Any]) -> bool:
+    return bool(
+        fish.get("disabilityAtRegistration")
+        or abnormal_observations(state.observations.values(), "embryoId", str(fish.get("embryoId")))
+        or abnormal_observations(state.fish_observations.values(), "cloneFishId", str(fish["id"]))
+    )
+
+
+def record_disability(observation: dict[str, Any]) -> None:
+    # Preserve the entered condition; carrying a derived value into another row
+    # would turn it into independent evidence after a source correction.
+    observation["isDisabled"] = is_disability_record(observation)
 
 
 def find_fish_for_embryo(state: State, embryo_id: str) -> dict[str, Any] | None:
@@ -59,6 +98,10 @@ def enrich_fish(state: State, fish: dict[str, Any]) -> dict[str, Any]:
     box = state.entities["fish-boxes"].get(str(fish.get("fishBoxId")), {})
     result["fishBoxCode"] = box.get("boxCode")
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
+    # Mutations maintain this cache; list/report reads must not rescan history per fish.
+    result["isDisabled"] = bool(fish.get("isDisabled"))
+    if result["isDisabled"]:
+        result["condition"] = "ABNORMAL"
     lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
     batch = state.entities["batches"].get(str(lot.get("batchId")), {})
     result["treatmentGroupId"] = batch.get("treatmentGroupId")
@@ -100,19 +143,31 @@ def recompute_fish(state: State, fish_id: str) -> None:
     ]
     latest = max(values, key=lambda item: str(item.get("observedOn", "")), default=None)
     abnormal = min(
-        (item for item in values if item.get("condition") == "ABNORMAL"),
+        abnormal_observations(values, "cloneFishId", fish_id),
         key=lambda item: str(item.get("observedOn", "")),
         default=None,
     )
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
+    fish["isDisabled"] = fish_is_disabled(state, fish)
     inherited = {
         field: embryo[field]
         for field in ("firstAbnormalOn", "firstAbnormalAgeDays", "firstAbnormalStageCode", "firstAbnormalStageId")
         if embryo.get(field) is not None
     }
+    for field in (
+        "firstAbnormalOn",
+        "firstAbnormalAgeDays",
+        "firstAbnormalSource",
+        "firstAbnormalStageCode",
+        "firstAbnormalStageId",
+    ):
+        fish.pop(field, None)
+    embryo_latest = latest_embryo_observation(state, str(fish.get("embryoId")))
+    fish["condition"] = (embryo_latest or {}).get("condition", "NORMAL")
     if latest:
         fish["condition"] = latest["condition"]
         fish["healthStatus"] = latest.get("healthStatus", "UNDETERMINED")
+        fish["sickNote"] = latest.get("sickNote")
         if latest["outcome"] in {"ALIVE", "NOT_OBSERVED"}:
             fish["status"] = "ALIVE"
             fish.pop("exitDate", None)
@@ -125,6 +180,8 @@ def recompute_fish(state: State, fish_id: str) -> None:
         fish["status"] = "ALIVE"
         fish.pop("exitDate", None)
         fish.pop("exitReason", None)
+    if fish["isDisabled"]:
+        fish["condition"] = "ABNORMAL"
     if abnormal and (not inherited.get("firstAbnormalOn") or abnormal["observedOn"] < inherited["firstAbnormalOn"]):
         fish.update(
             {
@@ -138,15 +195,6 @@ def recompute_fish(state: State, fish_id: str) -> None:
     elif inherited:
         fish.update(inherited)
         fish["firstAbnormalSource"] = "embryo"
-    elif fish.get("firstAbnormalSource") == "fish":
-        for field in (
-            "firstAbnormalOn",
-            "firstAbnormalAgeDays",
-            "firstAbnormalSource",
-            "firstAbnormalStageCode",
-            "firstAbnormalStageId",
-        ):
-            fish.pop(field, None)
     fish["updatedAt"] = iso_now()
 
 

@@ -30,7 +30,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Sign in to a verified Guest account with a password */
+        /** Sign in to a verified invited account with a password */
         post: operations["passwordLogin"];
         delete?: never;
         options?: never;
@@ -47,8 +47,28 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a KU guest or request a password reset verification code */
+        /**
+         * Request password setup or reset for an existing invited account (legacy alias)
+         * @deprecated
+         */
         post: operations["registerGuest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password/request-code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request password setup or reset for an existing invited account */
+        post: operations["requestPasswordCode"];
         delete?: never;
         options?: never;
         head?: never;
@@ -650,7 +670,7 @@ export interface paths {
         /** List members and their device sync status */
         get: operations["listMembers"];
         put?: never;
-        /** Invite a @ku.th member */
+        /** Invite a member from any email domain */
         post: operations["inviteMember"];
         delete?: never;
         options?: never;
@@ -738,6 +758,23 @@ export interface paths {
         post?: never;
         /** Revoke one of a member's sessions */
         delete: operations["revokeMemberSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/admin/mail-settings/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a delivery test to the signed-in administrator's email */
+        post: operations["testMailSettings"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2422,6 +2459,11 @@ export interface components {
             batchCode: string;
             /** Format: date */
             experimentDate: string;
+            /**
+             * @default 96
+             * @enum {integer}
+             */
+            wellPlateSize: 6 | 12 | 24 | 48 | 96;
             dayNo?: number | null;
             /** Format: uuid */
             siteId: string;
@@ -2461,6 +2503,11 @@ export interface components {
             batchCode?: string | null;
             /** Format: date */
             experimentDate: string;
+            /**
+             * @default 96
+             * @enum {integer}
+             */
+            wellPlateSize: 6 | 12 | 24 | 48 | 96;
             dayNo?: number | null;
             /** Format: uuid */
             siteId: string;
@@ -2562,6 +2609,8 @@ export interface components {
             warnings?: string[];
         };
         Embryo: {
+            /** @description Derived from non-deleted Abnormal observations; inherited by promoted fish */
+            readonly isDisabled?: boolean;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -2609,6 +2658,11 @@ export interface components {
             operatorName?: string | null;
         };
         CheckpointEntry: {
+            /**
+             * @default 96
+             * @enum {integer}
+             */
+            wellPlateSize: 6 | 12 | 24 | 48 | 96;
             /** Format: uuid */
             injectionLotId: string;
             batchCode: string;
@@ -2630,11 +2684,12 @@ export interface components {
             totalEmbryos: number;
             embryosRemaining: number;
             embryos: {
+                isDisabled?: boolean;
                 /** Format: uuid */
                 embryoId: string;
                 embryoCode: string;
                 wellPosition?: string | null;
-                /** @description Carried forward from the previous observation (FR-409). */
+                /** @description Abnormal means permanent disability and persists after it is first observed (FR-409). */
                 defaultCondition: components["schemas"]["Condition"];
                 /** @description True after a DEAD or DEGENERATED observation; shown read-only in later plate maps. */
                 isDead: boolean;
@@ -2715,6 +2770,8 @@ export interface components {
             } | null;
         };
         EmbryoObservation: {
+            /** @description Derived from this recorded condition; current disability is computed across non-deleted history */
+            readonly isDisabled?: boolean;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -2765,10 +2822,13 @@ export interface components {
             recordedOutcome?: components["schemas"]["FishOutcome"] | null;
             recordedCondition?: components["schemas"]["Condition"] | null;
             recordedHealthStatus?: components["schemas"]["FishHealthStatus"] | null;
+            recordedSickNote?: string | null;
             /** @description Existing observation note for this fish/date, used to prefill the daily note editor. */
             recordedNotes?: string | null;
         };
         FishObservationInput: {
+            /** @description Separate note required when healthStatus is SICK */
+            sickNote?: string | null;
             /** Format: uuid */
             clientUuid: string;
             /** Format: uuid */
@@ -2783,6 +2843,8 @@ export interface components {
             overrideReason?: string | null;
         };
         FishObservationPatchInput: {
+            /** @description Separate note required when healthStatus is SICK */
+            sickNote?: string | null;
             /** Format: date */
             observedOn?: string;
             outcome?: components["schemas"]["FishOutcome"];
@@ -2843,6 +2905,9 @@ export interface components {
             } | null;
         };
         CloneFish: {
+            /** @description Derived from registration evidence and non-deleted embryo or fish observations */
+            readonly isDisabled?: boolean;
+            sickNote?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -2880,6 +2945,7 @@ export interface components {
             remarks?: string | null;
         };
         CloneFishInput: {
+            sickNote?: string | null;
             fishCode: string;
             /** Format: date */
             dob: string;
@@ -3153,8 +3219,8 @@ export interface components {
             /** Format: email */
             email: string;
             code: string;
-            /** @description Required for guests; set or reset password after verifying email and revoke previous sessions */
-            password?: string;
+            /** @description Set or reset a password after verifying the invited email and revoke previous sessions */
+            password: string;
         };
         AuthMember: components["schemas"]["AuthUser"] & {
             active: boolean;
@@ -3349,7 +3415,50 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code */
+            /** @description Identical response regardless of account existence or email cooldown; no account is created; delivery runs in the background and passwords are set only after verifying the code */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid email or password */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Proxy request rate limit reached */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Email delivery unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    requestPasswordCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordInput"];
+            };
+        };
+        responses: {
+            /** @description Identical response regardless of account existence or email cooldown; no account is created; delivery runs in the background and passwords are set only after verifying the code */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -4769,6 +4878,42 @@ export interface operations {
         responses: {
             /** @description Session revoked */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    testMailSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description SMTP accepted the message; inbox delivery is not guaranteed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Administrator access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description SMTP TLS, connection, authentication, sender or recipient error */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

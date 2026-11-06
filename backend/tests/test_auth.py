@@ -67,7 +67,7 @@ def _sign_in(client: TestClient, email: str, mailer) -> dict:
     verified = client.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "member-browser"},
-        json={"email": email, "code": _code(mailer)},
+        json={"password": "correct horse battery staple", "email": email, "code": _code(mailer)},
     )
     assert verified.status_code == 200, verified.text
     return verified.json()["user"]
@@ -98,7 +98,7 @@ def test_otp_is_single_use_and_keeps_the_email_cooldown(client):
     reused = client.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "other-browser"},
-        json={"email": "peerapas.c@ku.th", "code": first_code},
+        json={"password": "correct horse battery staple", "email": "peerapas.c@ku.th", "code": first_code},
     )
     cooldown = client.post("/api/v1/auth/request-code", json={"email": "peerapas.c@ku.th"})
 
@@ -137,7 +137,7 @@ def test_requesting_again_keeps_the_existing_usable_code(client):
         client.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "second-browser"},
-            json={"email": email, "code": first_code},
+            json={"password": "correct horse battery staple", "email": email, "code": first_code},
         ).status_code
         == 200
     )
@@ -159,7 +159,7 @@ def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client
             response = client.post(
                 "/api/v1/auth/verify-code",
                 headers={"X-Device-Id": "attacker"},
-                json={"email": email, "code": wrong_code},
+                json={"password": "correct horse battery staple", "email": email, "code": wrong_code},
             )
             assert response.status_code == 401
 
@@ -168,7 +168,7 @@ def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client
     blocked = client.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "real-member"},
-        json={"email": email, "code": correct_code},
+        json={"password": "correct horse battery staple", "email": email, "code": correct_code},
     )
     assert blocked.status_code == 401
     assert len([message for message in mailer.messages if message[1] == LOGIN_LOCK_ALERT_SUBJECT]) == 1
@@ -184,7 +184,7 @@ def test_daily_failed_code_limit_alerts_admin_once_and_survives_new_codes(client
     recovered = client.post(
         "/api/v1/auth/verify-code",
         headers={"X-Device-Id": "real-member"},
-        json={"email": email, "code": _code(mailer)},
+        json={"password": "correct horse battery staple", "email": email, "code": _code(mailer)},
     )
     assert recovered.status_code == 200
 
@@ -416,6 +416,8 @@ PASSWORD = "correct horse battery staple"
 
 
 def _register(client, email="new.guest@ku.th", password=PASSWORD):
+    invited = _invite(client, client.app.state.auth.mailer, email)
+    assert client.patch(f"/api/v1/auth/admin/users/{invited['id']}", json={"role": "guest"}).status_code == 200
     browser = TestClient(client.app)
     result = browser.post("/api/v1/auth/register", json={"email": email, "password": password, "role": "admin"})
     assert result.status_code == 202, result.text
@@ -461,8 +463,8 @@ def test_guest_registration_password_and_admin_grant(client):
     guest.close()
 
 
-@pytest.mark.parametrize("email", ["user@gmail.com", "user@evilku.th", "user@ku.th.evil", "@ku.th", "a..b@ku.th"])
-def test_registration_rejects_non_ku_and_invalid_emails(client, email):
+@pytest.mark.parametrize("email", ["bad-email", "@ku.th", "a..b@ku.th"])
+def test_password_setup_rejects_invalid_emails(client, email):
     response = client.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD})
     assert response.status_code == 400
 
@@ -487,6 +489,7 @@ def test_eight_character_password_can_register_and_login(client):
 
 def test_password_is_set_only_after_email_verification_and_code_cannot_be_reused(client):
     browser = TestClient(client.app)
+    _invite(client, client.app.state.auth.mailer, "unverified@ku.th")
     body = {"email": "unverified@ku.th", "password": PASSWORD}
     assert browser.post("/api/v1/auth/register", json=body).status_code == 202
     code = _code(client.app.state.auth.mailer)
@@ -560,28 +563,21 @@ def test_password_reset_keeps_role_and_requires_otp_before_revoking_sessions(cli
     browser.close()
 
 
-def test_existing_bootstrap_admin_cannot_set_password_or_bypass_otp(client):
+def test_existing_bootstrap_admin_can_set_password_after_email_verification(client):
     admin = client.get("/api/v1/auth/me").json()["user"]
     challenge = client.app.state.store.auth_challenges[admin["email"]]
     challenge["last_sent_at"] = utc_now() - timedelta(minutes=2)
     browser = TestClient(client.app)
     body = {"email": admin["email"], "password": PASSWORD}
-    assert browser.post("/api/v1/auth/register", json=body).status_code == 202
-    response = browser.post(
+    assert browser.post("/api/v1/auth/password/request-code", json=body).status_code == 202
+    result = browser.post(
         "/api/v1/auth/verify-code",
-        headers={"X-Device-Id": "admin-password-browser"},
+        headers={"X-Device-Id": "admin-browser"},
         json={**body, "code": _code(client.app.state.auth.mailer)},
     )
-    assert response.status_code == 400
-    assert client.get("/api/v1/auth/me").status_code == 200
-    assert browser.post("/api/v1/auth/login", headers={"X-Device-Id": "browser"}, json=body).status_code == 401
-    verified = browser.post(
-        "/api/v1/auth/verify-code",
-        headers={"X-Device-Id": "browser"},
-        json={"email": admin["email"], "code": _code(client.app.state.auth.mailer)},
-    )
-    assert verified.status_code == 200
-    assert verified.json()["user"]["role"] == "admin"
+    assert result.status_code == 200
+    assert result.json()["user"]["role"] == "admin"
+    assert browser.post("/api/v1/auth/login", headers={"X-Device-Id": "admin-browser"}, json=body).status_code == 200
     browser.close()
 
 
@@ -598,6 +594,7 @@ def test_invalid_otp_does_not_hash_password(client, monkeypatch):
 
     calls = []
     monkeypatch.setattr(service, "hash_password", lambda value: calls.append(value) or "unused")
+    _invite(client, client.app.state.auth.mailer, "wrong-code@ku.th")
     body = {"email": "wrong-code@ku.th", "password": PASSWORD}
     assert client.post("/api/v1/auth/register", json=body).status_code == 202
     code = _code(client.app.state.auth.mailer)
@@ -618,7 +615,7 @@ def test_register_responses_do_not_reveal_invitation_or_cooldown(client):
     browser.close()
 
 
-def test_promoted_member_cannot_use_guest_password(client):
+def test_promoted_member_keeps_password(client):
     browser, user = _register(client)
     assert client.patch(f"/api/v1/auth/admin/users/{user['id']}", json={"role": "member"}).status_code == 200
     assert browser.post("/api/v1/auth/logout").status_code == 204
@@ -628,7 +625,7 @@ def test_promoted_member_cannot_use_guest_password(client):
             headers={"X-Device-Id": "browser"},
             json={"email": user["email"], "password": PASSWORD},
         ).status_code
-        == 401
+        == 200
     )
     browser.close()
 

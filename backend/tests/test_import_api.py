@@ -52,7 +52,7 @@ def import_client(request):
         login = client.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "import-test"},
-            json={"email": config.bootstrap_admin_email, "code": code},
+            json={"password": "correct horse battery staple", "email": config.bootstrap_admin_email, "code": code},
         )
         assert login.status_code == 200
         client.headers.update(
@@ -189,7 +189,9 @@ def test_anonymous_and_member_cannot_import(import_client):
         member.post("/api/v1/auth/request-code", json={"email": email})
         code = re.search(r"\b\d{6}\b", mailer.messages[-1][2]).group()
         login = member.post(
-            "/api/v1/auth/verify-code", headers={"X-Device-Id": "member"}, json={"email": email, "code": code}
+            "/api/v1/auth/verify-code",
+            headers={"X-Device-Id": "member"},
+            json={"password": "correct horse battery staple", "email": email, "code": code},
         ).status_code
         assert login == 200
         member.headers["X-Actor-User-Id"] = client.app.state.auth.repository.user_by_email(email)["id"]
@@ -348,3 +350,47 @@ def test_customer_sheets_show_editable_issues_before_confirm(import_client):
                 ).status_code
                 == 200
             )
+
+
+@pytest.mark.parametrize("condition", ["Normal", "Abnormal", ""])
+def test_fish_import_sets_registration_disability_after_migration(import_client, condition):
+    client = import_client
+    sql_required(client)
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "V2Fish"
+    sheet.append(row(A="No", B="DOB", D="Donor", K="Condition"))
+    number = int(uuid7().replace("-", "")[-12:], 16)
+    sheet.append(row(A=number, B="2026-01-01", D="Import donor", K=condition))
+    output = io.BytesIO()
+    book.save(output)
+    created = create_job(client, output.getvalue(), ["V2Fish"])
+    body = confirm_body(client, created, ["V2Fish"])
+    donor = client.post(
+        "/api/v1/donor-cell-lines",
+        headers={"X-Idempotency-Key": uuid7()},
+        json={
+            "strain": f"import-disability-{number}",
+            "preparation": "DISSOCIATED",
+            "preservation": "FRESH",
+        },
+    )
+    assert donor.status_code == 201, donor.text
+    body["donorMappings"] = {"Import donor": donor.json()["id"]}
+    confirmed = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=body)
+    assert confirmed.status_code == 200, confirmed.text
+    with client.app.state.store.engine.connect() as connection:
+        record = (
+            connection.execute(
+                text("SELECT id, is_disabled, disability_at_registration FROM clone_fish WHERE import_job_id = :job"),
+                {"job": created["job"]["id"]},
+            )
+            .mappings()
+            .one()
+        )
+    disabled = condition == "Abnormal"
+    assert bool(record["disability_at_registration"]) is disabled
+    assert bool(record["is_disabled"]) is disabled
+    fish = client.get(f"/api/v1/fish/{record['id']}").json()
+    assert fish["isDisabled"] is disabled
+    assert fish["condition"] == ("ABNORMAL" if disabled else "NORMAL" if condition else "UNDETERMINED")

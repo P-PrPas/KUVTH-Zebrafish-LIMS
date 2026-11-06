@@ -45,7 +45,7 @@ def client(store: MemoryStore) -> TestClient:
         verified = test_client.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "pytest-device"},
-            json={"email": "peerapas.c@ku.th", "code": code.group()},
+            json={"password": "correct horse battery staple", "email": "peerapas.c@ku.th", "code": code.group()},
         )
         assert verified.status_code == 200, verified.text
         test_client.app.state.rate_limit_hits.clear()

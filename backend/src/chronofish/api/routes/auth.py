@@ -47,11 +47,12 @@ def build_auth_router(auth: AuthService) -> APIRouter:
         background_tasks.add_task(auth.deliver_code, email)
         return {"status": "If this email is invited, check its inbox for a sign-in code."}
 
-    @router.post("/register", status_code=202)
-    def register(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
-        email = auth.validate_registration(body)
-        background_tasks.add_task(auth.register, email)
-        return {"status": "If this account is active, a verification code has been sent."}
+    @router.post("/password/request-code", status_code=202)
+    @router.post("/register", status_code=202, deprecated=True)
+    def request_password_code(body: dict[str, Any], background_tasks: BackgroundTasks) -> dict[str, str]:
+        email = auth.validate_password_setup(body)
+        background_tasks.add_task(auth.request_password_setup, email)
+        return {"status": "If this email is invited and active, check its inbox for a verification code."}
 
     @router.post("/login")
     def login(request: Request, response: Response, body: dict[str, Any]) -> dict[str, Any]:
@@ -188,5 +189,11 @@ def build_auth_router(auth: AuthService) -> APIRouter:
         sender = _email(body.senderEmail)
         auth.repository.set_sender_email(sender, _actor(request), utc_now())
         return {"senderEmail": sender}
+
+    @router.post("/admin/mail-settings/test")
+    def test_mail_settings(request: Request) -> dict[str, str]:
+        actor = _actor(request)
+        auth.send_delivery_test(actor["email"])
+        return {"status": "SMTP accepted the test email. Check your inbox and spam folder."}
 
     return router
