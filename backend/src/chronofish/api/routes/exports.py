@@ -240,6 +240,7 @@ def _embryo_observation_rows(state: State, query: dict[str, str]) -> list[list[o
                 state.entities["operators"].get(str(item.get("operatorId")), {}).get("name", item.get("operatorId")),
                 item.get("isBackdated"),
                 item.get("notes"),
+                "ABNORMAL" if embryo.get("isDisabled") else item.get("condition"),
             ]
         )
     return rows
@@ -409,6 +410,7 @@ def _fish_rows(
                     observation.get("notes"),
                     observation.get("sickNote"),
                     bool(observation.get("isDisabled")),
+                    "ABNORMAL" if item.get("isDisabled") else observation.get("condition"),
                 ]
             )
         for specimen in sorted(specimens_by_fish.get(fish_id, []), key=lambda value: _text(value.get("id"))):
@@ -599,6 +601,7 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
                 "operator",
                 "is_backdated",
                 "notes",
+                "effective_condition",
             ],
             _embryo_observation_rows(state, query) if selected("02_Embryo_Observations") else [],
         ),
@@ -690,6 +693,7 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
                 "notes",
                 "sick_note",
                 "is_disabled",
+                "effective_condition",
             ],
             fish_observations,
         ),
@@ -751,6 +755,11 @@ def _sheets(state: State, query: dict[str, str], selected_names: set[str] | None
         ["date_to", query.get("dateTo", "")],
         ["filters", json.dumps(query, sort_keys=True, separators=(",", ":"))],
         ["system_version", __version__],
+        [
+            "effective_condition_basis",
+            "Recorded condition with current permanent disability applied at export time; "
+            "not a historical as-of value. Reflects current non-deleted evidence after corrections.",
+        ],
         ["timing_profile_version", _profile_versions(state, _profile_ids(state, query))],
     ]
     metadata.extend([[f"row_count.{name}", len(rows)] for name, _headers, rows in selected_without_metadata])

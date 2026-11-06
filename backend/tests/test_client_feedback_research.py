@@ -344,3 +344,85 @@ def test_promotion_preserves_an_undetermined_recorded_condition(client, write_he
     fish = response.json()["items"][0]["fish"]
     assert fish["condition"] == "UNDETERMINED"
     assert fish["isDisabled"] is False
+
+
+@pytest.mark.parametrize("action", ["correct", "delete"])
+def test_observation_export_shows_recorded_and_current_effective_condition(client, write_headers, action):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from test_contract_exports_audit import worksheet_rows
+
+    embryo = setup_eligible_embryo(client, write_headers, condition="ABNORMAL")
+    source = next(o for o in client.app.state.store.snapshot().observations.values() if o["embryoId"] == embryo["id"])
+    later = client.post(
+        "/api/v1/observations/embryo",
+        headers=headers(write_headers, 900),
+        json={
+            "observations": [
+                {
+                    "clientUuid": uuid7(),
+                    "embryoId": embryo["id"],
+                    "stageCode": "stage_27_6D",
+                    "observedAt": datetime.now(ZoneInfo("UTC")).isoformat(),
+                    "outcome": "ALIVE",
+                    "condition": "NORMAL",
+                }
+            ]
+        },
+    )
+    assert later.json()["results"][0]["status"] == "created", later.text
+    promoted = client.post(
+        "/api/v1/promotions",
+        headers=headers(write_headers, 901),
+        json={
+            "promotions": [{"clientUuid": uuid7(), "embryoId": embryo["id"]}],
+        },
+    )
+    fish = promoted.json()["items"][0]["fish"]
+    saved = client.post(
+        "/api/v1/observations/fish",
+        headers=headers(write_headers, 902),
+        json={
+            "observations": [
+                {
+                    "clientUuid": uuid7(),
+                    "cloneFishId": fish["id"],
+                    "observedOn": datetime.now(ZoneInfo("Asia/Bangkok")).date().isoformat(),
+                    "outcome": "ALIVE",
+                    "condition": "NORMAL",
+                    "healthStatus": "HEALTHY",
+                }
+            ]
+        },
+    )
+    assert saved.json()["results"][0]["status"] == "created", saved.text
+
+    def observation_rows():
+        response = client.post(
+            "/api/v1/exports/excel", headers={**write_headers, "X-Idempotency-Key": uuid7()}, json={"filters": {}}
+        )
+        assert response.status_code == 200, response.text
+        with ZipFile(BytesIO(response.content)) as archive:
+            embryos = worksheet_rows(archive.read("xl/worksheets/sheet3.xml"))
+            fish_rows = worksheet_rows(archive.read("xl/worksheets/sheet8.xml"))
+        assert embryos[0][-1] == fish_rows[0][-1] == "effective_condition"
+        embryo_rows = [dict(zip(embryos[0], row, strict=True)) for row in embryos[1:]]
+        fish_rows = [dict(zip(fish_rows[0], row, strict=True)) for row in fish_rows[1:]]
+        return next(row for row in embryo_rows if row["stage_code"] == "stage_27_6D"), fish_rows[0]
+
+    for row in observation_rows():
+        assert row["condition"] == "NORMAL"
+        assert row["effective_condition"] == "ABNORMAL"
+    path = f"/api/v1/observations/embryo/{source['id']}"
+    if action == "correct":
+        fixed = client.patch(
+            path, headers=headers(write_headers, 903), json={"condition": "NORMAL", "correctionReason": "Entry error"}
+        )
+        assert fixed.status_code == 200, fixed.text
+    else:
+        fixed = client.delete(path, headers=headers(write_headers, 903), params={"reason": "Entry error"})
+        assert fixed.status_code == 204, fixed.text
+    for row in observation_rows():
+        assert row["condition"] == "NORMAL"
+        assert row["effective_condition"] == "NORMAL"
