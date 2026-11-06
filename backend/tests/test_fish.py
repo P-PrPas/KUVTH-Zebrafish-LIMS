@@ -261,6 +261,7 @@ def test_fish_health_status_does_not_overwrite_life_outcome_or_condition(client,
                     "outcome": "DEAD",
                     "condition": "NORMAL",
                     "healthStatus": "SICK",
+                    "sickNote": "Not eating",
                 }
             ]
         },

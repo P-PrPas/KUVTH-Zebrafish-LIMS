@@ -133,6 +133,11 @@ def _recompute_embryo(state: State, embryo_id: str) -> None:
         for item in state.observations.values()
         if item.get("embryoId") == embryo_id and item.get("deletedAt") is None
     ]
+    embryo["isDisabled"] = bool(
+        embryo.get("isDisabled")
+        or embryo.get("firstAbnormalObservationId")
+        or any(item.get("condition") == "ABNORMAL" for item in values)
+    )
     terminal = _terminal_embryo_observation(state, embryo_id)
     abnormal = min(
         (item for item in values if item.get("condition") == "ABNORMAL"),
@@ -182,6 +187,8 @@ def _recompute_embryo(state: State, embryo_id: str) -> None:
 def _validate_observation(
     state: State, item: dict[str, Any], correcting_observation_id: str | None = None
 ) -> str | None:
+    if "isDisabled" in item and not isinstance(item["isDisabled"], bool):
+        return "isDisabled must be a boolean"
     for field in ("clientUuid", "embryoId", "stageCode", "observedAt", "outcome", "condition"):
         if not item.get(field):
             return f"ต้องระบุ {field}"
@@ -208,6 +215,16 @@ def _validate_observation(
         return "observedAt ห้ามอยู่ในอนาคตเกิน 5 นาที"
     if item["outcome"] not in EMBRYO_OUTCOMES or not condition_valid(str(item["condition"])):
         return "outcome หรือ condition ไม่ถูกต้อง"
+    abnormal_times = [
+        parse_datetime(str(value["observedAt"]))
+        for value in state.observations.values()
+        if value.get("embryoId") == embryo["id"]
+        and value.get("condition") == "ABNORMAL"
+        and value.get("deletedAt") is None
+    ]
+    if (embryo.get("isDisabled") or abnormal_times) and (not abnormal_times or observed >= min(abnormal_times)):
+        item["condition"] = "ABNORMAL"
+    item["isDisabled"] = item["condition"] == "ABNORMAL"
     terminal = _terminal_embryo_observation(state, str(embryo["id"]))
     if terminal and str(terminal.get("id")) != str(correcting_observation_id or ""):
         exit_order = stage_number(str(terminal.get("stageCode") or ""))
@@ -367,8 +384,12 @@ def build_observations_router(store: Store) -> APIRouter:
                 {
                     "embryoId": embryo["id"],
                     "embryoCode": embryo["embryoCode"],
+                    "seqInLot": embryo.get("seqInLot"),
                     "wellPosition": embryo.get("wellPosition"),
-                    "defaultCondition": (prior or {}).get("condition", "NORMAL"),
+                    "defaultCondition": "ABNORMAL"
+                    if embryo.get("isDisabled") or embryo.get("firstAbnormalObservationId")
+                    else (prior or {}).get("condition", "NORMAL"),
+                    "isDisabled": bool(embryo.get("isDisabled") or embryo.get("firstAbnormalObservationId")),
                     "isDead": terminal is not None,
                     "priorOutcome": (prior or {}).get("outcome"),
                     "priorStageCode": (prior or {}).get("stageCode"),
@@ -408,6 +429,7 @@ def build_observations_router(store: Store) -> APIRouter:
         ]
         return {
             "injectionLotId": lot_id,
+            "wellPlateSize": batch.get("wellPlateSize", 96),
             "batchCode": batch.get("batchCode"),
             "lotNo": lot.get("lotNo"),
             "stage": {"code": code, "label": stage_label(order), "stageOrder": order},
@@ -554,7 +576,7 @@ def build_observations_router(store: Store) -> APIRouter:
                 correction = str(payload.get("correctionReason") or payload.get("overrideReason") or "").strip()
                 if not correction and not own_recent:
                     raise APIError(422, "validation_error", "ต้องระบุ correctionReason")
-                allowed = {"observedAt", "outcome", "condition", "notes"}
+                allowed = {"observedAt", "outcome", "condition", "isDisabled", "notes"}
                 candidate = {**observation, **{key: value for key, value in payload.items() if key in allowed}}
                 if correction:
                     candidate["overrideReason"] = correction

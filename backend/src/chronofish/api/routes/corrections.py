@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import logging
 import math
-import re
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -11,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Request
 
+from ...domain.plates import plate_wells
 from ...domain.rules import (
     age_days_on,
     condition_valid,
@@ -25,7 +25,13 @@ from ...domain.state import State
 from ...runtime.errors import APIError
 from ...runtime.mutations import audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
-from ...services.fish import apply_fish_update, find_fish_for_embryo, recompute_fish
+from ...services.fish import (
+    apply_fish_update,
+    find_fish_for_embryo,
+    recompute_fish,
+    retain_disability,
+    validate_fish_health,
+)
 from ...store import Store
 from .experiments import _lot_inputs, _validate_batch
 from .observations import _interval_metrics, _recompute_embryo, _recompute_intervals, _validate_observation
@@ -37,6 +43,7 @@ FIELDS = {
     "experiment_batch": {
         "experimentDate",
         "dayNo",
+        "wellPlateSize",
         "siteId",
         "operatorId",
         "experimentGroupId",
@@ -62,7 +69,7 @@ FIELDS = {
     "embryo": {"wellPosition"},
     "embryo_observation": {"observedAt", "outcome", "condition", "notes"},
     "clone_fish": {"fishCode", "fishBoxId", "sex", "finClipped", "remarks"},
-    "fish_observation": {"observedOn", "outcome", "condition", "healthStatus", "notes"},
+    "fish_observation": {"observedOn", "outcome", "condition", "healthStatus", "sickNote", "notes"},
 }
 REFERENCE_FIELDS = {
     "siteId": "sites",
@@ -195,15 +202,17 @@ def _validate_and_apply(
         state.entities["batches"][target_id] = candidate
     elif table == "injection_lot":
         # Corrections cannot change the number of embryos or their activation origin.
-        _lot_inputs(state, copy.deepcopy(candidate))
+        _lot_inputs(state, copy.deepcopy(candidate), state.entities["batches"].get(str(candidate.get("batchId")), {}))
         counts = [candidate.get("nActivated"), candidate.get("nManipulated"), candidate.get("nEggs")]
         if all(isinstance(count, int) for count in counts) and not counts[0] <= counts[1] <= counts[2]:
             raise APIError(422, "related_data_conflict", "Egg counts must satisfy activated ≤ manipulated ≤ total")
         state.entities["injection-lots"][target_id] = candidate
     elif table == "embryo":
         well = candidate.get("wellPosition")
-        if well is not None and (not isinstance(well, str) or re.fullmatch(r"[A-H](?:1[0-2]|[1-9])", well) is None):
-            raise APIError(422, "validation_error", "wellPosition must be A1 through H12")
+        lot = state.entities["injection-lots"].get(str(item.get("injectionLotId")), {})
+        batch = state.entities["batches"].get(str(lot.get("batchId")), {})
+        if well is not None and well not in plate_wells(batch.get("wellPlateSize", 96)):
+            raise APIError(422, "validation_error", "wellPosition is outside the selected Well Plate")
         if well and any(
             other.get("id") != target_id
             and other.get("injectionLotId") == item.get("injectionLotId")
@@ -267,6 +276,9 @@ def _validate_and_apply(
     elif table == "fish_observation":
         candidate["overrideReason"] = reason
         candidate.setdefault("healthStatus", "UNDETERMINED")
+        retain_disability(state.entities["fish"].get(str(candidate.get("cloneFishId")), {}), candidate)
+        if message := validate_fish_health(candidate):
+            raise APIError(422, "validation_error", message)
         if (
             not fish_outcome_valid(str(candidate.get("outcome")))
             or not condition_valid(str(candidate.get("condition")))

@@ -122,10 +122,9 @@ describe("KU authentication", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ status: "sent" })));
     await act(async () => root.render(<Login onLogin={vi.fn()} />));
     expect(container.querySelector(".auth-intro")?.getAttribute("aria-labelledby")).toBe("auth-intro-title");
-    expect(container.querySelector("#login-password")).toBeNull();
-    await click(th ? "Guest: เข้าสู่ระบบด้วยรหัสผ่าน" : "Guest sign in with password");
-    expect(container.querySelector("#login-title")?.textContent).toBe(th ? "เข้าสู่ระบบสำหรับ Guest" : "Guest sign in");
-    await click(th ? "ลืมรหัสผ่าน Guest" : "Forgot Guest password");
+    expect(container.querySelector("#login-password")).not.toBeNull();
+    expect(container.querySelector("#login-title")?.textContent).toBe(th ? "เข้าสู่ระบบ" : "Sign in to your lab");
+    await click(th ? "ได้รับคำเชิญ / ลืมรหัสผ่าน" : "Invited / forgot password");
     expect(container.querySelector("#login-title")?.textContent).toBe(
       th ? "ตั้งหรือรีเซ็ตรหัสผ่าน" : "Set or reset your password",
     );
@@ -149,8 +148,7 @@ describe("KU authentication", () => {
     await click(th ? "ส่งรหัสอีกครั้ง" : "Resend code");
     expect(container.querySelector<HTMLButtonElement>(".auth-form .text-button")?.disabled).toBe(true);
     await click(th ? "กลับไปเข้าสู่ระบบ" : "Back to sign in");
-    await click(th ? "สมัครบัญชีใหม่" : "Create an account");
-    expect(container.querySelector("#login-title")?.textContent).toBe(th ? "สมัครบัญชีใหม่" : "Create an account");
+    expect(container.textContent).not.toContain(th ? "สมัครบัญชีใหม่" : "Create an account");
     expect(container.querySelector<HTMLInputElement>("#login-password")?.value).toBe("");
     await click(th ? "EN" : "ไทย");
     expect(document.documentElement.lang).toBe(th ? "en" : "th");
@@ -173,7 +171,7 @@ describe("KU authentication", () => {
     expect(localStorage.getItem("chronofish.auth_user")).not.toContain("password");
   });
 
-  it("checks password confirmation and verifies email before finishing registration", async () => {
+  it("checks password confirmation and verifies email before finishing invited password setup", async () => {
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(response({ status: "sent" }))
@@ -181,8 +179,7 @@ describe("KU authentication", () => {
     vi.stubGlobal("fetch", fetch);
     const onLogin = vi.fn();
     await act(async () => root.render(<Login onLogin={onLogin} />));
-    await click("Guest sign in with password");
-    await click("Create an account");
+    await click("Invited / forgot password");
     expect(container.querySelector<HTMLInputElement>("#login-password")?.minLength).toBe(8);
     expect(container.querySelector<HTMLInputElement>("#confirm-password")?.minLength).toBe(8);
     expect(container.querySelector("#password-help")?.textContent).toBe("At least 8 characters.");
@@ -194,7 +191,7 @@ describe("KU authentication", () => {
     expect(fetch).not.toHaveBeenCalled();
     await input("confirm-password", "correct horse battery staple");
     await submit();
-    expect(fetch.mock.calls[0][0]).toBe("/api/v1/auth/register");
+    expect(fetch.mock.calls[0][0]).toBe("/api/v1/auth/password/request-code");
     expect(onLogin).not.toHaveBeenCalled();
     await input("login-code", "123456");
     await submit();

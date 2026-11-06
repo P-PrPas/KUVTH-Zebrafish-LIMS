@@ -47,7 +47,7 @@ def test_fastapi_registers_every_openapi_operation(client):
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 124
+    assert len(expected) == 129
 
 
 def test_r_export_has_stable_30_column_shape(client):
@@ -79,6 +79,7 @@ def test_excel_export_is_read_only_valid_13_sheet_xlsx(client, store, write_head
         json={
             "observations": [
                 {
+                    "sickNote": "Not eating",
                     "clientUuid": "01900000-0000-7000-8000-000000000451",
                     "cloneFishId": manual.json()["id"],
                     "observedOn": datetime.now(BANGKOK).date().isoformat(),

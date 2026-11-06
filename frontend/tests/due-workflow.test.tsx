@@ -70,6 +70,41 @@ const checkpoint = {
 };
 
 describe("due and checkpoint workflows", () => {
+  it("keeps an Abnormal embryo permanently disabled without a separate checkbox", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/due-checkpoints")) return json({ overdue: [dueItem], upcoming: [] });
+        if (String(input).includes("/checkpoints/"))
+          return json({
+            ...checkpoint,
+            embryos: checkpoint.embryos.map((embryo) => ({
+              ...embryo,
+              isDisabled: true,
+              defaultCondition: "ABNORMAL",
+            })),
+          });
+        return json({ items: [] });
+      }),
+    );
+    const element = document.createElement("div");
+    document.body.append(element);
+    const root = createRoot(element);
+    await act(async () => {
+      root.render(<Due t={text.en} />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      element.querySelector<HTMLButtonElement>(".list-row")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const condition = element.querySelector<HTMLSelectElement>("#active-condition");
+    expect(condition?.value).toBe("ABNORMAL");
+    expect(condition?.disabled).toBe(true);
+    expect(element.querySelector(".disabled-status input")).toBeNull();
+    expect(element.querySelector(".disabled-status")?.textContent).toContain("Abnormal means permanent disability");
+    await act(async () => root.unmount());
+  });
   beforeEach(() => {
     withoutIndexedDB();
     localStorage.clear();
@@ -106,7 +141,7 @@ describe("due and checkpoint workflows", () => {
         const path = String(input);
         if (path.includes("/due-checkpoints"))
           return json({ overdue: [dueItem], upcoming: [dueItem], pendingPromotionCount: 1 });
-        if (path.includes("/checkpoints/")) return json(checkpoint);
+        if (path.includes("/checkpoints/")) return json({ ...checkpoint, wellPlateSize: 48 });
         return json({ items: [] });
       }),
     );
@@ -122,6 +157,9 @@ describe("due and checkpoint workflows", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(document.querySelectorAll(".checkpoint-grid [data-well]")).toHaveLength(3);
+    expect(document.querySelectorAll(".checkpoint-grid [role=gridcell]")).toHaveLength(96);
+    expect(document.querySelectorAll(".checkpoint-grid .well-cell--unused")).toHaveLength(48);
+    expect(document.querySelector('.checkpoint-grid [aria-label^="H12:"]')?.getAttribute("aria-disabled")).toBe("true");
     expect(document.body.textContent).toContain("B-1");
     root.unmount();
   });
@@ -232,7 +270,7 @@ describe("due and checkpoint workflows", () => {
       Array.from(document.querySelectorAll('.checkpoint-editor [aria-label^="Condition for well"] option')).map(
         (option) => option.textContent,
       ),
-    ).toEqual(["Normal", "Abnormal"]);
+    ).toEqual(["Normal", "Abnormal / permanently disabled"]);
     const deadWell = document.querySelector('[data-well="A3"]') as HTMLButtonElement;
     expect(deadWell.classList.contains("well-cell--dead")).toBe(true);
     expect(deadWell.getAttribute("aria-label")).toContain("Dead");

@@ -30,7 +30,7 @@ def correction_context(client, write_headers):
         signed_in = member.post(
             "/api/v1/auth/verify-code",
             headers={"X-Device-Id": "correction-test"},
-            json={"email": "correction.member@ku.th", "code": code.group()},
+            json={"password": "correct horse battery staple", "email": "correction.member@ku.th", "code": code.group()},
         )
         assert signed_in.status_code == 200, signed_in.text
         admin_id = client.get("/api/v1/auth/me").json()["user"]["id"]

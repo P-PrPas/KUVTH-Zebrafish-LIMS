@@ -37,6 +37,7 @@ import { Master } from "./pages/master";
 import { Members } from "./pages/members";
 import { Profile } from "./pages/profile";
 import { Promotions, Timing } from "./pages/settings";
+import { TaskReminders } from "./task-reminders";
 import { ActionToasts } from "./toast";
 import { type ApiItem, type Language, type Page, text } from "./types";
 
@@ -125,6 +126,20 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const validationFrame = useRef(0);
   const previousPage = useRef(page);
   const currentOperator = operatorId();
+  useEffect(() => {
+    let lastPing = 0;
+    const activity = () => {
+      if (Date.now() - lastPing < 60_000 || !navigator.onLine) return;
+      lastPing = Date.now();
+      void request("/auth/me").catch(() => undefined);
+    };
+    window.addEventListener("pointerdown", activity);
+    window.addEventListener("keydown", activity);
+    return () => {
+      window.removeEventListener("pointerdown", activity);
+      window.removeEventListener("keydown", activity);
+    };
+  }, []);
   const operatorMenu = useRef<HTMLDetailsElement>(null);
   const writePage = ![
     "dashboard",
@@ -348,6 +363,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           </span>
         </a>
         <nav aria-label={language === "th" ? "เมนูหลัก" : "Main navigation"} className="sidebar-nav">
+          {!adminMode && <TaskReminders thai={language === "th"} fields={formErrors} navigate={navigate} />}
           <div className="nav-group nav-group--primary">
             <p className="nav-group__label">{language === "th" ? "งาน" : "Task"}</p>
             {renderNav(visibleNav.filter((item) => item.group === "primary"))}

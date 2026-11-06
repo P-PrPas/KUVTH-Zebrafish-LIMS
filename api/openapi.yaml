@@ -19,8 +19,9 @@ info:
       The server stores UTC; the client sends and displays `Asia/Bangkok`.
     * All hour values are decimal hours with 4 decimal places (DR-05).
     * All API routes except health and the two OTP entry routes require an
-      authenticated session cookie. Membership is invitation-only and limited
-      to `@ku.th` addresses; authorization is enforced by the server.
+      authenticated session cookie. Membership is invitation-only across email domains;
+      sign-in uses email and password. Sessions expire after 12 hours of inactivity.
+      Passive background sync and reminders do not extend sessions.
     * Experimental writes carry `X-Operator-Id`, `X-Device-Id`, and the required
       `X-Actor-User-Id`. The account actor comes from the session and must
       match this header so queued writes cannot replay under another account.
@@ -52,7 +53,7 @@ security:
 
 tags:
   - name: Authentication
-    description: Invitation-only KU email OTP, sessions, and member administration
+    description: Invitation-only email/password, verified password setup, sessions, and administration
   - name: Corrections
     description: Member correction requests and administrator decisions
   - name: Master data
@@ -102,7 +103,7 @@ paths:
     post:
       security: []
       tags: [Authentication]
-      summary: Sign in to a verified Guest account with a password
+      summary: Sign in to a verified invited account with a password
       operationId: passwordLogin
       parameters:
         - $ref: '#/components/parameters/DeviceId'
@@ -128,9 +129,10 @@ paths:
         '503': { description: Password authentication capacity is busy; try again shortly }
   /auth/register:
     post:
+      deprecated: true
       security: []
       tags: [Authentication]
-      summary: Register a KU guest or request a password reset verification code
+      summary: Request password setup or reset for an existing invited account (legacy alias)
       operationId: registerGuest
       requestBody:
         required: true
@@ -138,7 +140,24 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PasswordInput' }
       responses:
-        '202': { description: Identical response regardless of account existence or email cooldown; delivery runs in the background and Guest passwords are set only after verifying the code }
+        '202': { description: Identical response regardless of account existence or email cooldown; no account is created; delivery runs in the background and passwords are set only after verifying the code }
+        '400': { description: Invalid email or password }
+        '429': { description: Proxy request rate limit reached }
+        '503': { description: Email delivery unavailable }
+
+  /auth/password/request-code:
+    post:
+      security: []
+      tags: [Authentication]
+      summary: Request password setup or reset for an existing invited account
+      operationId: requestPasswordCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordInput' }
+      responses:
+        '202': { description: Identical response regardless of account existence or email cooldown; no account is created; delivery runs in the background and passwords are set only after verifying the code }
         '400': { description: Invalid email or password }
         '429': { description: Proxy request rate limit reached }
         '503': { description: Email delivery unavailable }
@@ -797,7 +816,7 @@ paths:
         '403': { description: Admin role required }
     post:
       tags: [Authentication]
-      summary: Invite a @ku.th member
+      summary: Invite a member from any email domain
       operationId: inviteMember
       requestBody:
         required: true
@@ -888,6 +907,20 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '204': { description: Session revoked }
+  /auth/admin/mail-settings/test:
+    post:
+      tags: [Authentication]
+      summary: Submit a delivery test to the signed-in administrator's email
+      operationId: testMailSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: SMTP accepted the message; inbox delivery is not guaranteed }
+        '403': { description: Administrator access required }
+        '503': { description: 'SMTP TLS, connection, authentication, sender or recipient error' }
   /auth/admin/mail-settings:
     get:
       tags: [Authentication]
@@ -3034,7 +3067,7 @@ components:
       type: object
       required: [email, password]
       properties:
-        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+        email: { type: string, format: email }
         password: { type: string, minLength: 8, maxLength: 128, writeOnly: true }
 
     ImportJob:
@@ -3455,6 +3488,7 @@ components:
         id: { type: string, format: uuid }
         batchCode: { type: string, examples: ['1_Jan_Control'] }
         experimentDate: { type: string, format: date }
+        wellPlateSize: { type: integer, enum: [6, 12, 24, 48, 96], default: 96 }
         dayNo: { type: [integer, 'null'] }
         siteId: { type: string, format: uuid }
         operatorId: { type: string, format: uuid }
@@ -3495,6 +3529,7 @@ components:
           type: [string, 'null']
           description: Omit to let the server suggest `{dayNo}_{operator}_{treatmentGroup}` (FR-302).
         experimentDate: { type: string, format: date }
+        wellPlateSize: { type: integer, enum: [6, 12, 24, 48, 96], default: 96 }
         dayNo: { type: [integer, 'null'] }
         siteId: { type: string, format: uuid }
         operatorId: { type: string, format: uuid }
@@ -3600,6 +3635,7 @@ components:
       type: object
       required: [id, injectionLotId, seqInLot, embryoCode]
       properties:
+        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; persists through adulthood }
         id: { type: string, format: uuid }
         injectionLotId: { type: string, format: uuid }
         seqInLot: { type: integer, examples: [1] }
@@ -3648,6 +3684,7 @@ components:
       type: object
       required: [injectionLotId, batchCode, lotNo, stage, stages, activatedAt, expectedHpa, totalEmbryos, embryosRemaining, embryos]
       properties:
+        wellPlateSize: { type: integer, enum: [6, 12, 24, 48, 96], default: 96 }
         injectionLotId: { type: string, format: uuid }
         batchCode: { type: string }
         lotNo: { type: string }
@@ -3674,12 +3711,13 @@ components:
             type: object
             required: [embryoId, embryoCode, defaultCondition, isDead]
             properties:
+              isDisabled: { type: boolean }
               embryoId: { type: string, format: uuid }
               embryoCode: { type: string }
               wellPosition: { type: [string, 'null'] }
               defaultCondition:
                 $ref: '#/components/schemas/Condition'
-                description: Carried forward from the previous observation (FR-409).
+                description: Abnormal means permanent disability and persists after it is first observed (FR-409).
               isDead:
                 type: boolean
                 description: True after a DEAD or DEGENERATED observation; shown read-only in later plate maps.
@@ -3757,6 +3795,7 @@ components:
       type: object
       required: [id, embryoId, stageCode, observedAt, hpaActual, hpaExpectedSnapshot, deviationH, outcome, condition]
       properties:
+        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; retained across subsequent observations }
         id: { type: string, format: uuid }
         clientUuid: { type: string, format: uuid }
         embryoId: { type: string, format: uuid }
@@ -3804,6 +3843,7 @@ components:
             - type: 'null'
         recordedCondition: { oneOf: [ { $ref: '#/components/schemas/Condition' }, { type: 'null' } ] }
         recordedHealthStatus: { oneOf: [ { $ref: '#/components/schemas/FishHealthStatus' }, { type: 'null' } ] }
+        recordedSickNote: { type: [string, 'null'] }
         recordedNotes:
           type: [string, 'null']
           description: Existing observation note for this fish/date, used to prefill the daily note editor.
@@ -3812,6 +3852,7 @@ components:
       type: object
       required: [clientUuid, cloneFishId, observedOn, outcome, condition, healthStatus]
       properties:
+        sickNote: { type: [string, 'null'], maxLength: 2000, description: Separate note required when healthStatus is SICK }
         clientUuid: { type: string, format: uuid }
         cloneFishId: { type: string, format: uuid }
         observedOn: { type: string, format: date }
@@ -3829,6 +3870,7 @@ components:
       minProperties: 2
       required: [overrideReason]
       properties:
+        sickNote: { type: [string, 'null'], maxLength: 2000, description: Separate note required when healthStatus is SICK }
         observedOn: { type: string, format: date }
         outcome: { $ref: '#/components/schemas/FishOutcome' }
         condition: { $ref: '#/components/schemas/Condition' }
@@ -3890,6 +3932,8 @@ components:
       type: object
       required: [id, fishCode, runningNo, dob, donorCellLineId, status, condition, sex, finClipped]
       properties:
+        isDisabled: { type: boolean, readOnly: true, description: Derived from Abnormal; retained across subsequent observations }
+        sickNote: { type: [string, 'null'], maxLength: 2000 }
         id: { type: string, format: uuid }
         embryoId: { type: [string, 'null'], format: uuid }
         embryoCode: { type: [string, 'null'] }
@@ -3919,6 +3963,7 @@ components:
       type: object
       required: [fishCode, dob, donorCellLineId, recipientEggLotId]
       properties:
+        sickNote: { type: [string, 'null'], maxLength: 2000 }
         fishCode: { type: string, minLength: 1, maxLength: 150 }
         dob: { type: string, format: date }
         donorCellLineId: { type: string, format: uuid }
@@ -4203,14 +4248,14 @@ components:
       type: object
       required: [email]
       properties:
-        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+        email: { type: string, format: email }
     VerifyCodeInput:
       type: object
-      required: [email, code]
+      required: [email, code, password]
       properties:
-        email: { type: string, format: email, pattern: '^[^@]+@ku\.th$' }
+        email: { type: string, format: email }
         code: { type: string, pattern: '^[0-9]{6}$' }
-        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true, description: Required for guests; set or reset password after verifying email and revoke previous sessions }
+        password: { type: string, minLength: 8, maxLength: 128, writeOnly: true, description: Set or reset a password after verifying the invited email and revoke previous sessions }
     AuthMember:
       allOf:
         - { $ref: '#/components/schemas/AuthUser' }

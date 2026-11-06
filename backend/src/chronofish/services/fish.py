@@ -15,6 +15,38 @@ FISH_UPDATE_FIELDS = {"fishCode", "fishBoxId", "sex", "finClipped", "remarks"}
 SEX_VALUES = {"UNKNOWN", "M", "F"}
 
 
+def validate_fish_health(item: dict[str, Any]) -> str | None:
+    if "isDisabled" in item and not isinstance(item["isDisabled"], bool):
+        return "isDisabled must be a boolean"
+    note = item.get("sickNote")
+    if note is not None and (not isinstance(note, str) or len(note) > 2000):
+        return "Sick note must be text of at most 2000 characters"
+    if item.get("healthStatus") == "SICK" and not (isinstance(note, str) and note.strip()):
+        return "A separate sick note is required when health status is Sick"
+    return None
+
+
+def permanently_disabled(item: dict[str, Any]) -> bool:
+    return bool(
+        item.get("isDisabled")
+        or item.get("condition") == "ABNORMAL"
+        or item.get("healthStatus") == "DISABLED"
+        or item.get("firstAbnormalOn")
+        or item.get("firstAbnormalObservationId")
+    )
+
+
+def retain_disability(fish: dict[str, Any], observation: dict[str, Any]) -> None:
+    disabled = bool(
+        permanently_disabled(fish)
+        or observation.get("condition") == "ABNORMAL"
+        or observation.get("healthStatus") == "DISABLED"
+    )
+    observation["isDisabled"] = disabled
+    if disabled:
+        observation["condition"] = "ABNORMAL"
+
+
 def find_fish_for_embryo(state: State, embryo_id: str) -> dict[str, Any] | None:
     return next(
         (
@@ -59,6 +91,9 @@ def enrich_fish(state: State, fish: dict[str, Any]) -> dict[str, Any]:
     box = state.entities["fish-boxes"].get(str(fish.get("fishBoxId")), {})
     result["fishBoxCode"] = box.get("boxCode")
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
+    result["isDisabled"] = permanently_disabled(fish) or permanently_disabled(embryo)
+    if result["isDisabled"]:
+        result["condition"] = "ABNORMAL"
     lot = state.entities["injection-lots"].get(str(embryo.get("injectionLotId")), {})
     batch = state.entities["batches"].get(str(lot.get("batchId")), {})
     result["treatmentGroupId"] = batch.get("treatmentGroupId")
@@ -105,6 +140,11 @@ def recompute_fish(state: State, fish_id: str) -> None:
         default=None,
     )
     embryo = state.entities["embryos"].get(str(fish.get("embryoId")), {})
+    fish["isDisabled"] = bool(
+        permanently_disabled(fish)
+        or permanently_disabled(embryo)
+        or any(item.get("condition") == "ABNORMAL" or item.get("healthStatus") == "DISABLED" for item in values)
+    )
     inherited = {
         field: embryo[field]
         for field in ("firstAbnormalOn", "firstAbnormalAgeDays", "firstAbnormalStageCode", "firstAbnormalStageId")
@@ -113,6 +153,7 @@ def recompute_fish(state: State, fish_id: str) -> None:
     if latest:
         fish["condition"] = latest["condition"]
         fish["healthStatus"] = latest.get("healthStatus", "UNDETERMINED")
+        fish["sickNote"] = latest.get("sickNote")
         if latest["outcome"] in {"ALIVE", "NOT_OBSERVED"}:
             fish["status"] = "ALIVE"
             fish.pop("exitDate", None)
@@ -125,6 +166,8 @@ def recompute_fish(state: State, fish_id: str) -> None:
         fish["status"] = "ALIVE"
         fish.pop("exitDate", None)
         fish.pop("exitReason", None)
+    if fish["isDisabled"]:
+        fish["condition"] = "ABNORMAL"
     if abnormal and (not inherited.get("firstAbnormalOn") or abnormal["observedOn"] < inherited["firstAbnormalOn"]):
         fish.update(
             {

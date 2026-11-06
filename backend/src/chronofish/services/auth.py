@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
+import smtplib
+import ssl
 import threading
 from datetime import datetime
 from typing import Any
@@ -22,18 +25,13 @@ PASSWORD_LOGINS = threading.BoundedSemaphore(2)
 
 def _email(value: Any) -> str:
     if not isinstance(value, str):
-        raise APIError(400, "invalid_email", "Enter a valid @ku.th email address")
+        raise APIError(400, "invalid_email", "Enter a valid email address")
     email = value.strip().lower()
-    if (
-        len(email) > 254
-        or email.count("@") != 1
-        or not email.endswith("@ku.th")
-        or any(char.isspace() for char in email)
-    ):
-        raise APIError(400, "invalid_email", "Only a valid @ku.th email address is allowed")
+    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise APIError(400, "invalid_email", "Enter a valid email address")
     local = email.partition("@")[0]
     if not local or local.startswith(".") or local.endswith(".") or ".." in local:
-        raise APIError(400, "invalid_email", "Enter a valid @ku.th email address")
+        raise APIError(400, "invalid_email", "Enter a valid email address")
     return email
 
 
@@ -95,19 +93,18 @@ class AuthService:
             except APIError:
                 LOGGER.exception("Sign-in attempt alert delivery failed for %s", admin["email"])
 
-    def validate_registration(self, body: dict[str, Any]) -> str:
+    def validate_password_setup(self, body: dict[str, Any]) -> str:
         email = _email(body.get("email"))
         validate_password(body.get("password"))
         if not self.mailer.configured:
             raise APIError(503, "email_unavailable", "Email delivery is not configured on this server")
         return email
 
-    def register(self, email: str) -> None:
+    def request_password_setup(self, email: str) -> None:
         try:
-            self.repository.register_guest(email, utc_now())
             self.deliver_code(email)
         except Exception:
-            LOGGER.exception("Registration code delivery failed")
+            LOGGER.exception("Password setup code delivery failed")
 
     @staticmethod
     def validate_device(device_id: str) -> None:
@@ -140,7 +137,7 @@ class AuthService:
             raise APIError(400, "invalid_code", "Enter the six-digit code from your email")
         if not device_id or len(device_id) > 64 or any(char in device_id for char in "\r\n"):
             raise APIError(400, "invalid_device", "Device id is invalid")
-        password = validate_password(body["password"]) if "password" in body else None
+        password = validate_password(body.get("password"))
         token = secrets.token_urlsafe(48)
         result = self.repository.verify_and_create_session(
             email=email,
@@ -161,10 +158,12 @@ class AuthService:
             raise APIError(401, "code_invalid", "The code is invalid or expired. Request a new code and try again.")
         return self.public_user(user), token
 
-    def authenticate(self, cookie: str | None, now: datetime | None = None) -> dict[str, Any] | None:
+    def authenticate(
+        self, cookie: str | None, now: datetime | None = None, *, touch: bool = True
+    ) -> dict[str, Any] | None:
         if not cookie:
             return None
-        user = self.repository.authenticate(self.repository.token_hash(cookie), now or utc_now())
+        user = self.repository.authenticate(self.repository.token_hash(cookie), now or utc_now(), touch=touch)
         return self.public_user(user) if user else None
 
     def logout(self, cookie: str | None) -> None:
@@ -190,8 +189,8 @@ class AuthService:
             user["email"],
             "You are invited to KUVACB AqLIMS",
             "You have been invited to join the Kasetsart University Animal Cell Bank research workspace.\n\n"
-            f"Open {self.config.app_base_url} and sign in with this email address. "
-            "A one-time code will be sent to you.",
+            f"Open {self.config.app_base_url} and choose Set or reset password with this email address. "
+            "Verify the code sent to your inbox to set your password, then sign in with email and password.",
         )
 
     def _send(self, recipient: str, subject: str, message: str) -> None:
@@ -200,6 +199,29 @@ class AuthService:
             self.mailer.sender_email = sender_email
         try:
             self.mailer.send(recipient, subject, message)
+        except ssl.SSLCertVerificationError as error:
+            raise APIError(
+                503,
+                "email_tls_verification_failed",
+                "SMTP certificate verification failed. If antivirus or a proxy inspects mail, "
+                "configure its approved CA with the Compose SMTP CA override.",
+            ) from error
+        except smtplib.SMTPAuthenticationError as error:
+            raise APIError(
+                503,
+                "email_authentication_failed",
+                "SMTP authentication failed. Check the server credentials or app password.",
+            ) from error
+        except smtplib.SMTPSenderRefused as error:
+            raise APIError(
+                503,
+                "email_sender_rejected",
+                "SMTP rejected the sender. Use an address authorized by the mail provider.",
+            ) from error
+        except smtplib.SMTPRecipientsRefused as error:
+            raise APIError(
+                503, "email_recipient_rejected", "SMTP rejected the recipient. Check the address and relay policy."
+            ) from error
         except Exception as error:
             raise APIError(
                 503, "email_delivery_failed", "The email could not be sent. Check the mail server settings."

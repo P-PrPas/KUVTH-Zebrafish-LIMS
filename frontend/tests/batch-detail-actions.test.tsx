@@ -190,7 +190,12 @@ describe("batch detail actions", () => {
     );
     expect(JSON.parse(String(addEmbryos?.[1]?.body))).toEqual({ count: 2 });
 
-    const well = document.querySelector('select[aria-label="Well for B-1_1_1"]') as HTMLSelectElement;
+    const embryoCard = document.querySelector(".embryo-card");
+    expect(embryoCard?.getAttribute("role")).toBe("listitem");
+    expect(embryoCard?.textContent).toContain("B-1_1_1");
+    expect(embryoCard?.querySelectorAll("button")).toHaveLength(2);
+    expect(document.querySelector(".embryo-card-grid")?.getAttribute("role")).toBe("list");
+    const well = embryoCard?.querySelector('select[aria-label="Well for B-1_1_1"]') as HTMLSelectElement;
     await act(async () => {
       setSelect?.call(well, "A2");
       well.dispatchEvent(new Event("change", { bubbles: true }));
@@ -261,12 +266,13 @@ describe("batch detail actions", () => {
       dayNo.dispatchEvent(new Event("input", { bubbles: true }));
       for (const [select, value] of [
         [selects[0], "group-1"],
-        [selects[1], "operator-1"],
-        [selects[2], "site-1"],
-        [selects[3], "protocol-1"],
-        [selects[4], "treatment-1"],
-        [selects[5], "egg-1"],
-        [selects[6], "csof-1"],
+        [selects[1], "48"],
+        [selects[2], "operator-1"],
+        [selects[3], "site-1"],
+        [selects[4], "protocol-1"],
+        [selects[5], "treatment-1"],
+        [selects[6], "egg-1"],
+        [selects[7], "csof-1"],
       ] as const) {
         setSelect?.call(select, value);
         select.dispatchEvent(new Event("change", { bubbles: true }));
@@ -282,6 +288,7 @@ describe("batch detail actions", () => {
     );
     expect(JSON.parse(String(create?.[1]?.body))).toMatchObject({
       dayNo: 4,
+      wellPlateSize: 48,
       experimentGroupId: "group-1",
       siteId: "site-1",
       operatorId: "operator-1",
@@ -444,7 +451,12 @@ describe("batch detail actions", () => {
       await settle();
     });
     expect(document.body.textContent).toContain("Rejected by laboratory rules");
-    const well = document.querySelector('select[aria-label="Well for B-1_1_1"]') as HTMLSelectElement;
+    const embryoCard = document.querySelector(".embryo-card");
+    expect(embryoCard?.getAttribute("role")).toBe("listitem");
+    expect(embryoCard?.textContent).toContain("B-1_1_1");
+    expect(embryoCard?.querySelectorAll("button")).toHaveLength(2);
+    expect(document.querySelector(".embryo-card-grid")?.getAttribute("role")).toBe("list");
+    const well = embryoCard?.querySelector('select[aria-label="Well for B-1_1_1"]') as HTMLSelectElement;
     const setSelect = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
     await act(async () => {
       setSelect?.call(well, "A2");
