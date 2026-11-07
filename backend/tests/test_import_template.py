@@ -11,6 +11,15 @@ from chronofish.services.import_template import SHEETS, template_bytes
 from chronofish.services.import_template_apply import apply_template
 
 
+def test_canonical_template_accepts_150_character_specimen_codes():
+    source = records()
+    specimen = next(r for r in source if r["record_kind"] == "schema:specimen")
+    specimen["values"]["specimen_code"] = "CL" + "x" * 148
+    state = seeded()
+    apply_template(state, source, request(), "job")
+    assert next(iter(state.entities["specimens"].values()))["specimenCode"] == "CL" + "x" * 148
+
+
 def test_schema_template_is_parsed_by_header_instead_of_legacy_cell_position():
     sheet = _parse_matrix("clone_fish", [["fish_code", "dob"], ["F-001", "2024-04-26"]])
     assert len(sheet.records) == 1

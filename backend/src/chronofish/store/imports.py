@@ -907,8 +907,8 @@ class ImportRepository:
                             {"specimen": specimen_id, "fish": fish_id, "now": now, "job": job_id},
                         )
                     for record in extra.get("aggregates", []):
-                        lot = working.entities["injection-lots"][record["v5_lot_id"]]
-                        batch = working.entities["batches"][lot["batchId"]]
+                        lot = record["v5_lot"]
+                        batch = record["v5_batch"]
                         experiment_id = self._historical_experiment(
                             connection,
                             job_id,
@@ -920,6 +920,7 @@ class ImportRepository:
                             group=batch["batchCode"],
                         )
                         historical_lot = self._historical_lot(connection, job_id, experiment_id, now, lot["lotNo"])
+                        targets[record["v5_lot_record_id"]] = ("historical_lot", historical_lot)
                         count_rows = []
                         for count in record["v5_counts"]:
                             count_id = uuid7()

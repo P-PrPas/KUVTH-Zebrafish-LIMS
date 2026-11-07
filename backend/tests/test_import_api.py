@@ -89,6 +89,12 @@ def test_v5_forms_inspect_download_validate_commit_and_atomic_failure(import_cli
     created = v5_job(client, book, [EXPERIMENT, EMBRYOS])
     job_id = created["job"]["id"]
     before = client.get("/api/v1/batches").json()
+    for cell, value in {"N8": 1, "N10": "NORMAL", "AH8": 1, "AH9": "12:00:00", "AH10": "NORMAL"}.items():
+        book[EMBRYOS][cell] = value
+    invalid_time = v5_job(client, book, [EXPERIMENT, EMBRYOS])
+    response = client.post(f"/api/v1/imports/{invalid_time['job']['id']}/confirm-template", json={"revision": 1})
+    assert response.status_code == 422 and "full date and time" in response.text, response.text
+    assert client.get("/api/v1/batches").json() == before
     response = client.post(f"/api/v1/imports/{job_id}/validate-template", json={"revision": 1})
     assert response.status_code == 200, response.text
     assert client.get("/api/v1/batches").json() == before
@@ -96,6 +102,8 @@ def test_v5_forms_inspect_download_validate_commit_and_atomic_failure(import_cli
     assert response.status_code == 200, response.text
     assert response.json()["recordCount"] == 2
     book = registry()
+    book[FISH]["J9"] = "Abnormal"
+    book[FISH]["Z10"] = "abnormal"
     v5_master_data(client, book)
     before = client.get("/api/v1/fish").json()
     book[SPECIMENS]["C9"] = "wrong type"
@@ -107,6 +115,13 @@ def test_v5_forms_inspect_download_validate_commit_and_atomic_failure(import_cli
     created = v5_job(client, book, [FISH, SPECIMENS])
     response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-template", json={"revision": 1})
     assert response.status_code == 200, response.text
+    fish = next(
+        f
+        for f in client.app.state.store.snapshot().entities["fish"].values()
+        if f["fishCode"] == book[FISH]["A9"].value
+    )
+    assert fish["isDisabled"] and fish["disabilityAtRegistration"]
+    assert fish["condition"] == "ABNORMAL"
     if getattr(client.app.state.store, "engine", None) is not None:
         assert (
             scalar(client, "SELECT COUNT(*) FROM specimen_fish_link WHERE import_job_id = :job", created["job"]["id"])
@@ -129,11 +144,20 @@ def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     s["E6"] = None
     s["H13"] = 120
     s["A68"], s["C68"], s["D68"], s["B68"] = 1, 120, 0, "Source label"
+    before_batches = client.get("/api/v1/batches").json()
+    before_kpi = client.get("/api/v1/analytics/kpi").json()
+    before_r_export = client.get("/api/v1/exports/r-table").content
     created = v5_job(client, book, [EXPERIMENT])
     job_id = created["job"]["id"]
     for action in ("validate-template", "confirm-template"):
         response = client.post(f"/api/v1/imports/{job_id}/{action}", json={"revision": 1})
         assert response.status_code == 200, response.text
+    assert client.get("/api/v1/batches").json() == before_batches
+    assert client.get("/api/v1/analytics/kpi").json() == before_kpi
+    assert client.get("/api/v1/exports/r-table").content == before_r_export
+    assert scalar(client, "SELECT COUNT(*) FROM historical_lot WHERE import_job_id = :job", job_id) == 1
+    imported = client.get(f"/api/v1/imports/{job_id}/records").json()["items"]
+    assert all(row["status"] == "imported" for row in imported)
     assert scalar(client, "SELECT COUNT(*) FROM historical_stage_count WHERE import_job_id = :job", job_id) == 2
     assert (
         scalar(

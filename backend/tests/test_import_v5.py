@@ -261,3 +261,139 @@ def test_unknown_historical_health_is_preserved_and_does_not_become_disability(s
     assert not fish["isDisabled"]
     assert fish["sickNote"] == "รอตรวจ: สุขภาพไม่ทราบ"
     assert next(iter(state.fish_observations.values()))["healthStatus"] == "WEAK"
+
+
+@pytest.mark.parametrize("value", ["Abnormal", "abnormal", "ABNORMAL "])
+@pytest.mark.parametrize("registration", [True, False])
+def test_abnormal_is_permanent_disability_regardless_of_case(source_forms, value, registration):
+    import copy
+
+    source = copy.deepcopy(source_forms["registry"])
+    if registration:
+        source[0]["values"]["rows"][1]["Z"] = "NORMAL"
+    source[0]["values"]["rows"][0 if registration else 1]["J" if registration else "Z"] = value
+    state = seeded()
+    apply_v5(state, source, request(), "job")
+    fish = next(f for f in state.entities["fish"].values() if f["fishCode"] == "F1")
+    assert fish["isDisabled"]
+    assert fish["condition"] == "ABNORMAL"
+    assert fish["disabilityAtRegistration"] == registration
+    if not registration:
+        assert next(iter(state.fish_observations.values()))["condition"] == "ABNORMAL"
+
+
+@pytest.mark.parametrize("column,days", [("AH", 1), ("AI", 2), ("AJ", 3), ("AK", 4), ("AL", 5)])
+def test_late_embryo_stages_require_full_datetime_when_clock_is_implausible(source_forms, column, days):
+    import copy
+    from datetime import timedelta
+
+    source = copy.deepcopy(source_forms["experiment"])
+    rows = source[1]["values"]["rows"]
+    for row in rows:
+        row.pop("N", None)
+    rows[0][column], rows[1][column], rows[2][column] = 1, "12:00:00", "NORMAL"
+    with pytest.raises(APIError, match="full date and time"):
+        apply_v5(seeded(), source, request(), "job")
+    rows[1][column] = (datetime(2024, 4, 26, 10) + timedelta(days=days)).isoformat()
+    state = seeded()
+    apply_v5(state, source, request(), "job")
+    assert max(o["hpaActual"] for o in state.observations.values()) == days * 24
+
+
+def test_aggregate_only_lot_never_enters_operational_analytics():
+    book = experiment()
+    s = book[EXPERIMENT]
+    s["A68"], s["C68"], s["D68"] = 1, 2, 0
+    state = seeded()
+    targets, extra = apply_v5(state, records(parse(book, [EXPERIMENT])), request(), "job")
+    assert not state.entities["batches"]
+    assert not state.entities["injection-lots"]
+    assert not state.entities["embryos"]
+    assert {table for table, _id in targets.values()} == {"historical_lot", "historical_stage_count"}
+    assert extra["aggregates"][0]["v5_counts"][1]["count"] == 0
+
+
+def test_mixed_experiment_keeps_only_individually_tracked_lots_operational():
+    book = experiment()
+    s = book[EXPERIMENT]
+    for col in range(1, 10):
+        s.cell(14, col).value = s.cell(13, col).value
+    s["A14"] = 2
+    s["A68"], s["C68"], s["D68"] = 2, 2, 1
+    state = seeded()
+    targets, _extra = apply_v5(state, records(parse(book, [EXPERIMENT, EMBRYOS])), request(), "job")
+    assert len(targets) == 4
+    assert len(state.entities["batches"]) == 1
+    assert [lot["lotNo"] for lot in state.entities["injection-lots"].values()] == ["1"]
+    assert sum(lot["nActivated"] for lot in state.entities["injection-lots"].values()) == 2
+
+
+def test_aggregate_cannot_reimport_an_existing_operational_batch(source_forms):
+    import copy
+
+    state = seeded()
+    apply_v5(state, copy.deepcopy(source_forms["experiment"]), request(), "first-job")
+    book = experiment()
+    book[EXPERIMENT]["A68"], book[EXPERIMENT]["D68"] = 1, 1
+    with pytest.raises(APIError, match="already exists in operational data"):
+        apply_v5(state, records(parse(book, [EXPERIMENT])), request(), "second-job")
+
+
+def test_observation_and_specimen_scans_do_not_repeat_per_imported_animal(source_forms):
+    import copy
+
+    class CountedDict(dict):
+        scans = 0
+
+        def values(self):
+            self.scans += 1
+            return super().values()
+
+    state = seeded()
+    state.observations = CountedDict(
+        {str(i): {"embryoId": f"old-{i}", "stageCode": "STG_001", "condition": "NORMAL"} for i in range(1000)}
+    )
+    state.fish_observations = CountedDict(
+        {str(i): {"cloneFishId": f"old-{i}", "observedOn": "2024-01-01", "condition": "NORMAL"} for i in range(1000)}
+    )
+    state.entities["specimens"] = CountedDict()
+    source = copy.deepcopy(source_forms["experiment"] + source_forms["registry"])
+    apply_v5(state, source, request(), "job")
+    assert state.observations.scans <= 2
+    assert state.fish_observations.scans <= 2
+    assert state.entities["specimens"].scans == 1
+
+
+@pytest.mark.parametrize(
+    "raw,status,note",
+    [
+        ("normal", "HEALTHY", None),
+        ("ปกติ", "HEALTHY", None),
+        (" healthy ", "HEALTHY", None),
+        ("disabled", "DISABLED", "disabled"),
+        ("Weak", "WEAK", "Weak"),
+    ],
+)
+def test_known_health_labels_ignore_case_and_healthy_is_not_a_sick_note(source_forms, raw, status, note):
+    import copy
+
+    source = copy.deepcopy(source_forms["registry"])
+    source[0]["values"]["rows"][0]["J"] = raw
+    source[0]["values"]["rows"][1]["Z"] = raw
+    state = seeded()
+    apply_v5(state, source, request(), "job")
+    fish = next(f for f in state.entities["fish"].values() if f["fishCode"] == "F1")
+    observation = next(iter(state.fish_observations.values()))
+    assert (fish["healthStatus"], fish["sickNote"]) == (status, note)
+    assert (observation["healthStatus"], observation["sickNote"]) == (status, note)
+
+
+@pytest.mark.parametrize("value", ["REAL_EXAMPLE_BATCH", "REAL_CLIENT_BATCH"])
+def test_reserved_code_words_are_allowed_inside_a_real_code(source_forms, value):
+    import copy
+
+    source = copy.deepcopy(source_forms["registry"])
+    source[0]["values"]["rows"][0]["A"] = value
+    state = seeded()
+    apply_v5(state, source, request(), "job")
+    assert any(f["fishCode"] == value for f in state.entities["fish"].values())

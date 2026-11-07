@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import re
+from collections import defaultdict
 from datetime import date, datetime, time
 from functools import lru_cache
 from pathlib import Path
@@ -197,7 +198,7 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
 
     def code(value: Any) -> str:
         value = text(value)
-        if not value or len(value) > 150 or "CLIENT_" in value.upper() or "EXAMPLE" in value.upper():
+        if not value or len(value) > 150 or value.upper().startswith(("CLIENT_", "EXAMPLE_")):
             fail("A real reference code of at most 150 characters is required")
         return value
 
@@ -377,6 +378,7 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
                     },
                     f":{letter}",
                 )
+                canonical[-1]["v5_time_only"] = clock is not None
         elif kind == "fish":
             rows = payload["rows"]
             first = rows[0]
@@ -432,7 +434,7 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
             if not health:
                 fail("biological_condition: recorded health is required")
             values["biological_condition"] = (
-                health if health in {"NORMAL", "ABNORMAL", "UNDETERMINED"} else "UNDETERMINED"
+                health.upper() if health.upper() in {"NORMAL", "ABNORMAL", "UNDETERMINED"} else "UNDETERMINED"
             )
             add(record, "clone_fish", values)
             extra["fish"][record["id"]] = {
@@ -464,8 +466,8 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
                         "fish_code": fish,
                         "observed_on": observed,
                         "outcome": outcome(values[0]),
-                        "biological_condition": condition
-                        if condition in {"NORMAL", "ABNORMAL", "UNDETERMINED"}
+                        "biological_condition": condition.upper()
+                        if condition.upper() in {"NORMAL", "ABNORMAL", "UNDETERMINED"}
                         else "UNDETERMINED",
                         "observer": values[3] or first.get("U"),
                     },
@@ -483,19 +485,58 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
 
 
 def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tuple[dict, dict]:
+    from ..domain.state import State
     from ..runtime.mutations import audit
     from ..runtime.values import iso_now, uuid7
-    from .fish import fish_is_disabled, record_disability
+    from .fish import is_disability_record, record_disability
     from .import_template_apply import apply_template
 
     canonical, extra = expand_v5(records)
+
+    def fail(record: dict, message: str) -> None:
+        raise APIError(422, "invalid_template", f"{record['sheet_name']} row {record['row_no']}: {message}")
+
+    lot_records = defaultdict(list)
+    for record in canonical:
+        if record["record_kind"] == "schema:experiment_batch":
+            lot_records[str(record["values"]["lot_no"])].append(record)
+    detailed_lots = {
+        (r["values"]["batch_code"].casefold(), str(r["values"]["lot_no"]))
+        for r in canonical
+        if r["record_kind"] == "schema:embryo"
+    }
+    historical_records = {}
+    existing_batch_codes = (
+        {str(batch["batchCode"]).strip().casefold() for batch in state.entities["batches"].values()}
+        if extra["aggregates"]
+        else set()
+    )
+    for record in extra["aggregates"]:
+        matches = lot_records[str(record["values"]["cells"].get("A"))]
+        if len(matches) != 1:
+            fail(record, "Aggregate lot must match exactly one activation lot in this import")
+        source_lot = matches[0]
+        if source_lot["values"]["batch_code"].casefold() in existing_batch_codes:
+            fail(record, "batch_code already exists in operational data; reconcile the source before importing counts")
+        identity = (source_lot["values"]["batch_code"].casefold(), str(source_lot["values"]["lot_no"]))
+        if source_lot["id"] in historical_records or identity in detailed_lots:
+            fail(record, "Do not duplicate aggregate lots or mix aggregate and individual results for one lot")
+        historical_records[source_lot["id"]] = source_lot
+        record["v5_lot_record_id"] = source_lot["id"]
+    # Reuse canonical validation with just the master data, without adding aggregate
+    # batches/lots to the operational snapshot or copying the observation database.
+    historical = State()
+    for resource in state.entities:
+        if resource not in {"batches", "injection-lots", "embryos", "fish", "specimens", "control-arm-counts"}:
+            historical.entities[resource] = state.entities[resource]
+    historical_targets = (
+        apply_template(historical, list(historical_records.values()), request, job_id) if historical_records else {}
+    )
+    canonical = [r for r in canonical if r["id"] not in historical_records]
     targets = apply_template(state, canonical, request, job_id)
     original_ids = {r["id"] for r in records}
     result = {key: value for key, value in targets.items() if key in original_ids}
     now = iso_now()
-
-    def fail(record: dict, message: str) -> None:
-        raise APIError(422, "invalid_template", f"{record['sheet_name']} row {record['row_no']}: {message}")
 
     def health(raw: str) -> dict:
         # Preserve free text verbatim while recognizing only explicit health labels.
@@ -513,8 +554,12 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             "AGED": "AGED",
             "แก่": "AGED",
         }
-        status = mapping.get(raw, "UNDETERMINED")
-        return {"healthStatus": status, "sickNote": raw or None, "isDisabled": status == "DISABLED"}
+        status = mapping.get(raw.strip().upper(), "UNDETERMINED")
+        return {
+            "healthStatus": status,
+            "sickNote": (raw or None) if status != "HEALTHY" else None,
+            "isDisabled": status == "DISABLED",
+        }
 
     for key, values in extra["fish"].items():
         item = state.entities["fish"][targets[key][1]]
@@ -527,6 +572,14 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             item["remarks"] = "\n".join(filter(None, [item.get("remarks"), f"v5 exit condition: {exit_condition}"]))
         audit(state, request, "UPDATE", "clone_fish", item["id"], old, item)
     for record in canonical:
+        if record.get("v5_time_only"):
+            observation = state.observations[targets[record["id"]][1]]
+            if abs(observation["deviationH"]) > 12:
+                fail(
+                    record,
+                    f"{record['values']['stage']}: enter full date and time for this stage "
+                    "(กรอกวันที่และเวลาเต็มสำหรับ stage นี้)",
+                )
         if "v5_condition" in record:
             item = state.fish_observations[targets[record["id"]][1]]
             old = item.copy()
@@ -535,12 +588,23 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             audit(state, request, "UPDATE", "fish_observation", item["id"], old, item)
     from ..domain.rules import stage_number
 
+    embryo_observations = defaultdict(list)
+    fish_observations = defaultdict(list)
+    disabled_embryos = set()
+    for observation in state.observations.values():
+        if not observation.get("deletedAt"):
+            embryo_observations[observation["embryoId"]].append(observation)
+            if is_disability_record(observation):
+                disabled_embryos.add(observation["embryoId"])
+    for observation in state.fish_observations.values():
+        if not observation.get("deletedAt"):
+            fish_observations[observation["cloneFishId"]].append(observation)
     for record in records:
         if record["record_kind"] != "schema:v5_embryo":
             continue
         embryo = state.entities["embryos"][targets[record["id"]][1]]
         observations = sorted(
-            (o for o in state.observations.values() if o["embryoId"] == embryo["id"] and not o.get("deletedAt")),
+            embryo_observations[embryo["id"]],
             key=lambda o: stage_number(o["stageCode"]),
         )
         previous = None
@@ -558,13 +622,14 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
 
     for key in extra["fish"]:
         item = state.entities["fish"][targets[key][1]]
-        item["isDisabled"] = fish_is_disabled(state, item)
+        observations = sorted(fish_observations[item["id"]], key=lambda o: o["observedOn"])
+        item["isDisabled"] = bool(
+            item.get("disabilityAtRegistration")
+            or item.get("embryoId") in disabled_embryos
+            or any(is_disability_record(o) for o in observations)
+        )
         if item["isDisabled"]:
             item["condition"] = "ABNORMAL"
-        observations = sorted(
-            (o for o in state.fish_observations.values() if o["cloneFishId"] == item["id"] and not o.get("deletedAt")),
-            key=lambda o: o["observedOn"],
-        )
         previous = None
         for observation in observations:
             if item.get("exitDate") and observation["observedOn"] > item["exitDate"]:
@@ -586,6 +651,8 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
                 firstAbnormalAgeDays=(date.fromisoformat(first_day) - date.fromisoformat(item["dob"])).days,
             )
     for key, payload in extra["lots"].items():
+        if key in historical_records:
+            continue
         item = state.entities["injection-lots"][targets[key][1]]
         old = item.copy()
         item["notes"] = payload["cells"].get("I")
@@ -603,13 +670,17 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
         "Donor cells": "LEFTOVER_CELLS",
         "left over cells": "LEFTOVER_CELLS",
     }
+    specimens_by_code = defaultdict(list)
+    for specimen in state.entities["specimens"].values():
+        specimens_by_code[specimen["specimenCode"].casefold()].append(specimen)
+    new_specimen_ids = set()
     for record, code, raw_type in extra["specimens"]:
         if raw_type not in types:
             fail(record, "Choose a v5 Specimen type")
         kind = "CLA" if code.upper().startswith("CLA") else code[:2].upper()
         if kind not in {"CL", "CLA", "RT", "DC"} or len(code) <= len(kind):
             fail(record, "Specimen codes must start with CL/CLA/RT/DC followed by an identifier")
-        if any(s["specimenCode"].casefold() == code.casefold() for s in state.entities["specimens"].values()):
+        if specimens_by_code[code.casefold()]:
             fail(record, f"Specimen {code} already exists")
         item = {
             "id": uuid7(),
@@ -625,13 +696,14 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             "updatedAt": now,
         }
         state.entities["specimens"][item["id"]] = item
+        specimens_by_code[code.casefold()].append(item)
+        new_specimen_ids.add(item["id"])
         result[record["id"]] = ("specimen", item["id"])
     extra["specimen_links"] = []
+    fish_by_code = {fish["fishCode"].casefold(): fish for fish in state.entities["fish"].values()}
     for code, fish_codes in extra["links"].items():
         matches = [
-            s
-            for s in state.entities["specimens"].values()
-            if s["specimenCode"].casefold() == code.casefold() and not s.get("deletedAt")
+            s for s in specimens_by_code[code.casefold()] if not s.get("deletedAt") and s.get("active") is not False
         ]
         if len(matches) != 1:
             raise APIError(422, "invalid_template", f"Specimen {code} must exist in the specimen registry")
@@ -641,39 +713,26 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
         if specimen.get("cloneFishId") and specimen["cloneFishId"] not in links:
             links.append(specimen["cloneFishId"])
         for fish_code in fish_codes:
-            fish = next(f for f in state.entities["fish"].values() if f["fishCode"].casefold() == fish_code.casefold())
+            fish = fish_by_code[fish_code.casefold()]
             if fish["id"] not in links:
                 links.append(fish["id"])
                 extra["specimen_links"].append((specimen["id"], fish["id"]))
         if specimen["specimenKind"] in {"CL", "CLA"} and len(links) > 1:
             raise APIError(422, "invalid_template", f"{code}: CL/CLA cannot be shared by multiple fish")
         specimen.update(linkedFishIds=links, cloneFishId=links[0] if len(links) == 1 else None)
-        if not any(target == ("specimen", specimen["id"]) for target in result.values()):
+        if specimen["id"] not in new_specimen_ids:
             audit(state, request, "UPDATE", "specimen", specimen["id"], old, specimen)
     for record, _code, _raw_type in extra["specimens"]:
         item = state.entities["specimens"][result[record["id"]][1]]
         audit(state, request, "INSERT", "specimen", item["id"], None, item)
 
     # Validate counts before the repository writes them in the same SQL transaction.
-    lot_records = [r for r in canonical if r["record_kind"] == "schema:experiment_batch"]
-    detailed_lots = {
-        (r["values"]["batch_code"].casefold(), str(r["values"]["lot_no"]))
-        for r in canonical
-        if r["record_kind"] == "schema:embryo"
-    }
-    seen = set()
     for record in extra["aggregates"]:
         cells = record["values"]["cells"]
-        lots = [r for r in lot_records if str(r["values"]["lot_no"]) == str(cells.get("A"))]
-        if len(lots) != 1:
-            fail(record, "Aggregate lot must match exactly one activation lot in this import")
-        lot = state.entities["injection-lots"][targets[lots[0]["id"]][1]]
+        source_id = record["v5_lot_record_id"]
+        lot = historical.entities["injection-lots"][historical_targets[source_id][1]]
         if cells.get("C") not in (None, "") and str(cells["C"]) != str(lot["nActivated"]):
             fail(record, "Aggregate n_activated must match the activation lot")
-        identity = (lots[0]["values"]["batch_code"].casefold(), str(lot["lotNo"]))
-        if identity in seen or identity in detailed_lots:
-            fail(record, "Do not duplicate aggregate lots or mix aggregate and individual results for one lot")
-        seen.add(identity)
         counts = []
         for index in range(3, 43):
             column = get_column_letter(index)
@@ -686,7 +745,9 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             counts.append({"column": column, "stage": stage, "count": int(raw)})
         if not counts:
             fail(record, "An aggregate row must contain at least one count")
-        record["v5_lot_id"] = lot["id"]
+        record["v5_lot"] = lot
+        record["v5_batch"] = historical.entities["batches"][lot["batchId"]]
         record["v5_counts"] = counts
+        result[source_id] = ("historical_lot", "")
         result[record["id"]] = ("historical_stage_count", "")
     return result, extra
