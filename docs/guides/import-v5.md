@@ -30,6 +30,17 @@ observations require `observation_date`; fish day-column labels never substitute
 for actual observation dates. Local embryo timestamps use the experiment site's
 time zone.
 
+For time-only embryo entries, a deviation of more than 12 hours from the stage's
+expected timing blocks confirmation and requires the full date and time. This
+rejects implausible day 1–5 timestamps instead of silently guessing a different date.
+Known health/condition labels ignore case and surrounding spaces; `Abnormal`
+and `abnormal` retain the same permanent-disability evidence as `ABNORMAL`.
+
+Lots represented by aggregate rows are stored only in the historical tables.
+They do not create operational batches/injection lots and do not enter dashboard
+or R-export denominators for individually tracked embryos. Showing aggregate
+series on the operational dashboard would require a separate product decision.
+
 Reference formulas are compared with the distributed v5 formulas, never
 executed. Reference codes are recomputed from the input cells, so missing Excel
 formula caches do not create phantom rows or block otherwise valid uploads.
@@ -60,6 +71,8 @@ unknown treatment groups. PostgreSQL and generated MySQL migrations are included
 Rollback refuses incompatible long codes or unknown treatment values instead of
 truncating or inventing data. PostgreSQL migrations are transactional; follow
 the existing backup procedure before MySQL schema changes.
+Once such v5 data exists, migration 27 cannot be rolled back as-is: restore a
+compatible backup or explicitly reconcile those records before downgrading.
 
 Historical aggregate confirmation needs the configured SQL database. The legacy
 CSV/XLSX paths and the internal canonical schema importer remain available.

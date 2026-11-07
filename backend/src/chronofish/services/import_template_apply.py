@@ -149,7 +149,13 @@ def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -
             if not text(row.get(field)):
                 fail(f"{field}: required")
         for key, value in row.items():
-            limit = 20000 if key == "remarks" else 150 if key in {"fish_code", "embryo_code", "batch_code"} else 100
+            limit = (
+                20000
+                if key == "remarks"
+                else 150
+                if key in {"fish_code", "embryo_code", "batch_code", "specimen_code"}
+                else 100
+            )
             if len(text(value)) > limit:
                 fail(f"{key}: maximum {limit} characters")
         groups[name].append((record, row))
@@ -426,8 +432,8 @@ def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -
                 fish = lookup("fish", "fishCode", row["fish_code"])
                 if name == "specimen":
                     code = text(row["specimen_code"])
-                    if len(code) > 50:
-                        fail("specimen_code: maximum 50 characters")
+                    if len(code) > 150:
+                        fail("specimen_code: maximum 150 characters")
                     unique("specimens", "specimenCode", code)
                     collected = day(row.get("collected_on"), "collected_on", optional=True)
                     frozen = day(row.get("frozen_on"), "frozen_on", optional=True)
