@@ -320,7 +320,7 @@ def test_main_v24_upgrade_and_legacy_passwords_are_preserved(legacy_passwords):
             )
             assert all(after[key] == value for key, value in before.items())
             assert "password_hash" in after and "password_locked_until" in after
-            assert connection.execute(text("SELECT version FROM schema_migrations")).scalar_one() == 26
+            assert connection.execute(text("SELECT version FROM schema_migrations")).scalar_one() == 27
             assert (
                 dict(
                     connection.execute(text("SELECT * FROM auth_session WHERE token_hash = 'upgrade-session'"))

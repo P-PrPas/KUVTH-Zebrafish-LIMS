@@ -68,6 +68,10 @@ class ParsedSheet:
 def _json_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
+    from datetime import time
+
+    if isinstance(value, time):
+        return value.isoformat()
     if isinstance(value, (int, float, bool, str)) or value is None:
         return value
     return str(value)
@@ -383,12 +387,32 @@ def _parse_matrix(
         raise SourceFormatError(f"{name}: a cell is too long")
     rows = [_row_dict(row) for row in matrix]
     sheet = ParsedSheet(name=name, kind=_sheet_kind(name, rows[:3]))
-    _extract_records(sheet, rows)
+    from .import_template import SHEETS, parse_template
+
+    if name in SHEETS:
+        sheet.kind = "schema_template"
+        parse_template(name, matrix, sheet)
+    else:
+        _extract_records(sheet, rows)
     for coordinate in sorted(formula_cells or ()):
         match = re.fullmatch(r"([A-Z]+)(\d+)", coordinate)
         if not match:
             continue
         column, row_number = match.groups()
+        if sheet.kind == "schema_template":
+            sheet.issues.append(
+                SourceIssue(
+                    "blocking",
+                    "template_formula",
+                    "Paste values instead of formulas in the import template",
+                    name,
+                    int(row_number),
+                    column,
+                    None,
+                    coordinate,
+                )
+            )
+            continue
         if int(row_number) > len(rows) or column not in rows[int(row_number) - 1]:
             sheet.issues.append(
                 SourceIssue(
@@ -439,16 +463,27 @@ def parse_xlsx(content: bytes, selected_sheets: list[str]) -> list[ParsedSheet]:
         if missing:
             raise SourceFormatError(f"Selected sheets do not exist: {', '.join(sorted(missing))}")
         result: list[ParsedSheet] = []
+        from .import_v5 import EXPERIMENT, V5_SHEETS, parse_v5
+
         for name in selected_sheets:
             value_sheet = values[name]
             formula_sheet = formulas[name]
-            formula_cells: set[str] = set()
+            formula_cells: dict[str, str] = {}
             for row in formula_sheet.iter_rows():
                 for cell in row:
                     if cell.data_type == "f":
-                        formula_cells.add(cell.coordinate)
+                        formula_cells[cell.coordinate] = cell.value
             matrix = [row for row in value_sheet.iter_rows(values_only=True)]
-            result.append(_parse_matrix(name, matrix, formula_cells))
+            if name in V5_SHEETS:
+                # Apply the same size limits before interpreting the customer layout.
+                if len(matrix) > MAX_ROWS_PER_SHEET or any(len(row) > MAX_COLUMNS_PER_SHEET for row in matrix):
+                    raise SourceFormatError(f"{name}: too many rows or columns")
+                if any(isinstance(v, str) and len(v) > MAX_CELL_CHARS for row in matrix for v in row):
+                    raise SourceFormatError(f"{name}: a cell is too long")
+                context = list(values[EXPERIMENT].iter_rows(values_only=True)) if EXPERIMENT in values else None
+                result.append(parse_v5(name, matrix, formula_cells, context))
+            else:
+                result.append(_parse_matrix(name, matrix, set(formula_cells)))
         if sum(len(sheet.records) for sheet in result) > MAX_RECORDS_PER_JOB:
             raise SourceFormatError("The selected sheets contain too many records")
         return result

@@ -4,7 +4,14 @@ import { formatBangkokDateTime } from "../time";
 import { Toast } from "../toast";
 import type { Language } from "../types";
 
-type InspectFile = { name: string; sheets?: string[]; encoding?: string; delimiter?: string; preview?: string[][] };
+type InspectFile = {
+  name: string;
+  sheets?: string[];
+  templateSheets?: string[];
+  encoding?: string;
+  delimiter?: string;
+  preview?: string[][];
+};
 type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
 type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
 type Detail = {
@@ -38,6 +45,7 @@ type Issue = {
   status: string;
 };
 type MappingRequirements = {
+  canConfirmTemplate?: boolean;
   donorSources: string[];
   sheetNames: string[];
   recordKinds: string[];
@@ -207,7 +215,7 @@ export function Imports({ language }: { language: Language }) {
   const [confirmationMode, setConfirmationMode] = useState("mixed");
   const [issueFilter, setIssueFilter] = useState("all");
   const [jobsLoading, setJobsLoading] = useState(true);
-  const usesSites = confirmationMode !== "aggregate";
+  const usesSites = confirmationMode !== "aggregate" && confirmationMode !== "template";
   const usesDonors = confirmationMode === "mixed" || confirmationMode === "fish";
   const usesAggregateWarnings = confirmationMode === "mixed" || confirmationMode === "aggregate";
   const usesEmbryoWarnings = confirmationMode === "mixed" || confirmationMode === "embryos";
@@ -217,13 +225,15 @@ export function Imports({ language }: { language: Language }) {
           key: "method",
           step: 2,
           ready: Boolean(
-            confirmationMode === "mixed"
-              ? mappingRequirements.canConfirmMixed
-              : confirmationMode === "fish"
-                ? mappingRequirements.canConfirmFishSpecimens
-                : confirmationMode === "embryos"
-                  ? mappingRequirements.canConfirmEmbryos
-                  : confirmationMode === "aggregate" && mappingRequirements.canConfirmAggregate,
+            confirmationMode === "template"
+              ? mappingRequirements.canConfirmTemplate
+              : confirmationMode === "mixed"
+                ? mappingRequirements.canConfirmMixed
+                : confirmationMode === "fish"
+                  ? mappingRequirements.canConfirmFishSpecimens
+                  : confirmationMode === "embryos"
+                    ? mappingRequirements.canConfirmEmbryos
+                    : confirmationMode === "aggregate" && mappingRequirements.canConfirmAggregate,
           ),
           label: th ? "วิธีนำเข้ารองรับข้อมูลในงานนี้" : "Import method supports this job",
         },
@@ -363,13 +373,15 @@ export function Imports({ language }: { language: Language }) {
     if (newJob || nextDetail.job.status !== "draft") {
       setImportStep(nextDetail.job.status === "draft" ? 2 : 5);
       setConfirmationMode(
-        requirements.canConfirmMixed
-          ? "mixed"
-          : requirements.canConfirmFishSpecimens
-            ? "fish"
-            : requirements.canConfirmEmbryos
-              ? "embryos"
-              : "aggregate",
+        requirements.canConfirmTemplate
+          ? "template"
+          : requirements.canConfirmMixed
+            ? "mixed"
+            : requirements.canConfirmFishSpecimens
+              ? "fish"
+              : requirements.canConfirmEmbryos
+                ? "embryos"
+                : "aggregate",
       );
     }
     setRecords(nextRecordPage.items);
@@ -438,7 +450,7 @@ export function Imports({ language }: { language: Language }) {
       for (const file of files) form.append("files", file);
       const result = await json<Inspect>("/imports/inspect", { method: "POST", body: form });
       setInspection(result);
-      setSelected([]);
+      setSelected(result.files[0]?.templateSheets ?? []);
       setCsvOptions(
         result.files.map((file) => ({
           include: true,
@@ -578,6 +590,46 @@ export function Imports({ language }: { language: Language }) {
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (cause) {
       setError((cause as Error).message);
+    }
+  }
+
+  async function downloadTemplate(kind: "experiment" | "registry") {
+    try {
+      const response = await request(`/imports/template?kind=${kind}`);
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${kind}-template-v5.xlsx`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (cause) {
+      setError((cause as Error).message);
+    }
+  }
+
+  async function submitTemplate(commit: boolean) {
+    if (!detail) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await json<{ recordCount: number }>(
+        `/imports/${detail.job.id}/${commit ? "confirm-template" : "validate-template"}`,
+        { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
+      );
+      setNotice(
+        th
+          ? `${commit ? "นำเข้าแล้ว" : "ตรวจสอบผ่าน"} ${result.recordCount} รายการ`
+          : `${result.recordCount} records ${commit ? "imported" : "validated"}.`,
+      );
+      if (commit) {
+        await openJob(detail.job.id);
+        await reloadJobs();
+      }
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -817,6 +869,17 @@ export function Imports({ language }: { language: Language }) {
           <div className="import-page__columns" hidden={Boolean(detail)}>
             <section className="import-page__panel">
               <h2>{th ? "1. เลือกไฟล์" : "1. Select files"}</h2>
+              <button type="button" disabled={busy} onClick={() => void downloadTemplate("experiment")}>
+                {th ? "ดาวน์โหลดแบบการทดลอง v5" : "Download experiment v5"}
+              </button>
+              <button type="button" disabled={busy} onClick={() => void downloadTemplate("registry")}>
+                {th ? "ดาวน์โหลดแบบทะเบียน v5" : "Download registry v5"}
+              </button>
+              <p className="muted">
+                {th
+                  ? "กรอกแบบฟอร์ม v5 แล้วอัปโหลดทีละไฟล์ นำเข้าการทดลองก่อนทะเบียนปลา คงสูตรในช่องสีฟ้าไว้ ชีทตัวอย่างไม่ใช่ข้อมูลจริง"
+                  : "Complete the v5 forms and upload one file at a time: experiments before the fish registry. Keep the blue reference formulas. Example sheets are excluded."}
+              </p>
               <p className="muted">
                 {th
                   ? "หนึ่งไฟล์ XLSX หรือ CSV หลายไฟล์ โดย CSV หนึ่งไฟล์แทนหนึ่งชีท"
@@ -1148,6 +1211,9 @@ export function Imports({ language }: { language: Language }) {
                 <label className="import-mode">
                   {th ? "วิธีนำเข้า" : "Import method"}
                   <select value={confirmationMode} onChange={(event) => setConfirmationMode(event.target.value)}>
+                    {mappingRequirements?.canConfirmTemplate && (
+                      <option value="template">{th ? "Excel template ของระบบ" : "System Excel template"}</option>
+                    )}
                     {mappingRequirements?.canConfirmMixed && (
                       <option value="mixed">{th ? "ทุกชีตพร้อมกัน" : "All selected sheets"}</option>
                     )}
@@ -1162,6 +1228,25 @@ export function Imports({ language }: { language: Language }) {
                     )}
                   </select>
                 </label>
+                {confirmationMode === "template" && (
+                  <div className="import-page__mapping">
+                    <p>
+                      {th
+                        ? "ระบบตรวจชื่อ column, ค่าข้อมูล และรหัสอ้างอิงทุกแถวก่อนบันทึกทั้งชุด"
+                        : "Every column, value and reference is checked before the complete job is committed."}
+                    </p>
+                    <button type="button" disabled={busy || !importReady} onClick={() => void submitTemplate(false)}>
+                      {th ? "ตรวจสอบข้อมูลทั้งหมด" : "Validate all records"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || !importReady || importStep !== 4}
+                      onClick={() => void submitTemplate(true)}
+                    >
+                      {th ? "ยืนยันนำเข้าทั้งชุด" : "Confirm template import"}
+                    </button>
+                  </div>
+                )}
                 {importStep === 4 && (
                   <div
                     className={`import-review-summary ${importReady ? "import-review-summary--ready" : "import-review-summary--pending"}`}
@@ -1808,7 +1893,7 @@ export function Imports({ language }: { language: Language }) {
                         )
                       );
                     })}
-                    <div className="import-page__warning">
+                    <div className="import-page__warning" hidden={Boolean(mappingRequirements?.canConfirmTemplate)}>
                       <h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
                       <p>
                         {th
