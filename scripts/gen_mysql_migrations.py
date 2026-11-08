@@ -56,6 +56,16 @@ HEADER = (
 
 
 def convert(sql: str, upgrade: bool) -> str:
+    sql = re.sub(
+        r"ALTER TABLE (experiment_batch|specimen) ALTER COLUMN (batch_code|specimen_code) TYPE (VARCHAR\(\d+\));",
+        r"ALTER TABLE \1 MODIFY \2 \3 NOT NULL;",
+        sql,
+    )
+    for operation, nullable in [("DROP", "NULL"), ("SET", "NOT NULL")]:
+        sql = sql.replace(
+            f"ALTER TABLE experiment_batch ALTER COLUMN treatment_group_id {operation} NOT NULL;",
+            f"ALTER TABLE experiment_batch MODIFY treatment_group_id CHAR(36) {nullable};",
+        )
     # Migration 000003 is immutable and remains TEXT. Migration 000004 carries
     # an explicit canonical type marker and widens only that upgrade to
     # LONGTEXT on MySQL 8.

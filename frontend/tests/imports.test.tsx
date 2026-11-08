@@ -278,6 +278,39 @@ async function clickButton(label: string) {
   });
 }
 
+it("validates and confirms system template jobs without legacy master mappings", async () => {
+  const api = mockImportApi("draft", true);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await api(input, init);
+    const body = await response.json();
+    if (String(input).includes("/mapping-requirements")) {
+      Object.assign(body, {
+        canConfirmTemplate: true,
+        canConfirmMixed: false,
+        canConfirmFishSpecimens: false,
+        canConfirmEmbryos: false,
+        canConfirmAggregate: false,
+        recordKinds: ["schema:clone_fish"],
+      });
+    }
+    return new Response(JSON.stringify(body));
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  expect(document.querySelector<HTMLSelectElement>(".import-mode select")?.value).toBe("template");
+  await clickButton("Validate all records");
+  expect(api.mock.calls.some(([input]) => String(input).endsWith("/validate-template"))).toBe(true);
+  await selectImportMethod("template");
+  await clickButton("Confirm template import");
+  expect(
+    api.mock.calls.some(
+      ([input, init]) => String(input).endsWith("/confirm-template") && JSON.parse(String(init?.body)).revision === 2,
+    ),
+  ).toBe(true);
+  root.unmount();
+});
+
 async function selectImportMethod(mode: string) {
   await act(async () => {
     const select = document.querySelector<HTMLSelectElement>(".import-mode select")!;
@@ -403,6 +436,31 @@ it.each(["en", "th"] as const)("archives summary-only sheets as references (%s)"
 afterEach(() => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
+});
+
+it("downloads the two v5 customer forms with their own filenames", async () => {
+  const api = mockImportApi();
+  const originalUrl = URL;
+  vi.stubGlobal(
+    "URL",
+    class extends originalUrl {
+      static createObjectURL = vi.fn(() => "blob:v5-template");
+      static revokeObjectURL = vi.fn();
+    },
+  );
+  const downloads: string[] = [];
+  const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+    downloads.push(this.download);
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await clickButton("Download experiment v5");
+  await clickButton("Download registry v5");
+  expect(downloads).toEqual(["experiment-template-v5.xlsx", "registry-template-v5.xlsx"]);
+  expect(api.mock.calls.some(([input]) => String(input).endsWith("/imports/template?kind=experiment"))).toBe(true);
+  expect(api.mock.calls.some(([input]) => String(input).endsWith("/imports/template?kind=registry"))).toBe(true);
+  root.unmount();
+  click.mockRestore();
 });
 
 it.each(["en", "th"] as const)(
@@ -754,7 +812,9 @@ it("shows the CSV source choices in Thai", async () => {
   });
   await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
   await act(async () => {
-    document.querySelector<HTMLButtonElement>(".import-page__panel button")!.click();
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".import-page__panel button"))
+      .find((button) => button.textContent === "ตรวจไฟล์")!
+      .click();
     await Promise.resolve();
   });
   expect(document.querySelectorAll(".import-page__csv")).toHaveLength(1);
