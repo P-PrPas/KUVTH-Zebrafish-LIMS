@@ -364,7 +364,11 @@ class SQLStore:
         for item_id, item in after.items():
             previous = before.get(item_id)
             if inserts and previous is None:
-                self._insert(connection, table, self._db_row(table, item, stage_ids))
+                values = self._db_row(table, item, stage_ids)
+                if table == "embryo":
+                    # New observations reference this embryo; write the reverse FK after both exist.
+                    values["first_abnormal_observation_id"] = None
+                self._insert(connection, table, values)
             elif not inserts and previous is not None and previous != item:
                 self._update(connection, table, item_id, self._db_row(table, item, stage_ids))
 
@@ -443,6 +447,16 @@ class SQLStore:
         self._sync_collection(
             connection, "fish_observation", before.fish_observations, after.fish_observations, stage_ids, True
         )
+        for embryo_id, embryo in after.entities["embryos"].items():
+            if embryo_id not in before.entities["embryos"] and embryo.get("firstAbnormalObservationId"):
+                self._update(
+                    connection,
+                    "embryo",
+                    embryo_id,
+                    {
+                        "first_abnormal_observation_id": embryo["firstAbnormalObservationId"],
+                    },
+                )
         for resource, table in RESOURCE_TABLE.items():
             if resource != "timing-profiles":
                 self._sync_collection(
