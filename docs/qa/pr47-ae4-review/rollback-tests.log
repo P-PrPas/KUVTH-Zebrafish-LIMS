@@ -1,0 +1,2 @@
+Final completed PostgreSQL run (summary from rollback-tests.xml):
+{'name': 'pytest', 'errors': '0', 'failures': '0', 'skipped': '3', 'tests': '6', 'time': '75.279', 'timestamp': '2026-11-11T11:58:31.566079+07:00', 'hostname': 'peerapas'}
