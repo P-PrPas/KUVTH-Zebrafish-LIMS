@@ -1,0 +1,122 @@
+[
+  {
+    "role": "anonymous",
+    "path": "/auth/me",
+    "status": 401
+  },
+  {
+    "role": "anonymous",
+    "path": "/auth/admin/users",
+    "status": 401
+  },
+  {
+    "role": "anonymous",
+    "path": "/batches",
+    "status": 401
+  },
+  {
+    "role": "anonymous",
+    "path": "/imports",
+    "status": 401
+  },
+  {
+    "role": "anonymous",
+    "path": "/audit-log",
+    "status": 401
+  },
+  {
+    "role": "anonymous",
+    "path": "/analytics/guest-dashboard",
+    "status": 401
+  },
+  {
+    "role": "guest",
+    "path": "/auth/me",
+    "status": 200
+  },
+  {
+    "role": "guest",
+    "path": "/auth/admin/users",
+    "status": 403
+  },
+  {
+    "role": "guest",
+    "path": "/batches",
+    "status": 403
+  },
+  {
+    "role": "guest",
+    "path": "/imports",
+    "status": 403
+  },
+  {
+    "role": "guest",
+    "path": "/audit-log",
+    "status": 403
+  },
+  {
+    "role": "guest",
+    "path": "/analytics/guest-dashboard",
+    "status": 200
+  },
+  {
+    "role": "member",
+    "path": "/auth/me",
+    "status": 200
+  },
+  {
+    "role": "member",
+    "path": "/auth/admin/users",
+    "status": 403
+  },
+  {
+    "role": "member",
+    "path": "/batches",
+    "status": 200
+  },
+  {
+    "role": "member",
+    "path": "/imports",
+    "status": 403
+  },
+  {
+    "role": "member",
+    "path": "/audit-log",
+    "status": 403
+  },
+  {
+    "role": "member",
+    "path": "/analytics/guest-dashboard",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/auth/me",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/auth/admin/users",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/batches",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/imports",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/audit-log",
+    "status": 200
+  },
+  {
+    "role": "admin",
+    "path": "/analytics/guest-dashboard",
+    "status": 200
+  }
+]

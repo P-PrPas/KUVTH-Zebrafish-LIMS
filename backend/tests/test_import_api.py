@@ -6,13 +6,14 @@ import os
 import re
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from openpyxl.utils.cell import column_index_from_string
-from sqlalchemy import text
+from sqlalchemy import MetaData, Table, text
 
 from chronofish.app import create_app
 from chronofish.config import Config
@@ -129,6 +130,92 @@ def test_v5_forms_inspect_download_validate_commit_and_atomic_failure(import_cli
         )
 
 
+@pytest.mark.parametrize("kind", ["experiment", "registry"])
+def test_v5_commit_duplicate_and_revert_preserve_existing_data(import_client, kind):
+    from test_import_v5 import experiment, registry
+
+    from chronofish.services.import_v5 import EMBRYOS, EXPERIMENT, FISH, SPECIMENS
+
+    client = import_client
+    sql_required(client)
+    book = experiment() if kind == "experiment" else registry()
+    sheets = [EXPERIMENT, EMBRYOS] if kind == "experiment" else [FISH, SPECIMENS]
+    v5_master_data(client, book)
+    before = {path: client.get(f"/api/v1/{path}").json() for path in ("batches", "fish")}
+    created = v5_job(client, book, sheets)
+    job_id = created["job"]["id"]
+    confirmed = client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1})
+    assert confirmed.status_code == 200, confirmed.text
+    duplicate = v5_job(client, book, sheets)
+    rejected = client.post(f"/api/v1/imports/{duplicate['job']['id']}/confirm-template", json={"revision": 1})
+    assert rejected.status_code in (409, 422), rejected.text
+    current = client.get(f"/api/v1/imports/{job_id}").json()["job"]
+    # A later edit must block the entire rollback, without partial deletion.
+    table = "experiment_batch" if kind == "experiment" else "clone_fish"
+    with client.app.state.store.engine.begin() as connection:
+        audit = (
+            connection.execute(
+                text("SELECT new_values FROM audit_log WHERE table_name = 'import_job' AND record_id = :id"),
+                {"id": job_id},
+            )
+            .scalars()
+            .all()
+        )
+        manifests = [json.loads(value) if isinstance(value, str) else value for value in audit]
+        ownership = next(value["rollbackManifest"] for value in manifests if value.get("rollbackManifest"))
+        target = next(iter(ownership[table]))
+        original_time = connection.execute(
+            text(f"SELECT updated_at FROM {table} WHERE id = :id"), {"id": target}
+        ).scalar_one()
+        connection.execute(
+            text(f"UPDATE {table} SET updated_at = :time WHERE id = :id"),
+            {"id": target, "time": original_time + timedelta(seconds=1)},
+        )
+    blocked = client.post(
+        f"/api/v1/imports/{job_id}/revert",
+        json={"revision": current["revision"], "reason": "Must preserve later work"},
+    )
+    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "revert_dependency", blocked.text
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "committed"
+    with client.app.state.store.engine.begin() as connection:
+        connection.execute(
+            text(f"UPDATE {table} SET updated_at = :time WHERE id = :id"), {"id": target, "time": original_time}
+        )
+    # A new dependent row is also protected, even if its parent is unchanged.
+    dependent = "injection_lot" if kind == "experiment" else "specimen"
+    parent_column = "batch_id" if kind == "experiment" else "clone_fish_id"
+    with client.app.state.store.engine.begin() as connection:
+        dependent_table = Table(dependent, MetaData(), autoload_with=connection)
+        row = dict(
+            connection.execute(
+                text(f"SELECT * FROM {dependent} WHERE id = :id"),
+                {"id": next(iter(ownership[dependent]))},
+            )
+            .mappings()
+            .first()
+        )
+        row["id"] = uuid7()
+        row[parent_column] = target
+        row["lot_no" if kind == "experiment" else "specimen_code"] = "999" if kind == "experiment" else uuid7()
+        row = {key: value for key, value in row.items() if dependent_table.c[key].computed is None}
+        connection.execute(dependent_table.insert().values(**row))
+    blocked = client.post(
+        f"/api/v1/imports/{job_id}/revert",
+        json={"revision": current["revision"], "reason": "Must preserve dependent work"},
+    )
+    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "revert_dependency", blocked.text
+    with client.app.state.store.engine.begin() as connection:
+        connection.execute(dependent_table.delete().where(dependent_table.c.id == row["id"]))
+    reverted = client.post(
+        f"/api/v1/imports/{job_id}/revert",
+        json={"revision": current["revision"], "reason": "Acceptance: wrong source workbook"},
+    )
+    assert reverted.status_code == 200, reverted.text
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "reverted"
+    for path, expected in before.items():
+        assert client.get(f"/api/v1/{path}").json() == expected
+
+
 def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     from test_import_v5 import experiment
 
@@ -167,6 +254,14 @@ def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
         )
         == 0
     )
+    reverted = client.post(f"/api/v1/imports/{job_id}/revert", json={"revision": 2, "reason": "Wrong aggregate file"})
+    assert reverted.status_code == 200, reverted.text
+    for table in ("historical_stage_count", "historical_lot", "historical_experiment"):
+        assert (
+            scalar(client, f"SELECT COUNT(*) FROM {table} WHERE import_job_id = :job AND deleted_at IS NULL", job_id)
+            == 0
+        )
+    assert client.get("/api/v1/batches").json() == before_batches
 
 
 def test_schema_template_download_validate_and_atomic_commit(import_client):

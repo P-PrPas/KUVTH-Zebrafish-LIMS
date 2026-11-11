@@ -962,7 +962,12 @@ class ImportRepository:
                         "import_job",
                         job_id,
                         {"status": "draft"},
-                        {"status": "committed", "templateVersion": 5 if extra else 1, "recordCount": len(targets)},
+                        {
+                            "status": "committed",
+                            "templateVersion": 5 if extra else 1,
+                            "recordCount": len(targets),
+                            "rollbackManifest": self._template_manifest(connection, before, working, job_id),
+                        },
                         now,
                     )
         return {
@@ -2341,6 +2346,12 @@ class ImportRepository:
             self._audit(connection, actor, "clone_fish", fish_id, before, after, now)
             return {"id": fish_id, **after, "rowVersion": version + 1}
 
+    @staticmethod
+    def _template_manifest(connection, before, working, job_id):
+        from .import_revert import manifest
+
+        return manifest(connection, before, working, job_id)
+
     def revert_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any], reason: str) -> dict[str, Any]:
         if self.engine is None:
             raise APIError(503, "database_required", "Import revert requires the configured database")
@@ -2357,6 +2368,34 @@ class ImportRepository:
                 raise APIError(404, "not_found", "Import job was not found")
             if job["status"] != "committed" or int(job["revision"]) != revision:
                 raise APIError(409, "import_changed", "Only an unchanged committed job can be reverted")
+            audits = connection.execute(
+                text("SELECT new_values FROM audit_log WHERE table_name = 'import_job' AND record_id = :id"),
+                {"id": job_id},
+            ).scalars()
+            for raw in audits:
+                values = json.loads(raw) if isinstance(raw, str) else raw
+                rollback = values.get("rollbackManifest") if isinstance(values, dict) else None
+                if rollback:
+                    from .import_revert import revert
+
+                    revert(connection, rollback, job_id, now)
+                    connection.execute(
+                        text(
+                            "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
+                            "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
+                        ),
+                        {"actor": actor["id"], "now": now, "job": job_id},
+                    )
+                    self._audit(
+                        connection,
+                        actor,
+                        "import_job",
+                        job_id,
+                        {"status": "committed"},
+                        {"status": "reverted", "reason": reason.strip()},
+                        now,
+                    )
+                    return {"jobId": job_id, "status": "reverted", "revision": revision + 1}
             targets = [
                 dict(row)
                 for row in connection.execute(
