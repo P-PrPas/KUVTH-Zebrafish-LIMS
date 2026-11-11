@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>สรุปค่า KU-Google SMTP — VETKU</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <div class="eyebrow">VETKU · แผ่นสรุป</div>
+  <h1>KU-Google SMTP</h1>
+  <p class="lede">ค่าที่ใช้เริ่มทดสอบ OTP email กับ `peerapas.c@ku.th`</p>
+  <table>
+    <thead><tr><th>ตัวแปรใน `.env`</th><th>ค่า</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td><code>MAIL_SMTP_HOST</code></td><td><code>smtp.gmail.com</code></td><td>Gmail SMTP</td></tr>
+      <tr><td><code>MAIL_SMTP_PORT</code></td><td><code>587</code></td><td>TLS แบบ STARTTLS</td></tr>
+      <tr><td><code>MAIL_SMTP_USERNAME</code></td><td><code>peerapas.c@ku.th</code></td><td>ใช้อีเมลเต็ม</td></tr>
+      <tr><td><code>MAIL_SMTP_PASSWORD</code></td><td>App Password</td><td>ไม่ใช่ KU/Nontri password; เก็บเฉพาะใน `.env`</td></tr>
+      <tr><td><code>MAIL_SENDER_EMAIL</code></td><td><code>peerapas.c@ku.th</code></td><td>เริ่มต้นใช้บัญชีเดียวกับที่ยืนยัน SMTP</td></tr>
+      <tr><td><code>MAIL_USE_SSL</code></td><td><code>false</code></td><td>backend จะใช้ STARTTLS เมื่อเป็น false</td></tr>
+    </tbody>
+  </table>
+  <div class="callout"><strong>ถ้าไม่มีเมนู App Password:</strong> หยุดตรงนี้และถาม KU IT/OCS เรื่อง SMTP AUTH, email for systems หรือ SMTP relay นโยบายบัญชีมหาวิทยาลัยเป็นตัวกำหนด</div>
+  <p>หลังแก้ `.env` ให้รีสตาร์ต backend แล้วขอ OTP ทดสอบจริง การที่หน้าจอบอกว่า SMTP configured ยังไม่ได้ยืนยันว่า credential ใช้งานได้</p>
+  <p><a href="../lessons/0001-setup-ku-google-smtp.html">กลับไปดูบทเรียนแบบ step by step</a> · <a href="../RESOURCES.md">แหล่งข้อมูล</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,1082 @@
+[
+  {
+    "name": "dashboard-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-1440",
+    "width": 1440,
+    "overflow": -15,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-1440",
+    "width": 1440,
+    "overflow": 0,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-1440",
+    "width": 1440,
+    "overflow": 0,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "dashboard-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-375",
+    "width": 375,
+    "overflow": -15,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-375",
+    "width": 375,
+    "overflow": 0,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "dashboard-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-820",
+    "width": 820,
+    "overflow": 0,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-820",
+    "width": 820,
+    "overflow": 0,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-820",
+    "width": 820,
+    "overflow": 0,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-820",
+    "width": 820,
+    "overflow": -15,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-820",
+    "width": 820,
+    "overflow": 0,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-820",
+    "width": 820,
+    "overflow": 0,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "dashboard-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-1180",
+    "width": 1180,
+    "overflow": 0,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-1180",
+    "width": 1180,
+    "overflow": 0,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-1180",
+    "width": 1180,
+    "overflow": -15,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-1180",
+    "width": 1180,
+    "overflow": 0,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-1180",
+    "width": 1180,
+    "overflow": 0,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "dashboard-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-812",
+    "width": 812,
+    "overflow": -15,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "dashboard-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "สรุปผลการทดลอง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "batches-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "การทดลองทั้งหมด",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "due-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ติดตามตัวอ่อน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "fish-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ตรวจปลาประจำวัน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "promotions-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ขึ้นทะเบียนปลาโคลนที่เข้าเกณฑ์",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "controls-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ผลกลุ่มเปรียบเทียบ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "timing-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "เวลามาตรฐานของแต่ละระยะ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "export-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ดาวน์โหลดข้อมูลและรายงาน",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "master-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ตั้งค่าห้องแล็บ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "audit-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "ตรวจสอบการแก้ไขย้อนหลัง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "members-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "สมาชิกห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "experiment-form-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "เริ่มการทดลองใหม่",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "checkpoint-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "บันทึกรอบตรวจ Lot",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "login-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "เข้าสู่ระบบห้องปฏิบัติการ",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  },
+  {
+    "name": "guest-320",
+    "width": 320,
+    "overflow": 0,
+    "heading": "Dashboard กลาง",
+    "errors": [],
+    "fonts": {
+      "body": "\"Noto Sans Thai\", \"Leelawadee UI\", sans-serif",
+      "heading": "Prompt, \"Noto Sans Thai\", sans-serif"
+    },
+    "missingImages": []
+  }
+]

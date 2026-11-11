@@ -1,0 +1,122 @@
+[
+  {
+    "width": 1440,
+    "mode": "print-report print-report--meeting",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [
+      5,
+      5,
+      5
+    ],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 1440,
+    "mode": "print-report print-report--full",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 820,
+    "mode": "print-report print-report--meeting",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [
+      5,
+      5,
+      5
+    ],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 820,
+    "mode": "print-report print-report--full",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 375,
+    "mode": "print-report print-report--meeting",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [
+      5,
+      5,
+      5
+    ],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 375,
+    "mode": "print-report print-report--full",
+    "overflow": -15,
+    "border": "1px",
+    "rows": [],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 320,
+    "mode": "print-report print-report--meeting",
+    "overflow": 0,
+    "border": "1px",
+    "rows": [
+      5,
+      5,
+      5
+    ],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "width": 320,
+    "mode": "print-report print-report--full",
+    "overflow": 0,
+    "border": "1px",
+    "rows": [],
+    "writes": [],
+    "errors": []
+  },
+  {
+    "name": "meeting-report-th",
+    "root": "rgb(255, 255, 255)",
+    "border": "1px",
+    "breakBefore": "page",
+    "rows": 15,
+    "calls": 1
+  },
+  {
+    "name": "meeting-report-th-no-background",
+    "root": "rgb(255, 255, 255)",
+    "border": "1px",
+    "breakBefore": "page",
+    "rows": 15,
+    "calls": 1
+  },
+  {
+    "name": "meeting-report-en-stress",
+    "root": "rgb(255, 255, 255)",
+    "border": "1px",
+    "breakBefore": "page",
+    "rows": 15,
+    "calls": 1
+  },
+  {
+    "name": "analysis-report-th",
+    "root": "rgb(255, 255, 255)",
+    "border": "1px",
+    "breakBefore": null,
+    "rows": 0,
+    "calls": 1
+  }
+]

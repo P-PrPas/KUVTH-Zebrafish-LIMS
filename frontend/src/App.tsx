@@ -80,11 +80,15 @@ export function markInvalidFields(form: HTMLFormElement | null, page: Page, lang
         [...new Set([...(control.getAttribute("aria-describedby")?.split(" ") ?? []), errorId])].join(" "),
       );
       control.parentElement?.setAttribute("data-field-error", message);
+      const label = control.labels?.[0]?.cloneNode(true) as HTMLElement | undefined;
+      label?.querySelectorAll("input, select, textarea, [aria-hidden=true]").forEach((node) => {
+        node.remove();
+      });
       return {
         id: control.id,
         errorId,
         label:
-          control.labels?.[0]?.textContent?.trim() ||
+          label?.textContent?.trim() ||
           control.getAttribute("aria-label") ||
           (language === "th" ? `ช่องที่ ${index + 1}` : `Field ${index + 1}`),
         message,

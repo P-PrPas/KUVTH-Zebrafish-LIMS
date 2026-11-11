@@ -214,7 +214,7 @@ export function Export({ t = text.en }: { t?: AppText } = {}) {
               onChange={() => setReportMode("meeting")}
             />
             <span>
-              <strong>{thai ? "สรุปสำหรับประชุม · 2 หน้า" : "Meeting brief · 2 pages"}</strong>
+              <strong>{thai ? "สรุปสำหรับประชุม" : "Meeting brief"}</strong>
               <small>
                 {thai ? "ผลรวม กระบวนการ และรายการสำคัญที่ต้องติดตาม" : "Totals, workflow and priority items for follow-up"}
               </small>
@@ -263,10 +263,10 @@ export function Export({ t = text.en }: { t?: AppText } = {}) {
               {reportReady
                 ? thai
                   ? reportMode === "meeting"
-                    ? "พิมพ์สรุปผลสำหรับประชุม 2 หน้า"
+                    ? "พิมพ์สรุปผลสำหรับประชุม"
                     : "พิมพ์รายงานวิเคราะห์ครบทุกแถว"
                   : reportMode === "meeting"
-                    ? "Print the two-page meeting brief."
+                    ? "Print the meeting brief."
                     : "Print the complete analytical report."
                 : thai
                   ? "กำลังเตรียมหน้ารายงาน…"
@@ -339,7 +339,9 @@ function MeetingReport({
   const footer = (page: number) => (
     <footer className="meeting-page-footer">
       <span>KUVACB AqLIMS · {thai ? "รายงานสรุปสำหรับประชุม" : "Meeting brief"}</span>
-      <span>{page} / 2</span>
+      <span>
+        {thai ? "ส่วน" : "Section"} {page} / 2
+      </span>
     </footer>
   );
   const quality = report.kpi?.meta as ApiItem | undefined;
