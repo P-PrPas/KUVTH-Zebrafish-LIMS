@@ -1,0 +1,223 @@
+{
+  "pages": [
+    {
+      "role": "admin",
+      "page": "admin",
+      "label": "ดูแลระบบดูแลระบบ",
+      "contentLength": 446,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "corrections",
+      "label": "คำร้องแก้ไขคำร้อง",
+      "contentLength": 268,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "timing",
+      "label": "เวลามาตรฐาน",
+      "contentLength": 386,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "master",
+      "label": "ตั้งค่าห้องแล็บ",
+      "contentLength": 628,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "audit",
+      "label": "ตรวจสอบการแก้ไข",
+      "contentLength": 3347,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "members",
+      "label": "สมาชิกและสิทธิ์",
+      "contentLength": 789,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "imports",
+      "label": "นำเข้าข้อมูล",
+      "contentLength": 500,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "dashboard",
+      "width": 375,
+      "overflow": false
+    },
+    {
+      "role": "admin",
+      "page": "dashboard",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "dashboard",
+      "label": "สรุปผลการทดลองสรุปผล",
+      "contentLength": 3497,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "batches",
+      "label": "การทดลองใหม่ทดลอง",
+      "contentLength": 423,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "due",
+      "label": "ติดตามตัวอ่อนตัวอ่อน",
+      "contentLength": 319,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "fish",
+      "label": "ติดตามปลาในระบบปลา",
+      "contentLength": 410,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "my-requests",
+      "label": "คำร้องของฉัน",
+      "contentLength": 255,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "promotions",
+      "label": "ขึ้นทะเบียนปลาโคลน",
+      "contentLength": 370,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "export",
+      "label": "ดาวน์โหลดข้อมูล",
+      "contentLength": 1006,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "dashboard",
+      "width": 375,
+      "overflow": false
+    },
+    {
+      "role": "member",
+      "page": "dashboard",
+      "width": 320,
+      "overflow": false
+    },
+    {
+      "role": "guest",
+      "page": "guest",
+      "contentLength": 337,
+      "overflow": false
+    },
+    {
+      "role": "guest",
+      "page": "dashboard",
+      "width": 375,
+      "overflow": false
+    },
+    {
+      "role": "guest",
+      "page": "dashboard",
+      "width": 320,
+      "overflow": false
+    }
+  ],
+  "errors": [],
+  "permissions": [
+    {
+      "role": "admin",
+      "path": "auth/admin/users",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "imports",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "audit-log",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "fish",
+      "status": 200
+    },
+    {
+      "role": "admin",
+      "path": "batches",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "path": "auth/admin/users",
+      "status": 403
+    },
+    {
+      "role": "member",
+      "path": "imports",
+      "status": 403
+    },
+    {
+      "role": "member",
+      "path": "audit-log",
+      "status": 403
+    },
+    {
+      "role": "member",
+      "path": "fish",
+      "status": 200
+    },
+    {
+      "role": "member",
+      "path": "batches",
+      "status": 200
+    },
+    {
+      "role": "guest",
+      "path": "auth/admin/users",
+      "status": 403
+    },
+    {
+      "role": "guest",
+      "path": "imports",
+      "status": 403
+    },
+    {
+      "role": "guest",
+      "path": "audit-log",
+      "status": 403
+    },
+    {
+      "role": "guest",
+      "path": "fish",
+      "status": 403
+    },
+    {
+      "role": "guest",
+      "path": "batches",
+      "status": 403
+    }
+  ],
+  "sessionsRevoked": 3
+}
