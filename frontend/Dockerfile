@@ -15,7 +15,8 @@ FROM nginx:1.27.5-alpine3.21
 ARG VCS_REF=unknown
 
 ENV API_UPSTREAM=api \
-    NGINX_ENVSUBST_FILTER=API_UPSTREAM \
+    TRUSTED_PROXY_IP=unix: \
+    NGINX_ENVSUBST_FILTER="API_UPSTREAM|TRUSTED_PROXY_IP" \
     NGINX_ENVSUBST_OUTPUT_DIR=/tmp/nginx/conf.d
 
 LABEL org.opencontainers.image.title="KUVTH Zebrafish LIMS frontend" \

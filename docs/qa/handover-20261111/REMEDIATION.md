@@ -2,6 +2,21 @@
 
 This is a remediation record, not a replacement score or production sign-off.
 
+## PR 47 review follow-up
+
+- P1: Removed trust of `172.16.0.0/12`. Default frontend configuration trusts no
+  TCP forwarding headers (`TRUSTED_PROXY_IP=unix:`); VPS explicitly trusts only
+  its edge at `172.20.10.1`.
+- `python scripts/test_proxy_trust.py` passed four live nginx cases in disposable
+  containers: both peers ignored with default trust, only the configured edge's
+  header accepted with explicit trust, and the other peer's forged header ignored.
+  Tests use the actual nginx template in an isolated network. No live application
+  containers, accounts or volumes were changed.
+- P3: Empty issues now show zero issues, alongside the records fix. Added Thai and
+  English regression cases checking both empty pagers and disabled navigation.
+  Import suite: 27 passed. Biome, TypeScript and build passed.
+- Full browser/PDF acceptance remains pending.
+
 | Finding | Implementation | Remaining acceptance |
 | --- | --- | --- |
 | QA-01 | Removed the fixed two-page promise in both languages; footer identifies sections rather than physical pages. | Reprint A4 with long Thai/English data and confirm no clipped rows. |

@@ -48,6 +48,10 @@ docker exec -i ap-vetku-postgres pg_restore -U kuvacb_aqlims -d kuvacb_aqlims --
 - Never add `ports:` to an app or database: Docker-published ports bypass UFW. Route through `cr-nginx`.
 - Refer to containers by `container_name` (`ap-vetku-api`), not service name: service names like
   `api` collide across projects on the shared `bridge0`.
+- Frontend forwarding trust defaults to `unix:` (no TCP peer is trusted). This VPS
+  sets `TRUSTED_PROXY_IP=172.20.10.1`, the fixed address of `cr-nginx`. Keep the web
+  listener unpublished and the edge overwriting `X-Real-IP`. Never trust the whole
+  Docker subnet; update this setting if the edge's fixed address changes.
 
 ## Host setup already done
 
