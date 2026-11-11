@@ -1,5 +1,6 @@
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { type ApiItem, get, request } from "../api/client";
+import { formatBangkokDateTime } from "../time";
 import { Toast } from "../toast";
 import type { Language } from "../types";
 
@@ -417,7 +418,7 @@ export function Members({ language }: { language: Language }) {
                           <>
                             <span role="status" className="error">
                               {th ? "ล็อกการเข้าสู่ระบบถึง " : "Sign-in locked until "}
-                              {new Date(member.loginLockedUntil).toLocaleString(th ? "th-TH" : "en-US")}
+                              {`${formatBangkokDateTime(member.loginLockedUntil)} (Asia/Bangkok)`}
                             </span>
                             <button
                               className="button button--secondary"
@@ -560,7 +561,7 @@ export function Members({ language }: { language: Language }) {
                         <div className="member-session" key={session.id}>
                           <span>
                             {session.deviceId} · {th ? "ใช้งานล่าสุด" : "last used"}{" "}
-                            {new Date(session.lastSeenAt).toLocaleString(language === "th" ? "th-TH" : "en-US")}
+                            {`${formatBangkokDateTime(session.lastSeenAt)} (Asia/Bangkok)`}
                           </span>
                           {session.revokedAt ? (
                             <span>{th ? "ยกเลิกแล้ว" : "Revoked"}</span>

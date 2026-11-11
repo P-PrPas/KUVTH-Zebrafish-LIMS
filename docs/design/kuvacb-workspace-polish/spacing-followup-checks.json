@@ -1,0 +1,62 @@
+[
+  {
+    "form": "experiment",
+    "width": 1440,
+    "rowGap": "32px",
+    "columnGap": "40px",
+    "vertical": -33.046875,
+    "horizontal": 40,
+    "overflow": -15
+  },
+  {
+    "form": "fish",
+    "width": 1440,
+    "titleToField": 37,
+    "overflow": -15
+  },
+  {
+    "form": "experiment",
+    "width": 820,
+    "rowGap": "32px",
+    "columnGap": "40px",
+    "vertical": -33.046875,
+    "horizontal": 40,
+    "overflow": -15
+  },
+  {
+    "form": "fish",
+    "width": 820,
+    "titleToField": 37,
+    "overflow": -15
+  },
+  {
+    "form": "experiment",
+    "width": 375,
+    "rowGap": "32px",
+    "columnGap": "40px",
+    "vertical": 32,
+    "horizontal": -144.828125,
+    "overflow": -15
+  },
+  {
+    "form": "fish",
+    "width": 375,
+    "titleToField": 37,
+    "overflow": -15
+  },
+  {
+    "form": "experiment",
+    "width": 320,
+    "rowGap": "32px",
+    "columnGap": "40px",
+    "vertical": 32,
+    "horizontal": -144.828125,
+    "overflow": 0
+  },
+  {
+    "form": "fish",
+    "width": 320,
+    "titleToField": 37,
+    "overflow": 0
+  }
+]

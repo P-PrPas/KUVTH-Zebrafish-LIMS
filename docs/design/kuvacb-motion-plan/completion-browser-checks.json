@@ -1,0 +1,408 @@
+[
+  {
+    "label": "1440 stage1",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 stress stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 stress overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 login",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "1180 stage1",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1180 stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1180 overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1180 stress stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1180 stress overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1180 login",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "820 stage1",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "820 stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "820 overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "820 stress stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "820 stress overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "820 login",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "812 stage1",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "812 stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "812 overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "812 stress stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "812 stress overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "812 login",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "375 stage1",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 stress stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 stress overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 login",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "320 stage1",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 stage2",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 overall",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 stress stage2",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 stress overall",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 login",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "English keyboard fish",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "English overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "desktop login pause/resume",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "reduced-motion login",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "controls": 0
+  },
+  {
+    "label": "1440 expanded tables stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "1440 expanded tables overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 expanded tables stage2",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "375 expanded tables overall",
+    "overflow": -15,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 expanded tables stage2",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  },
+  {
+    "label": "320 expanded tables overall",
+    "overflow": 0,
+    "missingImages": 0,
+    "errors": [],
+    "domainWrites": [],
+    "artAnimations": 0,
+    "controls": 0
+  }
+]

@@ -1,0 +1,78 @@
+# /root/app/vetku on the VPS. Secrets live in ./.env (see .env.example).
+services:
+  api:
+    image: ghcr.io/p-prpas/kuvth-zebrafish-lims-api:main
+    container_name: ap-vetku-api
+    hostname: ap-vetku-api
+    networks:
+      bridge0:
+        ipv4_address: 172.20.30.10
+    env_file: .env
+    environment:
+      PORT: 8080
+      DB_DRIVER: postgres
+      DATABASE_URL: postgresql+psycopg://kuvacb_aqlims:${POSTGRES_PASSWORD}@ap-vetku-postgres:5432/kuvacb_aqlims
+      MIGRATIONS_DIR: /migrations/postgres
+      # Only reachable through cr-nginx -> ap-vetku-web on bridge0; nothing is published.
+      FORWARDED_ALLOW_IPS: "*"
+      TZ: Asia/Bangkok
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    cpus: 1.0
+    mem_limit: 1G
+    memswap_limit: 1G
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/p-prpas/kuvth-zebrafish-lims-frontend:main
+    container_name: ap-vetku-web
+    hostname: ap-vetku-web
+    networks:
+      bridge0:
+        ipv4_address: 172.20.30.11
+    environment:
+      API_UPSTREAM: ap-vetku-api
+      TZ: Asia/Bangkok
+    depends_on:
+      api:
+        condition: service_healthy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    cpus: 0.5
+    mem_limit: 256M
+    memswap_limit: 256M
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ap-vetku-postgres
+    hostname: ap-vetku-postgres
+    networks:
+      bridge0:
+        ipv4_address: 172.20.30.12
+    volumes:
+      # postgres:16 keeps data in /var/lib/postgresql/data (18+ moved it up one level).
+      - ./postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: kuvacb_aqlims
+      POSTGRES_USER: kuvacb_aqlims
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      TZ: Asia/Bangkok
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kuvacb_aqlims -d kuvacb_aqlims"]
+      start_period: 10s
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    cpus: 1.0
+    mem_limit: 1G
+    memswap_limit: 1G
+    restart: unless-stopped
+
+networks:
+  bridge0:
+    name: bridge0
+    external: true

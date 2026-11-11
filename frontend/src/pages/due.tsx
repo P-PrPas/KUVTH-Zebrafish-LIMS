@@ -12,7 +12,7 @@ import {
 } from "../observation-draft";
 import { type ApiQueueResult, putQueue, type QueuedWrite, queuedWriteItems } from "../offline";
 import { allWells, plateWells } from "../plates";
-import { dateTimeLocalToRFC3339 } from "../time";
+import { dateTimeLocalToRFC3339, formatBangkokDateTime } from "../time";
 import { type AppText, text } from "../types";
 import { uuidv7 } from "../uuidv7";
 import { CorrectionRequestButton } from "./corrections";
@@ -1038,7 +1038,7 @@ function ObservationRound({
           <div className="checkpoint-draft-panel" role="status" aria-live="polite" aria-atomic="true">
             <div>
               <strong>{thai ? "โหมดร่าง · บันทึกอัตโนมัติ" : "Draft mode · auto-save active"}</strong>
-              <span title={draftSavedAt ? new Date(draftSavedAt).toLocaleString() : undefined}>
+              <span title={draftSavedAt ? `${formatBangkokDateTime(draftSavedAt)} (Asia/Bangkok)` : undefined}>
                 {hasDraft
                   ? thai
                     ? "ข้อมูลยังอยู่บนอุปกรณ์นี้ ต้องกดยืนยันผลเมื่อเสร็จ"
@@ -1062,7 +1062,7 @@ function ObservationRound({
       <div className="checkpoint-timing">
         <p className="timing-preview">
           {thai ? "เวลาเว้นว่างไว้จะใช้เวลาปัจจุบัน · ผู้บันทึก" : "Leave time blank to use now · recorded by"} {operatorName}
-          {confirmedAt && ` · ${new Date(confirmedAt).toLocaleString()}`}
+          {confirmedAt && ` · ${`${formatBangkokDateTime(confirmedAt)} (Asia/Bangkok)`}`}
         </p>
         <label className="checkpoint-time-field">
           {thai ? "เวลาที่สังเกต (ไม่บังคับ)" : "Observation time (optional)"}
@@ -1384,7 +1384,7 @@ function ObservationRound({
                           {conditionLabel(String(item.condition ?? "NORMAL"), thai)}
                         </span>
                         <small>
-                          {new Date(String(item.observedAt)).toLocaleString()} ·{" "}
+                          {`${formatBangkokDateTime(String(item.observedAt))} (Asia/Bangkok)`} ·{" "}
                           {String(item.operatorName ?? (thai ? "ไม่ระบุผู้บันทึก" : "Operator not recorded"))}
                         </small>
                         {item.notes && <p>{String(item.notes)}</p>}

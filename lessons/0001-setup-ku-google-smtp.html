@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ตั้งค่า SMTP ของ KU-Google สำหรับ VETKU</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<main>
+  <div class="eyebrow">VETKU · บทเรียน 1</div>
+  <h1>ให้ VETKU ส่ง OTP ผ่านอีเมล KU</h1>
+  <p class="lede">เป้าหมายคือขอรหัส OTP แล้วได้รับอีเมลที่ส่งโดย backend ของ VETKU โดยเก็บ credential ไว้ใน `.env` บนเครื่องของคุณเท่านั้น</p>
+
+  <div class="callout"><strong>ข้อสำคัญ:</strong> อย่าใส่รหัสผ่าน KU/Nontri ปกติลงใน `.env` และอย่าส่ง App Password ในแชตหรือ commit ลง Git บัญชี `@ku.th` เป็น KU-Google; KU ระบุให้เข้าใช้ผ่าน <a href="https://mail.ku.th">mail.ku.th</a> ส่วน Google ระบุว่า SMTP ใช้ App Password และองค์กรโรงเรียนอาจปิดความสามารถนี้ได้.</div>
+
+  <h2>ทำทีละขั้น</h2>
+  <ol class="steps">
+    <li><strong>ยืนยันว่าบัญชีเป็น KU-Google</strong><br>เปิด <a href="https://mail.ku.th">mail.ku.th</a> แล้วลงชื่อเข้าใช้ด้วย <code>peerapas.c@ku.th</code> ถ้าเข้าไม่ได้ ให้แก้ปัญหาบัญชีกับ KU ก่อนตั้ง SMTP</li>
+    <li><strong>เปิดการยืนยันตัวตน 2 ขั้น (ถ้ายังไม่ได้เปิด)</strong><br>ไปที่ <a href="https://myaccount.google.com/security">Google Account → Security</a> และเปิด 2-Step Verification หากนโยบาย KU อนุญาต</li>
+    <li><strong>ลองสร้าง App Password</strong><br>เปิด <a href="https://myaccount.google.com/apppasswords">App Passwords</a> ขณะลงชื่อเข้าใช้บัญชี KU-Google นี้ ตั้งชื่อเช่น <em>VETKU SMTP</em> แล้วสร้างรหัสเฉพาะสำหรับระบบนี้ Google จะแสดงรหัสครั้งเดียว ให้คัดลอกเก็บไว้ชั่วคราวเพื่อกรอกลง `.env` ในขั้นตอนถัดไป ถ้าไม่มีเมนูนี้ อย่าใช้รหัส KU ปกติ ให้ข้ามไปขั้น 6</li>
+    <li><strong>เปิดไฟล์ `.env` ในโฟลเดอร์โปรเจ็กต์</strong><br>ใน PowerShell ที่โฟลเดอร์ VETKU ใช้คำสั่งนี้ มันจะสร้าง `.env` จากตัวอย่างเฉพาะเมื่อยังไม่มีไฟล์อยู่แล้ว:
+      <pre><code>if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+notepad .env</code></pre>
+      ถ้ามี `.env` อยู่แล้ว ให้แก้เฉพาะบรรทัด `MAIL_...` เพื่อรักษาค่าอื่นของเครื่องไว้
+    </li>
+    <li><strong>กรอกค่าตามนี้ใน `.env`</strong>
+      <pre><code>MAIL_SMTP_HOST=smtp.gmail.com
+MAIL_SMTP_PORT=587
+MAIL_SMTP_USERNAME=peerapas.c@ku.th
+MAIL_SMTP_PASSWORD=วาง-App-Password-ตรงนี้-เฉพาะในไฟล์-local
+MAIL_SENDER_EMAIL=peerapas.c@ku.th
+MAIL_USE_SSL=false</code></pre>
+      ถ้า Google แสดง App Password แยกเป็นกลุ่ม ให้กรอกเป็นตัวอักษรต่อกันโดยไม่มีช่องว่าง หากรหัสมีอักขระพิเศษ ให้ครอบค่าด้วยเครื่องหมายคำพูดตามรูปแบบ dotenv ที่โปรเจ็กต์ใช้
+    </li>
+    <li><strong>บันทึกไฟล์และรีสตาร์ต backend</strong><br>ถ้ารันโปรเจ็กต์ด้วย Docker Compose จากโฟลเดอร์หลัก ให้ใช้ <code>docker compose up -d --build api</code> ถ้ารัน backend ใน terminal แยก ให้หยุดและเริ่ม process นั้นใหม่ เพื่อโหลด environment ใหม่</li>
+    <li><strong>ทดสอบส่งจริง</strong><br>เปิดหน้า login ของ VETKU ขอ OTP สำหรับ <code>peerapas.c@ku.th</code> แล้วดู Inbox และ Spam ข้อความแจ้งว่า SMTP configured เพียงบอกว่ามี host/sender; การได้รับ OTP เป็นการยืนยันการเชื่อมต่อจริง</li>
+  </ol>
+
+  <h2>ถ้าส่งไม่ผ่าน</h2>
+  <div class="card">
+    <ul>
+      <li>ไม่มีเมนู App Password: บัญชี work/school อาจถูกองค์กรปิดไว้ ติดต่อ KU IT/OCS อย่าใช้รหัสบัญชีปกติแทน</li>
+      <li>SMTP แจ้ง username/password ไม่ผ่าน: สร้าง App Password ใหม่ ตรวจว่าชื่อผู้ใช้เป็นอีเมลเต็ม และ `MAIL_USE_SSL=false` เมื่อใช้พอร์ต 587</li>
+      <li>ส่งได้แต่ผู้รับไม่เห็น: ตรวจ Spam และยืนยันว่า `MAIL_SENDER_EMAIL` เป็นบัญชีที่ยืนยันตัวตนหรือ alias ที่ได้รับอนุญาต</li>
+      <li>จะขอความช่วยเหลือเรื่อง error ให้ส่งเฉพาะข้อความ error หลังลบรหัสผ่าน, OTP, token และข้อมูลส่วนบุคคลออกแล้ว</li>
+    </ul>
+  </div>
+
+  <h2>ถ้า KU ปิด App Password</h2>
+  <p>ส่งคำถามนี้ให้ KU IT/OCS ผ่าน <a href="https://askme.ku.th/">AskMe KU</a> หรือช่องทางสนับสนุนที่หน่วยงานกำหนด:</p>
+  <div class="card">“ต้องการให้ backend ของระบบ VETKU ส่ง OTP และ invitation email จาก KU-Google `peerapas.c@ku.th` ได้หรือไม่ บัญชีนี้ไม่มีเมนู App Password ให้ใช้ ขอทราบว่าควรใช้ SMTP AUTH แบบใด หรือขออีเมลสำหรับระบบ/SMTP relay ได้หรือไม่ หากใช้ relay กรุณาแจ้ง hostname, port, TLS/SSL mode, authentication method, sender address ที่อนุญาต และเงื่อนไข allowlist IP”</div>
+  <p>สำหรับระบบระยะยาว OCS มีบริการอีเมลสำหรับระบบแยกจาก mailbox บุคคล ควรถามวิธีขอใช้และข้อจำกัดปัจจุบันก่อนย้ายผู้ส่ง</p>
+
+  <footer>
+    <p><strong>จำสั้น ๆ:</strong> `smtp.gmail.com` + `587` + STARTTLS (`MAIL_USE_SSL=false`) + full KU email + App Password</p>
+    <p>อ่านต่อ: <a href="../reference/ku-google-smtp-settings.html">แผ่นสรุปค่าที่ใช้</a> · <a href="../RESOURCES.md">แหล่งข้อมูลทางการ</a></p>
+    <p class="small">แหล่งหลัก: <a href="https://knowledge.workspace.google.com/admin/gmail/send-email-from-a-printer-scanner-or-app">Google Workspace: Send email from an app</a> และ <a href="https://ocs.ku.ac.th/en/ku-google-account-services-en/">KU-Google Account services</a>. ถ้าติดขั้นตอนไหน ถามต่อได้เลยครับ</p>
+  </footer>
+</main>
+</body>
+</html>

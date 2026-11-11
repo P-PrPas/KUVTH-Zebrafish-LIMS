@@ -1,0 +1,42 @@
+# /root/core on the VPS. Requires: docker network create --driver=bridge --subnet=172.20.0.0/16 bridge0
+services:
+  nginx:
+    image: nginx:stable-alpine
+    container_name: cr-nginx
+    hostname: cr-nginx
+    networks:
+      bridge0:
+        ipv4_address: 172.20.10.1
+    ports:
+      - "80:80"
+    volumes:
+      - type: bind
+        source: ./config
+        target: /etc/nginx/conf.d
+        read_only: true
+    mem_limit: 256M
+    memswap_limit: 256M
+    restart: unless-stopped
+
+  watchtower:
+    image: nickfedor/watchtower:1
+    container_name: cr-watchtower
+    hostname: cr-watchtower
+    networks:
+      bridge0:
+        ipv4_address: 172.20.10.2
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Only containers labelled com.centurylinklabs.watchtower.enable=true are updated (never postgres).
+    command: --interval 60 --cleanup --label-enable
+    environment:
+      TZ: Asia/Bangkok
+    cpus: 0.5
+    mem_limit: 128M
+    memswap_limit: 128M
+    restart: unless-stopped
+
+networks:
+  bridge0:
+    name: bridge0
+    external: true

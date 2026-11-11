@@ -127,7 +127,12 @@ export function Master({ t }: { t: AppText }) {
   }, []);
   useEffect(load, [load]);
   useEffect(() => {
-    const refresh = () => load();
+    const refresh = (event: Event) => {
+      const { path } = (event as CustomEvent<QueuedWrite>).detail;
+      if (path !== "/sites" && !path.startsWith("/sites/")) return;
+      setMessage("");
+      load();
+    };
     const reject = (event: Event) => {
       const detail = (event as CustomEvent<QueuedWrite>).detail;
       if (detail.path === "/sites" || detail.path.startsWith("/sites/")) {
@@ -384,7 +389,12 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     load();
   }, [load]);
   useEffect(() => {
-    const refresh = () => load();
+    const refresh = (event: Event) => {
+      const { path } = (event as CustomEvent<QueuedWrite>).detail;
+      if (path !== `/${resource}` && !path.startsWith(`${`/${resource}`}/`)) return;
+      setMessage("");
+      load();
+    };
     const reject = (event: Event) => {
       const detail = (event as CustomEvent<QueuedWrite>).detail;
       const path = `/${resource}`;

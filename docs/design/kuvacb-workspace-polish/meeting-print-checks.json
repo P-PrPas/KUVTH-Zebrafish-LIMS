@@ -1,0 +1,72 @@
+[
+  {
+    "name": "meeting-report-th",
+    "page": 1,
+    "outside": 0,
+    "drawings": 173,
+    "textLength": 1034
+  },
+  {
+    "name": "meeting-report-th",
+    "page": 2,
+    "outside": 0,
+    "drawings": 229,
+    "textLength": 1199
+  },
+  {
+    "name": "meeting-report-th-no-background",
+    "page": 1,
+    "outside": 0,
+    "drawings": 172,
+    "textLength": 1034
+  },
+  {
+    "name": "meeting-report-th-no-background",
+    "page": 2,
+    "outside": 0,
+    "drawings": 228,
+    "textLength": 1199
+  },
+  {
+    "name": "meeting-report-en-stress",
+    "page": 1,
+    "outside": 0,
+    "drawings": 173,
+    "textLength": 1279
+  },
+  {
+    "name": "meeting-report-en-stress",
+    "page": 2,
+    "outside": 0,
+    "drawings": 229,
+    "textLength": 1237
+  },
+  {
+    "name": "analysis-report-th",
+    "page": 1,
+    "outside": 0,
+    "drawings": 114,
+    "textLength": 635
+  },
+  {
+    "name": "analysis-report-th",
+    "page": 2,
+    "outside": 0,
+    "drawings": 185,
+    "textLength": 771
+  },
+  {
+    "name": "analysis-report-th",
+    "page": 3,
+    "outside": 0,
+    "drawings": 379,
+    "textLength": 1039
+  },
+  {
+    "name": "analysis-report-th",
+    "page": 4,
+    "outside": 0,
+    "drawings": 315,
+    "textLength": 874
+  }
+]
