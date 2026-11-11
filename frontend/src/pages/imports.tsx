@@ -2060,7 +2060,7 @@ export function Imports({ language }: { language: Language }) {
                     ←
                   </button>
                   <span>
-                    {issueOffset + 1}–{issueOffset + issues.length}
+                    {issues.length ? `${issueOffset + 1}–${issueOffset + issues.length}` : th ? "0 ประเด็น" : "0 issues"}
                   </span>
                   <button
                     disabled={issueOffset + issues.length >= detail.issueCount}
