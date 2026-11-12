@@ -47,6 +47,9 @@ jobs:
         run: |
           docker compose -f compose.yaml config
           docker compose -f compose.mysql.yaml --profile mysql config
+          docker compose -f deploy/vps/core/docker-compose.yml config --quiet
+          touch deploy/vps/app/vetku/.env
+          POSTGRES_PASSWORD=ci-config-only docker compose -f deploy/vps/app/vetku/docker-compose.yml config --quiet
       - name: Build production API image
         run: |
           docker build \
@@ -196,6 +199,9 @@ jobs:
 
   # Watchtower on the VPS follows :main, so only images that passed every job get published.
   publish:
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
     needs: [app, contract, postgres, mysql]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -206,6 +212,8 @@ jobs:
       IMAGE_PREFIX: ghcr.io/p-prpas/kuvth-zebrafish-lims
     steps:
       - uses: actions/checkout@v4
+      - name: Reject superseded main release
+        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build and push images

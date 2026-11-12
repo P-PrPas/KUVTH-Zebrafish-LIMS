@@ -28,7 +28,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     # Only containers labelled com.centurylinklabs.watchtower.enable=true are updated (never postgres).
-    command: --interval 60 --cleanup --label-enable
+    command: --interval 60 --cleanup --label-enable --scope vetku --rolling-restart
     environment:
       TZ: Asia/Bangkok
     cpus: 0.5

@@ -19,19 +19,32 @@ publishes a port.
     └── <project2>/          use 172.20.31.x
 ```
 
-The files in this folder are the source of truth; copy them to the VPS when they change.
+Copy app Compose changes to the VPS when they change. The live core also serves
+`vetrmc.vet.ku.ac.th` and has additional TLS mounts; merge core changes into the live
+file instead of overwriting it or its nginx configuration.
 
 ## Release flow
 
 Merge to `main` -> CI passes -> `publish` job pushes `ghcr.io/p-prpas/kuvth-zebrafish-lims-{api,frontend}:main`
 (plus `:sha-<commit>`) -> `cr-watchtower` pulls and restarts `ap-vetku-api` / `ap-vetku-web` within a minute.
-Postgres is never auto-updated.
+Only the two app containers labelled with scope `vetku` are updated, one at a time.
+Postgres and the other project are excluded. Watchtower updates images, not Compose
+files or environment settings; apply those manually with Compose.
+
+The publish job is serialized and rejects an obsolete main commit before publishing.
+The two tags are published separately, so this is not an atomic release; keep API and
+frontend changes compatible during deployment. Nightly database backups retain 14 days;
+take an additional dump before manually deploying migrations.
 
 The GHCR packages must be **public** (GitHub -> Packages -> package settings -> visibility) so the VPS
-can pull without a token; the repository is already public.
+can pull without a token; the repository is already public. For both packages, grant
+`KUVTH-Zebrafish-LIMS` **Write** under package settings -> Manage Actions access.
+Repository visibility alone does not make packages public or grant Actions write access.
 
 Rollback: set `image:` to `:sha-<good commit>` in `/root/app/vetku/docker-compose.yml`, then
-`docker compose up -d`. Watchtower leaves pinned tags alone until you switch back to `:main`.
+`docker compose up -d --no-deps api web`. Commit tags are never overwritten by CI.
+Rolling back the image does not undo database migrations; review schema compatibility
+before rollback and restore a backup only with explicit approval of the data loss window.
 
 ## Day-to-day
 
@@ -62,16 +75,18 @@ docker exec -i ap-vetku-postgres pg_restore -U kuvacb_aqlims -d kuvacb_aqlims --
 - UFW: allow 22, 80, 443 only.
 - The image's preinstalled `apache2` (default page only) is stopped and disabled so `cr-nginx` can take port 80.
 
-## Open items
+## Verified 2026-11-12 and remaining items
 
-- **Inbound port 80 is blocked** before it reaches the VPS (only 22 gets through), so the site is not
-  reachable yet; the port has to be opened via svregis.ku.ac.th. Until then test through a tunnel:
+- **Access**: the site was previously confirmed through KU VPN. Public internet access
+  is not certified by that test. For local testing through SSH use:
   `ssh -L 8080:127.0.0.1:80 vdladmin@158.108.225.112`, then open http://localhost:8080
   (browsers allow Secure cookies on localhost, so login works there).
-- **Outbound HTTPS is blocked** by the KU network (`login.ku.ac.th` portal). Until KU IT exempts this
-  server, it cannot pull from GHCR / Docker Hub, so Watchtower cannot update. Images can be sideloaded:
+- **Registry**: VPS reaches GHCR. Anonymous pull returned 403 for private packages;
+  make both public and verify Actions write access, then check a full publish/pull cycle.
+  Images can also be sideloaded for a manual deployment:
   `docker save ... | gzip | ssh vdladmin@158.108.225.112 'gunzip | sudo docker load'`.
-  Outbound SMTP for OTP mail is likely blocked the same way.
+  SMTP delivery has not been checked in this deployment session.
 - **HTTPS** for `kuvacb-aqlims.vet.ku.ac.th`: Let's Encrypt HTTP-01 only works if the port is
-  opened to the internet ("มีการติดต่อเชื่อมโยงกับภายนอก"); internal-only needs a KU-issued certificate.
+  opened to the internet. Internal-only services can use DNS-01 with public DNS TXT
+  control, or a KU-issued certificate.
   Until then login fails because `SESSION_COOKIE_SECURE=true` cookies are not sent over plain HTTP.
