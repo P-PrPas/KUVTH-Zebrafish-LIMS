@@ -18,23 +18,6 @@ services:
     memswap_limit: 256M
     restart: unless-stopped
 
-  watchtower:
-    image: nickfedor/watchtower:1
-    container_name: cr-watchtower
-    hostname: cr-watchtower
-    networks:
-      bridge0:
-        ipv4_address: 172.20.10.2
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    # Only containers labelled com.centurylinklabs.watchtower.enable=true are updated (never postgres).
-    command: --interval 60 --cleanup --label-enable --scope vetku --rolling-restart
-    environment:
-      TZ: Asia/Bangkok
-    cpus: 0.5
-    mem_limit: 128M
-    memswap_limit: 128M
-    restart: unless-stopped
 
 networks:
   bridge0:

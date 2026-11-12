@@ -19,9 +19,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=vetku"
     cpus: 1.0
     mem_limit: 1G
     memswap_limit: 1G
@@ -41,9 +38,6 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
-      - "com.centurylinklabs.watchtower.scope=vetku"
     cpus: 0.5
     mem_limit: 256M
     memswap_limit: 256M

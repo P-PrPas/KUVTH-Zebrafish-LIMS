@@ -6,7 +6,7 @@ publishes a port.
 
 ```none
 /root
-├── core/                    cr-nginx 172.20.10.1, cr-watchtower 172.20.10.2
+├── core/                    cr-nginx 172.20.10.1
 │   ├── docker-compose.yml
 │   └── config/0.conf        host -> container map
 ├── service/                 shared services (empty until a second app needs one)
@@ -23,28 +23,47 @@ Copy app Compose changes to the VPS when they change. The live core also serves
 `vetrmc.vet.ku.ac.th` and has additional TLS mounts; merge core changes into the live
 file instead of overwriting it or its nginx configuration.
 
-## Release flow
+## Manual release flow
 
-Merge to `main` -> CI passes -> `publish` job pushes `ghcr.io/p-prpas/kuvth-zebrafish-lims-{api,frontend}:main`
-(plus `:sha-<commit>`) -> `cr-watchtower` pulls and restarts `ap-vetku-api` / `ap-vetku-web` within a minute.
-Only the two app containers labelled with scope `vetku` are updated, one at a time.
-Postgres and the other project are excluded. Watchtower updates images, not Compose
-files or environment settings; apply those manually with Compose.
+CI validates and tests changes; it does not publish images or deploy. Watchtower has
+been removed. No public GHCR packages or registry credentials are required for this flow.
+The GHCR-style image names below are local tags transported through SSH.
 
-The publish job is serialized and rejects an obsolete main commit before publishing.
-The two tags are published separately, so this is not an atomic release; keep API and
-frontend changes compatible during deployment. Nightly database backups retain 14 days;
-take an additional dump before manually deploying migrations.
+1. Use the reviewed main commit after CI passes. Build both images from the same
+   checkout, passing that commit as `VCS_REF` to both Dockerfiles. The API also accepts
+   `BUILD_DATE`; the frontend uses `VITE_API_BASE_URL=/api/v1`.
+2. Export the two locally built images and upload the archive (PowerShell example):
 
-The GHCR packages must be **public** (GitHub -> Packages -> package settings -> visibility) so the VPS
-can pull without a token; the repository is already public. For both packages, grant
-`KUVTH-Zebrafish-LIMS` **Write** under package settings -> Manage Actions access.
-Repository visibility alone does not make packages public or grant Actions write access.
+   ```powershell
+   New-Item -ItemType Directory -Force .tmp | Out-Null
+   docker save -o .tmp/vetku-release.tar ghcr.io/p-prpas/kuvth-zebrafish-lims-api:main ghcr.io/p-prpas/kuvth-zebrafish-lims-frontend:main
+   scp .tmp/vetku-release.tar vdladmin@158.108.225.112:vetku-release.tar
+   ```
 
-Rollback: set `image:` to `:sha-<good commit>` in `/root/app/vetku/docker-compose.yml`, then
-`docker compose up -d --no-deps api web`. Commit tags are never overwritten by CI.
-Rolling back the image does not undo database migrations; review schema compatibility
-before rollback and restore a backup only with explicit approval of the data loss window.
+3. On the VPS, load the archive, take a database backup, then replace only the app:
+
+   ```sh
+   sudo -i
+   cd /root/app/vetku
+   docker load -i /home/vdladmin/vetku-release.tar
+   # Confirm both image revision labels match the intended commit before deployment.
+   docker image inspect ghcr.io/p-prpas/kuvth-zebrafish-lims-api:main ghcr.io/p-prpas/kuvth-zebrafish-lims-frontend:main --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+   umask 077
+   backup=backups/predeploy-$(date +%Y%m%d-%H%M%S).dump
+   docker exec ap-vetku-postgres pg_dump -U kuvacb_aqlims -Fc kuvacb_aqlims > "$backup" && test -s "$backup" && docker compose up -d --no-deps --pull never --wait --wait-timeout 180 api web
+   curl --fail -H 'Host: kuvacb-aqlims.vet.ku.ac.th' http://127.0.0.1/api/v1/health
+   ```
+
+Use `--pull never` so a stale registry tag cannot replace the uploaded images.
+Apply Compose/environment changes explicitly. The API applies migrations at startup;
+nightly database backups retain 14 days, and each manual release needs its own backup.
+Remove the uploaded archive and local `.tmp/vetku-release.tar` after verification.
+
+Rollback images from the 2026-11-12 deployment are tagged `vetku-api:rollback-20261112`
+and `vetku-web:rollback-20261112`. Change the two app `image:` values to the selected
+rollback images and use the same Compose command. An image rollback does not undo
+migrations; review schema compatibility first. Restoring a database backup requires
+explicit approval of the data loss window.
 
 ## Day-to-day
 
@@ -81,11 +100,9 @@ docker exec -i ap-vetku-postgres pg_restore -U kuvacb_aqlims -d kuvacb_aqlims --
   is not certified by that test. For local testing through SSH use:
   `ssh -L 8080:127.0.0.1:80 vdladmin@158.108.225.112`, then open http://localhost:8080
   (browsers allow Secure cookies on localhost, so login works there).
-- **Registry**: VPS reaches GHCR. Anonymous pull returned 403 for private packages;
-  make both public and verify Actions write access, then check a full publish/pull cycle.
-  Images can also be sideloaded for a manual deployment:
-  `docker save ... | gzip | ssh vdladmin@158.108.225.112 'gunzip | sudo docker load'`.
-  SMTP delivery has not been checked in this deployment session.
+- **Registry**: anonymous GHCR pull/publish permissions were incomplete. The manual
+  SSH archive flow does not depend on GHCR. Package visibility was not changed by this agent.
+- **SMTP**: delivery has not been checked in this deployment session.
 - **HTTPS** for `kuvacb-aqlims.vet.ku.ac.th`: Let's Encrypt HTTP-01 only works if the port is
   opened to the internet. Internal-only services can use DNS-01 with public DNS TXT
   control, or a KU-issued certificate.

@@ -196,33 +196,3 @@ jobs:
           mysql -h 127.0.0.1 -uroot -proot chronofish < backend/db/tests/mysql/constraint_checks.sql
           mysql -h 127.0.0.1 -uroot -proot chronofish < backend/db/seeds/mysql/master_data.sql
           mysql -h 127.0.0.1 -uroot -proot chronofish < backend/db/seeds/mysql/master_data.sql
-
-  # Watchtower on the VPS follows :main, so only images that passed every job get published.
-  publish:
-    concurrency:
-      group: publish-main
-      cancel-in-progress: false
-    needs: [app, contract, postgres, mysql]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    env:
-      IMAGE_PREFIX: ghcr.io/p-prpas/kuvth-zebrafish-lims
-    steps:
-      - uses: actions/checkout@v4
-      - name: Reject superseded main release
-        run: test "$(git ls-remote origin refs/heads/main | cut -f1)" = "$GITHUB_SHA"
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Build and push images
-        run: |
-          docker build \
-            --build-arg BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-            --build-arg VCS_REF="$GITHUB_SHA" \
-            -f backend/Dockerfile -t "$IMAGE_PREFIX-api:main" -t "$IMAGE_PREFIX-api:sha-$GITHUB_SHA" .
-          docker build --build-arg VITE_API_BASE_URL=/api/v1 --build-arg VCS_REF="$GITHUB_SHA" \
-            -f frontend/Dockerfile -t "$IMAGE_PREFIX-frontend:main" -t "$IMAGE_PREFIX-frontend:sha-$GITHUB_SHA" frontend
-          docker push --all-tags "$IMAGE_PREFIX-api"
-          docker push --all-tags "$IMAGE_PREFIX-frontend"
