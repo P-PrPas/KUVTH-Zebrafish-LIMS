@@ -258,6 +258,28 @@ async function flush() {
   });
 }
 
+it.each(["en", "th"] as const)("shows zero issues and records for an empty draft (%s)", async (language) => {
+  const api = mockImportApi("draft", true);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const body = await (await api(input, init)).json();
+    const path = new URL(String(input), "http://testserver").pathname;
+    if (path.endsWith("/job-1")) Object.assign(body, { recordCount: 0, issueCount: 0 });
+    if (path.endsWith("/records") || path.endsWith("/issues")) body.items = [];
+    return new Response(JSON.stringify(body));
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language={language} />));
+  await openJob();
+  const pagers = Array.from(document.querySelectorAll<HTMLElement>(".import-page__pager"));
+  expect(pagers.some((pager) => pager.textContent?.includes(language === "en" ? "0 issues" : "0 ประเด็น"))).toBe(true);
+  expect(pagers.some((pager) => pager.textContent?.includes(language === "en" ? "0 records" : "0 รายการ"))).toBe(true);
+  for (const pager of pagers) {
+    expect(pager.textContent).not.toContain("1–0");
+    expect(Array.from(pager.querySelectorAll("button")).every((button) => button.disabled)).toBe(true);
+  }
+  root.unmount();
+});
+
 async function openJob() {
   await flush();
   const button = Array.from(document.querySelectorAll<HTMLButtonElement>(".import-page__jobs button"))[0];

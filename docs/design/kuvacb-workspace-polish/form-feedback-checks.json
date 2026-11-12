@@ -1,0 +1,506 @@
+[
+  {
+    "label": "1440 new experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 edit experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 injection lot",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 register fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 correct fish observation",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 edit fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 specimen",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master locations and project",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 0",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 1",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 2",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 3",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 4",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 5",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 master category 6",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 timing profile",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 control counts",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 member access and mail",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 export",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 new experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 edit experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 injection lot",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 register fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 correct fish observation",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 edit fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 specimen",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master locations and project",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 0",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 1",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 2",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 3",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 4",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 5",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 master category 6",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 timing profile",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 control counts",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 member access and mail",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "820 export",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 new experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 edit experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 injection lot",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 register fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 correct fish observation",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 edit fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 specimen",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master locations and project",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 0",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 1",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 2",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 3",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 4",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 5",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 master category 6",
+    "forms": 2,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 timing profile",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 control counts",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 member access and mail",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 export",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "320 new experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 edit experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 injection lot",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 register fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 correct fish observation",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 edit fish",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 specimen",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master locations and project",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 0",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 1",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 2",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 3",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 4",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 5",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 master category 6",
+    "forms": 2,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 timing profile",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 control counts",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 member access and mail",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 export",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "1440 Thai experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "1440 Thai fish register",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 Thai experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "375 Thai fish register",
+    "forms": 1,
+    "issues": [],
+    "overflow": -15
+  },
+  {
+    "label": "320 Thai experiment",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "320 Thai fish register",
+    "forms": 1,
+    "issues": [],
+    "overflow": 0
+  },
+  {
+    "label": "native validation toast and inline summary",
+    "passed": true
+  },
+  {
+    "label": "checkpoint actual save confirmation",
+    "success": "Embryo observations saved successfully.×"
+  },
+  {
+    "label": "checkpoint actual rejection",
+    "rejection": "QA observation rejected×"
+  }
+]

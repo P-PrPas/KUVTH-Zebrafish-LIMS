@@ -1,0 +1,1 @@
+﻿api-1  | INFO:     172.19.0.1:0 - "GET /api/v1/health?qa=pr47-spoof HTTP/1.1" 200 OK

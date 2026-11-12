@@ -1,0 +1,85 @@
+{
+  "headRefOid": "a1c27efec04954c4db2e74c62424d4980c276669",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "0001-01-01T00:00:00Z",
+      "conclusion": "",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958861062/job/130320357807",
+      "name": "app",
+      "startedAt": "2026-11-11T04:23:03Z",
+      "status": "IN_PROGRESS",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "0001-01-01T00:00:00Z",
+      "conclusion": "",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958854696/job/130320338446",
+      "name": "app",
+      "startedAt": "2026-11-11T04:22:59Z",
+      "status": "IN_PROGRESS",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:23:18Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958861062/job/130320357531",
+      "name": "contract",
+      "startedAt": "2026-11-11T04:23:03Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:23:08Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958854696/job/130320338436",
+      "name": "contract",
+      "startedAt": "2026-11-11T04:22:59Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:25:32Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958861062/job/130320357754",
+      "name": "postgres",
+      "startedAt": "2026-11-11T04:23:03Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:25:16Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958854696/job/130320338173",
+      "name": "postgres",
+      "startedAt": "2026-11-11T04:22:59Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:26:18Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958861062/job/130320357699",
+      "name": "mysql",
+      "startedAt": "2026-11-11T04:23:03Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-11-11T04:25:26Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/P-PrPas/KUVTH-Zebrafish-LIMS/actions/runs/42958854696/job/130320338471",
+      "name": "mysql",
+      "startedAt": "2026-11-11T04:22:59Z",
+      "status": "COMPLETED",
+      "workflowName": "CI"
+    }
+  ]
+}

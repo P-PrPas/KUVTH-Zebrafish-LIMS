@@ -383,6 +383,16 @@ describe("browser shell workflows", () => {
     expect(secondErrors[0]?.id).not.toBe(invalid?.id);
   });
 
+  it("uses only label text for a required select in the validation summary", () => {
+    const form = document.createElement("form");
+    form.innerHTML =
+      '<label>Site<select required><option value="">Choose site</option><option value="a">Lab A</option></select></label>';
+    document.body.append(form);
+    const errors = markInvalidFields(form, "batches", "en");
+    expect(errors[0].label).toBe("Site");
+    expect(document.getElementById(errors[0].id)).toBe(form.querySelector("select"));
+  });
+
   it("keeps existing accessibility references and gives English fallback labels to invalid fields", () => {
     const reservedId = document.createElement("span");
     reservedId.id = "invalid-fish-2";

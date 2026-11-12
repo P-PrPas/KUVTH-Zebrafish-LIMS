@@ -2060,7 +2060,7 @@ export function Imports({ language }: { language: Language }) {
                     ←
                   </button>
                   <span>
-                    {issueOffset + 1}–{issueOffset + issues.length}
+                    {issues.length ? `${issueOffset + 1}–${issueOffset + issues.length}` : th ? "0 ประเด็น" : "0 issues"}
                   </span>
                   <button
                     disabled={issueOffset + issues.length >= detail.issueCount}
@@ -2200,8 +2200,19 @@ export function Imports({ language }: { language: Language }) {
                     >
                       ←
                     </button>
+                    {!records.length && (
+                      <p role="status">
+                        {th
+                          ? "ไม่มีแถวข้อมูล กรุณากลับไปเลือกไฟล์ที่กรอกข้อมูลแล้ว"
+                          : "No data rows. Return to file selection and upload a populated file."}
+                      </p>
+                    )}
                     <span>
-                      {recordOffset + 1}–{recordOffset + records.length}
+                      {records.length
+                        ? `${recordOffset + 1}–${recordOffset + records.length}`
+                        : th
+                          ? "0 รายการ"
+                          : "0 records"}
                     </span>
                     <button
                       disabled={recordOffset + records.length >= detail.recordCount}

@@ -1,0 +1,14 @@
+
+> kuvth-zebrafish-lims-frontend@0.1.0 test
+> vitest run --reporter=dot
+
+
+ RUN  v4.1.11 C:/Code/Freelance/VETKU/frontend
+
+···········································································································································································································································································
+
+ Test Files  35 passed (35)
+      Tests  267 passed (267)
+   Start at  01:53:45
+   Duration  16.70s (transform 30.94s, setup 24.37s, import 37.13s, tests 44.07s, environment 134.92s)
+

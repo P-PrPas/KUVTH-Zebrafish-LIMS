@@ -1,0 +1,28 @@
+{
+  "screen": "ข้ามไปยังเนื้อหาหลัก\nKUVACB Admin\nระบบบันทึกงานวิจัยปลาม้าลาย\n\nงาน\n\nดูแลระบบ\nคำร้องแก้ไข\nข้อมูลอ้างอิงและระบบ\nธนาคารเซลล์สัตว์ มหาวิทยาลัยเกษตรศาสตร์\nคำร้องแก้ไข\nเครือข่ายพร้อม\nบันทึกแล้ว\nEN\nบัญชี\n\nคำร้องและประวัติ\n\nคำร้องแก้ไขข้อมูล\n\nตรวจค่าเดิม ค่าใหม่ และผลกระทบก่อนอนุมัติ\n\n0 รายการรอพิจารณา\nสถานะ\nรอพิจารณา\nอนุมัติแล้ว\nปฏิเสธแล้ว\nถอนแล้ว\nทั้งหมด\nค้นหาในคำร้องที่โหลดแล้ว\n0 / 1 รายการ\n\nไม่มีคำร้องในสถานะนี้\n\nKUVACB AqLIMS\nธนาคารเซลล์สัตว์ มหาวิทยาลัยเกษตรศาสตร์\nอนุมัติและแก้ไขข้อมูลแล้ว\n×",
+  "readback": {
+    "id": "01a1c6da-6182-749b-9f27-0aebfdeea08d",
+    "batchCode": "QA-MEMBER-20261111",
+    "experimentDate": "2026-11-11",
+    "dayNo": 100,
+    "siteId": "10000000-0000-7000-8000-000000000001",
+    "operatorId": "01a1c6d1-5faa-7822-a9df-a4874ca9b68f",
+    "protocolId": "01900000-0000-7000-8000-000000000001",
+    "timingProfileId": "01900000-0000-7000-8000-000000000002",
+    "treatmentGroupId": "40000000-0000-7000-8000-000000000001",
+    "recipientEggLotId": null,
+    "csofLotId": null,
+    "clutchCode": null,
+    "replicateNo": null,
+    "incubationTempC": null,
+    "notes": "QA corrected note",
+    "createdAt": "2026-11-10T19:06:03.010227Z",
+    "updatedAt": "2026-11-10T19:09:24.755460Z",
+    "deletedAt": null,
+    "experimentGroupId": null,
+    "wellPlateSize": 96,
+    "hasOpenEmbryos": false,
+    "nInjectionLots": 0
+  },
+  "notesCorrect": true
+}

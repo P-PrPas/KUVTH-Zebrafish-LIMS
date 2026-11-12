@@ -1,0 +1,10 @@
+[
+  "Native account disclosure opens with Enter and fits the phone viewport.",
+  "More menu keeps all destinations available and closes after navigation.",
+  "Required-field validation focuses the linked error summary.",
+  "Experiment draft survives resizing from phone to tablet.",
+  "Per-well stage and note drafts survive rotation and changing the selected well.",
+  "Short landscape viewport puts the confirmation bar in document flow.",
+  "English switching, reduced motion, and 200% text scaling retain a contained page.",
+  "Print view omits navigation and overview decoration."
+]
