@@ -129,6 +129,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
   const [formErrors, setFormErrors] = useState<{ id: string; errorId: string; label: string; message: string }[]>([]);
   const validationFrame = useRef(0);
   const previousPage = useRef(page);
+  const [, setOperatorRevision] = useState(0);
   const currentOperator = operatorId();
   useEffect(() => {
     let lastPing = 0;
@@ -433,7 +434,8 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
                     value={currentOperator}
                     onChange={(event) => {
                       sessionStorage.setItem("chronofish.operator_id", event.target.value);
-                      window.location.reload();
+                      if (page === "imports") setOperatorRevision((revision) => revision + 1);
+                      else window.location.reload();
                     }}
                   >
                     <option value="">{t.chooseOperator}</option>

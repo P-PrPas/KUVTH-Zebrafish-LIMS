@@ -127,6 +127,11 @@ export function Master({ t }: { t: AppText }) {
   }, []);
   useEffect(load, [load]);
   useEffect(() => {
+    if (!loadFailed) return;
+    window.addEventListener("online", load);
+    return () => window.removeEventListener("online", load);
+  }, [load, loadFailed]);
+  useEffect(() => {
     const refresh = (event: Event) => {
       const { path } = (event as CustomEvent<QueuedWrite>).detail;
       if (path !== "/sites" && !path.startsWith("/sites/")) return;
@@ -388,6 +393,11 @@ export function MasterCatalog({ t = text.en }: { t?: AppText } = {}) {
     setMessage("");
     load();
   }, [load]);
+  useEffect(() => {
+    if (!loadFailed) return;
+    window.addEventListener("online", load);
+    return () => window.removeEventListener("online", load);
+  }, [load, loadFailed]);
   useEffect(() => {
     const refresh = (event: Event) => {
       const { path } = (event as CustomEvent<QueuedWrite>).detail;

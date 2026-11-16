@@ -741,6 +741,7 @@ it("allows a committed v5 template to be reverted with a reason", async () => {
     (item) => item.textContent === "Check and revert job",
   )!;
   expect(button.closest("[hidden]")).toBeNull();
+  expect(button.parentElement?.textContent).toContain("codes may remain reserved after revert");
   expect(button.disabled).toBe(true);
   await fill(button.parentElement!.querySelector<HTMLTextAreaElement>("textarea")!, "Wrong source file");
   await clickButton("Check and revert job");
@@ -750,6 +751,46 @@ it("allows a committed v5 template to be reverted with a reason", async () => {
         String(input).endsWith("/revert") && JSON.parse(String(init?.body)).reason === "Wrong source file",
     ),
   ).toBe(true);
+  root.unmount();
+});
+
+it("keeps a successful template commit distinct from a failed refresh and retries reads only", async () => {
+  sessionStorage.setItem("chronofish.operator_id", "operator-1");
+  const api = mockImportApi("draft", true);
+  let committed = false;
+  let failRefresh = true;
+  let confirmCount = 0;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://testserver").pathname;
+    if (path.endsWith("/confirm-template")) {
+      committed = true;
+      confirmCount += 1;
+      return new Response(JSON.stringify({ recordCount: 1, revision: 3, status: "committed" }));
+    }
+    if (committed && failRefresh && path.endsWith("/job-1")) {
+      return new Response(JSON.stringify({ error: { message: "Rate limited" } }), { status: 429 });
+    }
+    const body = await (await api(input, init)).json();
+    if (path.endsWith("/mapping-requirements")) body.canConfirmTemplate = true;
+    if (committed && path.endsWith("/job-1")) Object.assign(body.job, { status: "committed", revision: 3 });
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  await selectImportMethod("template");
+  await clickButton("Confirm template import");
+  expect(document.body.textContent).toContain("Import succeeded, but the latest results could not be loaded");
+  expect(document.querySelector(".import-page")?.getAttribute("data-step")).toBe("5");
+  failRefresh = false;
+  await clickButton("Retry loading results");
+  expect(document.body.textContent).not.toContain("Import succeeded, but the latest results could not be loaded");
+  expect(document.body.textContent).toContain("Check and revert job");
+  expect(confirmCount).toBe(1);
   root.unmount();
 });
 
@@ -778,6 +819,43 @@ it("shows the server conflict when a template rollback has later dependencies", 
   await clickButton("Check and revert job");
   expect(document.querySelector('[role="alert"]')?.textContent).toContain("Fish has newer observations");
   expect(document.body.textContent).not.toContain("Import reverted.");
+  root.unmount();
+});
+
+it("keeps a successful revert distinct from a failed refresh", async () => {
+  const api = mockImportApi("committed", true);
+  let reverted = false;
+  let revertCount = 0;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://testserver").pathname;
+    if (path.endsWith("/revert")) {
+      reverted = true;
+      revertCount += 1;
+      return new Response(JSON.stringify({ status: "reverted", revision: 3 }));
+    }
+    if (reverted && path.endsWith("/job-1")) {
+      return new Response(JSON.stringify({ error: { message: "Rate limited" } }), { status: 429 });
+    }
+    const body = await (await api(input, init)).json();
+    if (path.endsWith("/mapping-requirements")) body.canConfirmTemplate = true;
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (item) => item.textContent === "Check and revert job",
+  )!;
+  await fill(button.parentElement!.querySelector<HTMLTextAreaElement>("textarea")!, "Wrong source file");
+  await clickButton("Check and revert job");
+  expect(document.body.textContent).toContain("Revert succeeded, but the latest results could not be loaded");
+  expect(document.body.textContent).toContain("This job was reverted");
+  expect(document.querySelector(".import-page__warning textarea")).toBeNull();
+  expect(revertCount).toBe(1);
   root.unmount();
 });
 

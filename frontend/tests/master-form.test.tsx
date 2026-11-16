@@ -88,6 +88,35 @@ describe("master data form", () => {
     root.unmount();
   });
 
+  it("retries a failed master-data read on reconnect", async () => {
+    let online = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (!online) throw new TypeError("Failed to fetch");
+        return new Response(
+          JSON.stringify({
+            items: String(input).endsWith("/operators") ? [{ id: "op", name: "Recovered operator" }] : [],
+          }),
+        );
+      }),
+    );
+    const root = createRoot(document.body.appendChild(document.createElement("div")));
+    await act(async () => {
+      root.render(<MasterCatalog />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Failed to fetch");
+    online = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.body.textContent).toContain("Recovered operator");
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    root.unmount();
+  });
+
   it("renders every configured resource with its allowed enum fields", async () => {
     vi.stubGlobal(
       "fetch",
