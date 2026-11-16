@@ -301,6 +301,7 @@ async function clickButton(label: string) {
 }
 
 it("validates and confirms system template jobs without legacy master mappings", async () => {
+  sessionStorage.setItem("chronofish.operator_id", "operator-1");
   const api = mockImportApi("draft", true);
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await api(input, init);
@@ -323,13 +324,44 @@ it("validates and confirms system template jobs without legacy master mappings",
   expect(document.querySelector<HTMLSelectElement>(".import-mode select")?.value).toBe("template");
   await clickButton("Validate all records");
   expect(api.mock.calls.some(([input]) => String(input).endsWith("/validate-template"))).toBe(true);
+  expect(api.mock.calls.find(([input]) => String(input).endsWith("/validate-template"))?.[1]?.headers).toMatchObject({
+    "X-Operator-Id": "operator-1",
+  });
   await selectImportMethod("template");
   await clickButton("Confirm template import");
+  expect(api.mock.calls.find(([input]) => String(input).endsWith("/confirm-template"))?.[1]?.headers).toMatchObject({
+    "X-Operator-Id": "operator-1",
+  });
   expect(
     api.mock.calls.some(
       ([input, init]) => String(input).endsWith("/confirm-template") && JSON.parse(String(init?.body)).revision === 2,
     ),
   ).toBe(true);
+  root.unmount();
+});
+
+it.each(["th", "en"] as const)("explains that template validation needs an operator (%s)", async (language) => {
+  const api = mockImportApi("draft", true);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const body = await (await api(input, init)).json();
+    if (String(input).includes("/mapping-requirements")) body.canConfirmTemplate = true;
+    return new Response(JSON.stringify(body));
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language={language} />));
+  await openJob();
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (item) => item.textContent === (language === "th" ? "ตรวจสอบข้อมูลทั้งหมด" : "Validate all records"),
+  );
+  expect(button).toBeDefined();
+  await act(async () => {
+    button?.click();
+    await Promise.resolve();
+  });
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+    language === "th" ? "ต้องเลือกผู้ปฏิบัติงาน" : "Choose an operator",
+  );
+  expect(api.mock.calls.some(([input]) => String(input).endsWith("/validate-template"))).toBe(false);
   root.unmount();
 });
 
@@ -687,6 +719,65 @@ it("shows committed fish status and guarded rollback actions", async () => {
   );
   await clickButton("Check and revert job");
   expect(fetchMock.mock.calls.some(([input]) => String(input).endsWith("/revert"))).toBe(true);
+  root.unmount();
+});
+
+it("allows a committed v5 template to be reverted with a reason", async () => {
+  const api = mockImportApi("committed", true);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await api(input, init);
+    const body = await response.json();
+    if (String(input).includes("/mapping-requirements")) body.canConfirmTemplate = true;
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (item) => item.textContent === "Check and revert job",
+  )!;
+  expect(button.closest("[hidden]")).toBeNull();
+  expect(button.disabled).toBe(true);
+  await fill(button.parentElement!.querySelector<HTMLTextAreaElement>("textarea")!, "Wrong source file");
+  await clickButton("Check and revert job");
+  expect(
+    api.mock.calls.some(
+      ([input, init]) =>
+        String(input).endsWith("/revert") && JSON.parse(String(init?.body)).reason === "Wrong source file",
+    ),
+  ).toBe(true);
+  root.unmount();
+});
+
+it("shows the server conflict when a template rollback has later dependencies", async () => {
+  const api = mockImportApi("committed", true);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/revert")) {
+      return new Response(JSON.stringify({ error: { message: "Fish has newer observations" } }), { status: 409 });
+    }
+    const response = await api(input, init);
+    const body = await response.json();
+    if (String(input).includes("/mapping-requirements")) body.canConfirmTemplate = true;
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+    (item) => item.textContent === "Check and revert job",
+  )!;
+  await fill(button.parentElement!.querySelector<HTMLTextAreaElement>("textarea")!, "Wrong source file");
+  await clickButton("Check and revert job");
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain("Fish has newer observations");
+  expect(document.body.textContent).not.toContain("Import reverted.");
   root.unmount();
 });
 

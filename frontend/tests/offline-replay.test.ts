@@ -130,6 +130,43 @@ describe("browser offline replay", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("replays an admin write after session storage is lost on browser restart", async () => {
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "admin-1", email: "admin@ku.th", role: "admin" }),
+    );
+    localStorage.setItem("chronofish.device_id", "original-device");
+    sessionStorage.setItem("chronofish.operator_id", "original-operator");
+    const queued = await putQueue("/operators", { name: "Offline operator" });
+    sessionStorage.clear();
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "new-operator" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "other-admin", email: "other@ku.th", role: "admin" }),
+    );
+    await drainQueue(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "admin-1", email: "admin@ku.th", role: "admin" }),
+    );
+    await drainQueue();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      "X-Operator-Id": "original-operator",
+      "X-Device-Id": "original-device",
+      "X-Idempotency-Key": queued.key,
+      "X-Actor-User-Id": "admin-1",
+    });
+    expect(await queueCount()).toBe(0);
+    await drainQueue(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("acknowledges a 204 mutation without attempting JSON parsing", async () => {
     vi.stubGlobal("indexedDB", fakeIndexedDB);
     Object.defineProperty(navigator, "onLine", { configurable: true, value: true });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { request } from "../api/client";
 import { formatBangkokDateTime } from "../time";
 import { Toast } from "../toast";
-import type { Language } from "../types";
+import { type Language, text } from "../types";
 
 type InspectFile = {
   name: string;
@@ -627,7 +627,8 @@ export function Imports({ language }: { language: Language }) {
         await reloadJobs();
       }
     } catch (cause) {
-      setError((cause as Error).message);
+      const message = (cause as Error).message;
+      setError(message === "OPERATOR_REQUIRED" ? text[language].operatorRequired : message);
     } finally {
       setBusy(false);
     }
@@ -1893,7 +1894,7 @@ export function Imports({ language }: { language: Language }) {
                         )
                       );
                     })}
-                    <div className="import-page__warning" hidden={Boolean(mappingRequirements?.canConfirmTemplate)}>
+                    <div className="import-page__warning">
                       <h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
                       <p>
                         {th

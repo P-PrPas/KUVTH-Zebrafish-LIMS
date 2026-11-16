@@ -406,7 +406,7 @@ function Workspace({ user, onLogout }: { user: AuthUser; onLogout: () => void })
           </span>
         </div>
         <div className="top-actions">
-          {isAdmin && writePage && (
+          {isAdmin && (writePage || page === "imports") && (
             <details
               className={`operator-menu${currentOperator ? "" : " operator-menu--required"}`}
               ref={operatorMenu}
