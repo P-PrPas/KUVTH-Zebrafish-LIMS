@@ -61,6 +61,34 @@ describe("API write context", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("requires and sends the selected operator for template validation and confirmation only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("/imports/inspect", { method: "POST", body: new FormData() });
+    for (const action of ["validate-template", "confirm-template"]) {
+      await expect(request(`/imports/job-1/${action}`, { method: "POST", body: "{}" })).rejects.toThrow(
+        "OPERATOR_REQUIRED",
+      );
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    sessionStorage.setItem("chronofish.operator_id", "operator-a");
+    for (const action of ["validate-template", "confirm-template"]) {
+      await request(`/imports/job-1/${action}`, { method: "POST", body: "{}" });
+      expect(fetchMock.mock.calls.at(-1)?.[1].headers).toMatchObject({ "X-Operator-Id": "operator-a" });
+    }
+  });
+
+  it("honors supplied context without requiring a session operator", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    await request("/sites", {
+      method: "POST",
+      body: "{}",
+      headers: new Headers({ "x-operator-id": "original-operator" }),
+    });
+    expect(fetchMock.mock.calls[0][1].headers["X-Operator-Id"]).toBe("original-operator");
+  });
+
   it("preserves structured API error details for row-level feedback", async () => {
     vi.stubGlobal(
       "fetch",

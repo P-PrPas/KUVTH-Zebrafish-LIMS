@@ -113,7 +113,7 @@ export function requireOperator(): string {
   return id;
 }
 
-export function mutationHeaders(key = uuidv7()): Record<string, string> {
+export function mutationHeaders(key = uuidv7(), operator = requireOperator()): Record<string, string> {
   let actorUserId = "";
   try {
     actorUserId = JSON.parse(localStorage.getItem("chronofish.auth_user") ?? "null")?.id ?? "";
@@ -121,7 +121,7 @@ export function mutationHeaders(key = uuidv7()): Record<string, string> {
     actorUserId = "";
   }
   return {
-    "X-Operator-Id": requireOperator(),
+    "X-Operator-Id": operator,
     "X-Device-Id": deviceId(),
     "X-Idempotency-Key": key,
     ...(actorUserId ? { "X-Actor-User-Id": actorUserId } : {}),
@@ -145,16 +145,22 @@ export function accountMutationHeaders(key = uuidv7()): Record<string, string> {
 export async function request(path: string, init: RequestInit = {}): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const authRequest = path.startsWith("/auth/");
+  const templateWrite = /^\/imports\/[^/?]+\/(?:validate-template|confirm-template)(?:\?|$)/.test(path);
+  const suppliedOperator = new Headers(init.headers).get("X-Operator-Id") || undefined;
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...(init.body && !(init.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
     ...(method !== "GET" && method !== "HEAD" && !authRequest
-      ? path.startsWith("/corrections") || path.startsWith("/imports")
+      ? path.startsWith("/corrections") || (path.startsWith("/imports") && !templateWrite)
         ? accountMutationHeaders()
-        : mutationHeaders()
+        : mutationHeaders(undefined, suppliedOperator)
       : {}),
-    ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
+  const suppliedHeaders = new Headers(init.headers);
+  suppliedHeaders.forEach((value, name) => {
+    const existing = Object.keys(headers).find((key) => key.toLowerCase() === name);
+    headers[existing ?? name] = value;
+  });
   const response = await fetch(`${apiBase}${path}`, { ...init, credentials: "include", headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: { message?: string; details?: unknown } };

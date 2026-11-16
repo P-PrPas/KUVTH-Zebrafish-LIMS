@@ -10,6 +10,38 @@ import { text } from "../src/types";
 import { withoutIndexedDB } from "./helpers";
 
 describe("browser shell workflows", () => {
+  it("offers admin operator selection on imports without blocking the import workspace", async () => {
+    localStorage.setItem("chronofish.language", "en");
+    localStorage.setItem(
+      "chronofish.auth_user",
+      JSON.stringify({ id: "admin-1", email: "admin@ku.th", role: "admin" }),
+    );
+    sessionStorage.removeItem("chronofish.operator_id");
+    window.history.replaceState(null, "", "/admin#imports");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (input: RequestInfo | URL) =>
+          new Response(
+            JSON.stringify(
+              String(input).endsWith("/auth/me")
+                ? { user: { id: "admin-1", email: "admin@ku.th", role: "admin" } }
+                : { items: [] },
+            ),
+          ),
+      ),
+    );
+    const element = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(element);
+    await act(async () => {
+      root.render(<App />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(element.querySelector(".operator-menu summary")?.textContent).toContain(text.en.chooseOperator);
+    expect(element.querySelector<HTMLFieldSetElement>(".page-gate")?.disabled).toBe(false);
+    expect(element.querySelector('main[data-page="imports"]')).not.toBeNull();
+    await act(async () => root.unmount());
+  });
   it.each(["th", "en"] as const)("keeps operator selection accessible in %s", async (language) => {
     localStorage.setItem("chronofish.language", language);
     sessionStorage.removeItem("chronofish.operator_id");

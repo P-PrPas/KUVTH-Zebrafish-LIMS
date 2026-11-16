@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { request } from "../api/client";
 import { formatBangkokDateTime } from "../time";
 import { Toast } from "../toast";
-import type { Language } from "../types";
+import { type Language, text } from "../types";
 
 type InspectFile = {
   name: string;
@@ -167,6 +167,7 @@ export function Imports({ language }: { language: Language }) {
   const th = language === "th";
   const [jobs, setJobs] = useState<Job[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [inspection, setInspection] = useState<Inspect | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [csvOptions, setCsvOptions] = useState<
@@ -211,6 +212,7 @@ export function Imports({ language }: { language: Language }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [refreshNeeded, setRefreshNeeded] = useState<"committed" | "reverted" | null>(null);
   const [importStep, setImportStep] = useState(2);
   const [confirmationMode, setConfirmationMode] = useState("mixed");
   const [issueFilter, setIssueFilter] = useState("all");
@@ -370,6 +372,7 @@ export function Imports({ language }: { language: Language }) {
       json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=50`),
     ]);
     setDetail(nextDetail);
+    if (newJob) setRefreshNeeded(null);
     if (newJob || nextDetail.job.status !== "draft") {
       setImportStep(nextDetail.job.status === "draft" ? 2 : 5);
       setConfirmationMode(
@@ -477,10 +480,11 @@ export function Imports({ language }: { language: Language }) {
       for (const file of files) form.append("files", file);
       form.append("selection", JSON.stringify(selection));
       const created = await json<{ job: Job; deferredFieldCount: number }>("/imports", { method: "POST", body: form });
-      await reloadJobs();
-      await openJob(created.job.id);
       setInspection(null);
       setFiles([]);
+      if (fileInput.current) fileInput.current.value = "";
+      await reloadJobs();
+      await openJob(created.job.id);
       setNotice(
         th
           ? `บันทึกฉบับร่างแล้ว มี ${created.deferredFieldCount} ค่ารอเพิ่มฟิลด์ในภายหลัง`
@@ -613,7 +617,7 @@ export function Imports({ language }: { language: Language }) {
     setError("");
     setNotice("");
     try {
-      const result = await json<{ recordCount: number }>(
+      const result = await json<{ recordCount: number; revision: number }>(
         `/imports/${detail.job.id}/${commit ? "confirm-template" : "validate-template"}`,
         { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
       );
@@ -623,9 +627,33 @@ export function Imports({ language }: { language: Language }) {
           : `${result.recordCount} records ${commit ? "imported" : "validated"}.`,
       );
       if (commit) {
-        await openJob(detail.job.id);
-        await reloadJobs();
+        setDetail({ ...detail, job: { ...detail.job, status: "committed", revision: result.revision } });
+        setImportStep(5);
+        setHistoricalSummary(null);
+        try {
+          await openJob(detail.job.id);
+          await reloadJobs();
+          setRefreshNeeded(null);
+        } catch {
+          setRefreshNeeded("committed");
+        }
       }
+    } catch (cause) {
+      const message = (cause as Error).message;
+      setError(message === "OPERATOR_REQUIRED" ? text[language].operatorRequired : message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryImportRefresh() {
+    if (!detail) return;
+    setBusy(true);
+    setError("");
+    try {
+      await openJob(detail.job.id);
+      await reloadJobs();
+      setRefreshNeeded(null);
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -794,14 +822,22 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/${detail.job.id}/revert`, {
+      const result = await json<{ revision: number }>(`/imports/${detail.job.id}/revert`, {
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, reason: revertReason }),
       });
-      await reloadJobs();
-      await openJob(detail.job.id);
+      setDetail({ ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } });
+      setImportStep(5);
+      setHistoricalSummary(null);
       setRevertReason("");
       setNotice(th ? "ย้อนงานนำเข้าแล้ว" : "Import reverted.");
+      try {
+        await openJob(detail.job.id);
+        await reloadJobs();
+        setRefreshNeeded(null);
+      } catch {
+        setRefreshNeeded("reverted");
+      }
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -822,6 +858,22 @@ export function Imports({ language }: { language: Language }) {
           </p>
         </div>
       </header>
+      {refreshNeeded && (
+        <div role="status" className="import-page__warning">
+          <p>
+            {refreshNeeded === "committed"
+              ? th
+                ? "นำเข้าสำเร็จแล้ว แต่โหลดผลล่าสุดไม่สำเร็จ กรุณาลองโหลดผลอีกครั้ง ไม่ต้องยืนยันนำเข้าซ้ำ"
+                : "Import succeeded, but the latest results could not be loaded. Retry the refresh; do not confirm the import again."
+              : th
+                ? "ย้อนงานสำเร็จแล้ว แต่โหลดผลล่าสุดไม่สำเร็จ กรุณาลองโหลดผลอีกครั้ง ไม่ต้องย้อนงานซ้ำ"
+                : "Revert succeeded, but the latest results could not be loaded. Retry the refresh; do not revert again."}
+          </p>
+          <button type="button" disabled={busy} onClick={() => void retryImportRefresh()}>
+            {th ? "โหลดผลอีกครั้ง" : "Retry loading results"}
+          </button>
+        </div>
+      )}
       <Toast
         notice={
           error
@@ -886,6 +938,7 @@ export function Imports({ language }: { language: Language }) {
                   : "One XLSX file, or multiple CSV files with one sheet per file."}
               </p>
               <input
+                ref={fileInput}
                 aria-label={th ? "ไฟล์นำเข้า" : "Import files"}
                 type="file"
                 multiple
@@ -1126,8 +1179,8 @@ export function Imports({ language }: { language: Language }) {
                     <h3>{th ? "ตรวจไฟล์ซ้ำและความต่างก่อนนำเข้า" : "Review duplicate sources and changes"}</h3>
                     <p>
                       {th
-                        ? "รหัสปลาหรือตัวอย่างที่มีอยู่จะนำเข้าซ้ำไม่ได้ ถ้าต้องแก้ข้อมูลเก่า ให้ตรวจ dependency และย้อนงานเดิมก่อน แล้วจึงนำเข้าไฟล์ที่แก้แล้ว"
-                        : "Existing fish or specimen codes cannot be imported twice. Review dependencies and revert the previous job before a corrected reimport."}
+                        ? "รหัสรอบทดลอง ตัวอ่อน ปลา และตัวอย่างที่เคยใช้อาจยังถูกสงวนแม้ย้อนงานแล้ว การย้อนงานไม่รับประกันว่าจะใช้รหัสเดิมนำเข้าซ้ำได้ หากต้องแก้ข้อมูลที่ยังใช้งาน ให้ใช้ขั้นตอนแก้ไขข้อมูลหรือคำร้องแก้ไข หากต้องใช้รหัสเดิมหลังย้อนงาน ให้ติดต่อผู้ดูแลระบบเพื่อวางแผนกู้คืนและตรวจสอบประวัติ"
+                        : "Previously used batch, embryo, fish and specimen codes may remain reserved after a revert. To correct active data, use the existing edit or correction workflow. To reuse codes after a revert, contact an administrator to plan recovery and reconciliation."}
                     </p>
                     {comparison.matchedFiles.map((match, index) => (
                       <p key={index}>
@@ -1893,12 +1946,17 @@ export function Imports({ language }: { language: Language }) {
                         )
                       );
                     })}
-                    <div className="import-page__warning" hidden={Boolean(mappingRequirements?.canConfirmTemplate)}>
+                    <div className="import-page__warning">
                       <h4>{th ? "ย้อนงานนำเข้า" : "Revert import"}</h4>
                       <p>
                         {th
                           ? "ระบบจะปฏิเสธถ้ามีข้อมูลใหม่อ้างอิงหรือมีการแก้ไขหลังนำเข้า"
                           : "Revert is refused if later records depend on this import or imported records changed."}
+                      </p>
+                      <p>
+                        {th
+                          ? "หลังย้อนงาน รหัสรอบทดลอง ตัวอ่อน ปลา และตัวอย่างอาจยังถูกสงวนและนำเข้าซ้ำด้วยรหัสเดิมไม่ได้ หากต้องใช้รหัสเดิม กรุณาติดต่อผู้ดูแลระบบก่อนย้อนงาน"
+                          : "Batch, embryo, fish and specimen codes may remain reserved after revert. Contact an administrator before reverting if those codes must be reused."}
                       </p>
                       <label>
                         {th ? "เหตุผล" : "Reason"}
