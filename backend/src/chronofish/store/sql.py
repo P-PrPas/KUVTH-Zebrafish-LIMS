@@ -185,21 +185,12 @@ class SQLStore:
     def snapshot(self) -> State:
         with self.engine.connect().execution_options(isolation_level="REPEATABLE READ") as connection:
             with connection.begin():
-                return self._load_state(connection)
-
-    def load_state(self, connection: Connection) -> State:
-        return self._load_state(connection)
-
-    def persist_changes(self, connection: Connection, before: State, after: State) -> None:
-        self._persist(connection, before, after)
-
-    def insert_row(self, connection: Connection, table: str, values: dict[str, Any]) -> None:
-        self._insert(connection, table, values)
+                return self.load_state(connection)
 
     def _rows(self, connection: Connection, table: str) -> list[dict[str, Any]]:
         return [dict(row) for row in connection.execute(text(f"SELECT * FROM {table}")).mappings()]
 
-    def _load_state(self, connection: Connection) -> State:
+    def load_state(self, connection: Connection) -> State:
         state = State()
         stages = self._rows(connection, "stage_definition")
         stage_by_id = {str(row["id"]): str(row["code"]) for row in stages}
@@ -347,7 +338,7 @@ class SQLStore:
             values["updated_at"] = values.get("created_at") or datetime.now(UTC).replace(tzinfo=None)
         return values
 
-    def _insert(self, connection: Connection, table: str, values: dict[str, Any]) -> None:
+    def insert_row(self, connection: Connection, table: str, values: dict[str, Any]) -> None:
         columns = list(values)
         marks = ", ".join(f":{column}" for column in columns)
         connection.execute(text(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({marks})"), values)
@@ -377,7 +368,7 @@ class SQLStore:
                 if table == "embryo":
                     # New observations reference this embryo; write the reverse FK after both exist.
                     values["first_abnormal_observation_id"] = None
-                self._insert(connection, table, values)
+                self.insert_row(connection, table, values)
             elif not inserts and previous is not None and previous != item:
                 self._update(connection, table, item_id, self._db_row(table, item, stage_ids))
 
@@ -389,7 +380,7 @@ class SQLStore:
                 continue
             for entry in profile.get("entries", []):
                 now = datetime.now(UTC).replace(tzinfo=None)
-                self._insert(
+                self.insert_row(
                     connection,
                     "stage_timing",
                     {
@@ -403,7 +394,7 @@ class SQLStore:
                     },
                 )
 
-    def _persist(self, connection: Connection, before: State, after: State) -> None:
+    def persist_changes(self, connection: Connection, before: State, after: State) -> None:
         for user_id, change in after.operator_changes.items():
             operator = connection.execute(
                 text("SELECT id FROM operator WHERE id = :id AND active = :active AND deleted_at IS NULL FOR UPDATE"),
@@ -502,11 +493,11 @@ class SQLStore:
                 "updated_at": _database_value("updated_at", item["updatedAt"]),
             }
             if previous is None:
-                self._insert(connection, "correction_request", values)
+                self.insert_row(connection, "correction_request", values)
             else:
                 self._update(connection, "correction_request", item_id, values)
         for item in after.audits[len(before.audits) :]:
-            self._insert(
+            self.insert_row(
                 connection,
                 "audit_log",
                 {
@@ -540,7 +531,7 @@ class SQLStore:
                     text("SELECT next_running_no FROM fish_running_sequence WHERE id = :id FOR UPDATE"),
                     {"id": FISH_SEQUENCE_ID},
                 ).scalar_one()
-                state = self._load_state(connection)
+                state = self.load_state(connection)
                 context = validate_write_context(request, state, body, write_kind(request))
                 request.state.write_context = context
                 key = context.idempotency_key
@@ -569,9 +560,9 @@ class SQLStore:
                     return Response(content, int(previous["status_code"]), media_type=str(previous["content_type"]))
                 before = copy.deepcopy(state)
                 status, media_type, encoded = encode_result(operation(state))
-                self._persist(connection, before, state)
+                self.persist_changes(connection, before, state)
                 now = datetime.now(UTC).replace(tzinfo=None)
-                self._insert(
+                self.insert_row(
                     connection,
                     "request_idempotency",
                     {
