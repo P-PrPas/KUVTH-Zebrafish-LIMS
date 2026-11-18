@@ -187,6 +187,15 @@ class SQLStore:
             with connection.begin():
                 return self._load_state(connection)
 
+    def load_state(self, connection: Connection) -> State:
+        return self._load_state(connection)
+
+    def persist_changes(self, connection: Connection, before: State, after: State) -> None:
+        self._persist(connection, before, after)
+
+    def insert_row(self, connection: Connection, table: str, values: dict[str, Any]) -> None:
+        self._insert(connection, table, values)
+
     def _rows(self, connection: Connection, table: str) -> list[dict[str, Any]]:
         return [dict(row) for row in connection.execute(text(f"SELECT * FROM {table}")).mappings()]
 
