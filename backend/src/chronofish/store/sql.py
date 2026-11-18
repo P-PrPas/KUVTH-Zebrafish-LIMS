@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..config import Config
 from ..domain.state import State
+from ..runtime.audit import insert_audit
 from ..runtime.errors import APIError
 from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context, write_kind
 from ..runtime.values import parse_datetime, uuid7
@@ -497,27 +498,7 @@ class SQLStore:
             else:
                 self._update(connection, "correction_request", item_id, values)
         for item in after.audits[len(before.audits) :]:
-            self.insert_row(
-                connection,
-                "audit_log",
-                {
-                    "id": item["id"],
-                    "table_name": item["tableName"],
-                    "record_id": item["recordId"],
-                    "action": item["action"],
-                    "old_values": json.dumps(item.get("oldValues"), ensure_ascii=False, default=str)
-                    if item.get("oldValues") is not None
-                    else None,
-                    "new_values": json.dumps(item.get("newValues"), ensure_ascii=False, default=str)
-                    if item.get("newValues") is not None
-                    else None,
-                    "operator_id": item.get("operatorId"),
-                    "device_id": item.get("deviceId"),
-                    "actor_user_id": item.get("actorUserId"),
-                    "actor_email": item.get("actorEmail"),
-                    "occurred_at": _database_value("occurred_at", item["occurredAt"]),
-                },
-            )
+            insert_audit(connection, item)
         connection.execute(
             text("UPDATE fish_running_sequence SET next_running_no = :value WHERE id = :id"),
             {"value": after.next_fish_no, "id": FISH_SEQUENCE_ID},

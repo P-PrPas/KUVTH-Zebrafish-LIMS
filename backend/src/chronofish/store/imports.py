@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
+from ..runtime.audit import audit_entry, insert_audit
 from ..runtime.errors import APIError
 from ..runtime.mutations import WriteContext
 from ..runtime.values import uuid7
@@ -654,14 +655,17 @@ class ImportRepository:
                 ),
                 {"table": table, "target": target_id, "field": field, "actor": actor["id"], "now": now, "id": field_id},
             )
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                table,
-                str(target_id),
-                {field: target[field]},
-                {field: value.strip(), "reason": reason.strip(), "sourceFieldId": field_id},
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    table,
+                    str(target_id),
+                    {field: target[field]},
+                    {field: value.strip(), "reason": reason.strip(), "sourceFieldId": field_id},
+                    occurred_at=now,
+                ),
             )
             return {
                 "id": field_id,
@@ -1730,7 +1734,9 @@ class ImportRepository:
                 )
                 inserted_specimens[code.casefold()] = specimen_id
                 targets[record["id"]] = ("specimen", specimen_id)
-                self._audit_insert(connection, actor, "specimen", specimen_id, meaning, now)
+                insert_audit(
+                    connection, audit_entry(actor, "INSERT", "specimen", specimen_id, None, meaning, occurred_at=now)
+                )
             fish_count = 0
             observation_count = 0
             historical_rows: list[dict[str, Any]] = []
@@ -1771,18 +1777,22 @@ class ImportRepository:
                 next_no += 1
                 fish_count += 1
                 targets[record["id"]] = ("clone_fish", fish_id)
-                self._audit_insert(
+                insert_audit(
                     connection,
-                    actor,
-                    "clone_fish",
-                    fish_id,
-                    {
-                        "fishCode": meaning["fishCode"],
-                        "sourceRecordId": record["id"],
-                        "disabilityAtRegistration": meaning["biologicalCondition"] == "ABNORMAL",
-                        "isDisabled": meaning["biologicalCondition"] == "ABNORMAL",
-                    },
-                    now,
+                    audit_entry(
+                        actor,
+                        "INSERT",
+                        "clone_fish",
+                        fish_id,
+                        None,
+                        {
+                            "fishCode": meaning["fishCode"],
+                            "sourceRecordId": record["id"],
+                            "disabilityAtRegistration": meaning["biologicalCondition"] == "ABNORMAL",
+                            "isDisabled": meaning["biologicalCondition"] == "ABNORMAL",
+                        },
+                        occurred_at=now,
+                    ),
                 )
                 for code in meaning["sourceSpecimenCodes"]:
                     specimen_id = inserted_specimens.get(str(code).strip().casefold())
@@ -1871,8 +1881,17 @@ class ImportRepository:
             ),
             {"actor": actor["id"], "now": now, "id": job_id},
         )
-        ImportRepository._audit(
-            connection, actor, "import_job", job_id, {"status": "draft"}, {"status": "committed", **audit}, now
+        insert_audit(
+            connection,
+            audit_entry(
+                actor,
+                "UPDATE",
+                "import_job",
+                job_id,
+                {"status": "draft"},
+                {"status": "committed", **audit},
+                occurred_at=now,
+            ),
         )
 
     def _commit_job(
@@ -2127,27 +2146,6 @@ class ImportRepository:
             {"now": now, "job": job_id},
         )
 
-    @staticmethod
-    def _audit_insert(
-        connection: Any, actor: dict[str, Any], table: str, record_id: str, value: dict[str, Any], now: datetime
-    ) -> None:
-        connection.execute(
-            text(
-                "INSERT INTO audit_log (id, table_name, record_id, action, new_values, "
-                "actor_user_id, actor_email, occurred_at) VALUES "
-                "(:id, :table, :record, 'INSERT', :new, :actor, :email, :now)"
-            ),
-            {
-                "id": uuid7(),
-                "table": table,
-                "record": record_id,
-                "new": json.dumps(value, ensure_ascii=False),
-                "actor": actor["id"],
-                "email": actor["email"],
-                "now": now,
-            },
-        )
-
     def fish_statuses(self, job_id: str) -> list[dict[str, Any]]:
         self._job(job_id)
         if self.engine is None:
@@ -2397,7 +2395,9 @@ class ImportRepository:
                     "fish": fish_id,
                 },
             )
-            self._audit(connection, actor, "clone_fish", fish_id, before, after, now)
+            insert_audit(
+                connection, audit_entry(actor, "UPDATE", "clone_fish", fish_id, before, after, occurred_at=now)
+            )
             return {"id": fish_id, **after, "rowVersion": version + 1}
 
     @staticmethod
@@ -2440,14 +2440,17 @@ class ImportRepository:
                         ),
                         {"actor": actor["id"], "now": now, "job": job_id},
                     )
-                    self._audit(
+                    insert_audit(
                         connection,
-                        actor,
-                        "import_job",
-                        job_id,
-                        {"status": "committed"},
-                        {"status": "reverted", "reason": reason.strip()},
-                        now,
+                        audit_entry(
+                            actor,
+                            "UPDATE",
+                            "import_job",
+                            job_id,
+                            {"status": "committed"},
+                            {"status": "reverted", "reason": reason.strip()},
+                            occurred_at=now,
+                        ),
                     )
                     return {"jobId": job_id, "status": "reverted", "revision": revision + 1}
             targets = [
@@ -2481,14 +2484,17 @@ class ImportRepository:
                     ),
                     {"actor": actor["id"], "now": now, "job": job_id},
                 )
-                self._audit(
+                insert_audit(
                     connection,
-                    actor,
-                    "import_job",
-                    job_id,
-                    {"status": "committed"},
-                    {"status": "reverted", "reason": reason.strip(), "historicalCountRows": count},
-                    now,
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_job",
+                        job_id,
+                        {"status": "committed"},
+                        {"status": "reverted", "reason": reason.strip(), "historicalCountRows": count},
+                        occurred_at=now,
+                    ),
                 )
                 return {"jobId": job_id, "status": "reverted", "revision": revision + 1, "historicalCountRows": count}
             if targets and all(row["target_table"] == "historical_embryo" for row in targets):
@@ -2539,14 +2545,17 @@ class ImportRepository:
                     ),
                     {"actor": actor["id"], "now": now, "job": job_id},
                 )
-                self._audit(
+                insert_audit(
                     connection,
-                    actor,
-                    "import_job",
-                    job_id,
-                    {"status": "committed"},
-                    {"status": "reverted", "reason": reason.strip(), "historicalEmbryoCount": len(embryo_ids)},
-                    now,
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_job",
+                        job_id,
+                        {"status": "committed"},
+                        {"status": "reverted", "reason": reason.strip(), "historicalEmbryoCount": len(embryo_ids)},
+                        occurred_at=now,
+                    ),
                 )
                 return {
                     "jobId": job_id,
@@ -2683,21 +2692,24 @@ class ImportRepository:
                 ),
                 {"actor": actor["id"], "now": now, "job": job_id},
             )
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                "import_job",
-                job_id,
-                {"status": "committed"},
-                {
-                    "status": "reverted",
-                    "reason": reason.strip(),
-                    "fishCount": len(fish_ids),
-                    "specimenCount": len(specimen_ids),
-                    "historicalEmbryoCount": len(embryo_ids),
-                    "historicalCountRecords": len(count_record_ids),
-                },
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "import_job",
+                    job_id,
+                    {"status": "committed"},
+                    {
+                        "status": "reverted",
+                        "reason": reason.strip(),
+                        "fishCount": len(fish_ids),
+                        "specimenCount": len(specimen_ids),
+                        "historicalEmbryoCount": len(embryo_ids),
+                        "historicalCountRecords": len(count_record_ids),
+                    },
+                    occurred_at=now,
+                ),
             )
             return {
                 "jobId": job_id,
@@ -2708,34 +2720,6 @@ class ImportRepository:
                 "historicalEmbryoCount": len(embryo_ids),
                 "historicalCountRecords": len(count_record_ids),
             }
-
-    @staticmethod
-    def _audit(
-        connection: Any,
-        actor: dict[str, Any],
-        table: str,
-        record_id: str,
-        before: dict[str, Any],
-        after: dict[str, Any],
-        now: datetime,
-    ) -> None:
-        connection.execute(
-            text(
-                "INSERT INTO audit_log (id, table_name, record_id, action, old_values, new_values, "
-                "actor_user_id, actor_email, occurred_at) VALUES "
-                "(:id, :table, :record, 'UPDATE', :old, :new, :actor, :email, :now)"
-            ),
-            {
-                "id": uuid7(),
-                "table": table,
-                "record": record_id,
-                "old": json.dumps(before, ensure_ascii=False),
-                "new": json.dumps(after, ensure_ascii=False),
-                "actor": actor["id"],
-                "email": actor["email"],
-                "now": now,
-            },
-        )
 
     def revise_record(
         self, job_id: str, record_id: str, working: dict[str, Any], reason: str, revision: int, actor: dict[str, Any]
@@ -2762,7 +2746,9 @@ class ImportRepository:
                 row["updated_at"] = now
                 job["revision"] += 1
                 job["updated_at"] = now
-                self._memory_audit(actor, "import_record", record_id, before, after, now)
+                self.store.state.audits.append(
+                    audit_entry(actor, "UPDATE", "import_record", record_id, before, after, occurred_at=now)
+                )
                 return {"revision": job["revision"], "working": working}
         with self.engine.begin() as connection:
             job = (
@@ -2781,14 +2767,17 @@ class ImportRepository:
             if job is None or row is None:
                 raise APIError(404, "not_found", "Import record was not found")
             self._check_draft(job, revision)
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                "import_record",
-                record_id,
-                {"working": json.loads(row["working_json"])},
-                {"working": working, "reason": reason.strip()},
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "import_record",
+                    record_id,
+                    {"working": json.loads(row["working_json"])},
+                    {"working": working, "reason": reason.strip()},
+                    occurred_at=now,
+                ),
             )
             connection.execute(
                 text("UPDATE import_record SET working_json = :working, updated_at = :now WHERE id = :id"),
@@ -2890,13 +2879,16 @@ class ImportRepository:
                 )
                 job["revision"] += 1
                 job["updated_at"] = now
-                self._memory_audit(
-                    actor,
-                    "import_issue",
-                    issue_id,
-                    before,
-                    {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value},
-                    now,
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_issue",
+                        issue_id,
+                        before,
+                        {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value},
+                        occurred_at=now,
+                    )
                 )
                 return {"revision": job["revision"], "status": decision}
         with self.engine.begin() as connection:
@@ -2933,14 +2925,17 @@ class ImportRepository:
                 if record is None:
                     raise APIError(409, "not_correctable", "This issue needs a corrected source upload")
                 self._validate_issue_correction(issue, record, json.loads(record["working_json"]))
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                "import_issue",
-                issue_id,
-                {"status": issue["status"]},
-                {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value},
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "import_issue",
+                    issue_id,
+                    {"status": issue["status"]},
+                    {"status": decision, "reason": reason.strip(), "resolutionValue": resolution_value},
+                    occurred_at=now,
+                ),
             )
             connection.execute(
                 text(
@@ -2999,21 +2994,27 @@ class ImportRepository:
                 )
                 job["revision"] += 1
                 job["updated_at"] = now
-                self._memory_audit(
-                    actor,
-                    "import_record",
-                    record["id"],
-                    {"working": before},
-                    {"working": working, "reason": reason.strip()},
-                    now,
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_record",
+                        record["id"],
+                        {"working": before},
+                        {"working": working, "reason": reason.strip()},
+                        occurred_at=now,
+                    )
                 )
-                self._memory_audit(
-                    actor,
-                    "import_issue",
-                    issue_id,
-                    {"status": "open"},
-                    {"status": "corrected", "value": value.strip(), "reason": reason.strip()},
-                    now,
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_issue",
+                        issue_id,
+                        {"status": "open"},
+                        {"status": "corrected", "value": value.strip(), "reason": reason.strip()},
+                        occurred_at=now,
+                    )
                 )
                 return {"revision": job["revision"], "status": "corrected", "working": working}
         with self.engine.begin() as connection:
@@ -3051,23 +3052,29 @@ class ImportRepository:
             encoded = json.dumps(working, ensure_ascii=False, separators=(",", ":"))
             if len(encoded) > 1_000_000:
                 raise APIError(413, "record_too_large", "Corrected record is too large")
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                "import_record",
-                str(record["id"]),
-                {"working": json.loads(record["working_json"])},
-                {"working": working, "reason": reason.strip()},
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "import_record",
+                    str(record["id"]),
+                    {"working": json.loads(record["working_json"])},
+                    {"working": working, "reason": reason.strip()},
+                    occurred_at=now,
+                ),
             )
-            self._audit(
+            insert_audit(
                 connection,
-                actor,
-                "import_issue",
-                issue_id,
-                {"status": "open"},
-                {"status": "corrected", "value": value.strip(), "reason": reason.strip()},
-                now,
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "import_issue",
+                    issue_id,
+                    {"status": "open"},
+                    {"status": "corrected", "value": value.strip(), "reason": reason.strip()},
+                    occurred_at=now,
+                ),
             )
             connection.execute(
                 text("UPDATE import_record SET working_json = :working, updated_at = :now WHERE id = :id"),
@@ -3116,13 +3123,16 @@ class ImportRepository:
                         resolved_by_user_id=actor["id"],
                         updated_at=now,
                     )
-                    self._memory_audit(
-                        actor,
-                        "import_issue",
-                        issue_id,
-                        {"status": "open"},
-                        {"status": "bypassed", "reason": reason.strip()},
-                        now,
+                    self.store.state.audits.append(
+                        audit_entry(
+                            actor,
+                            "UPDATE",
+                            "import_issue",
+                            issue_id,
+                            {"status": "open"},
+                            {"status": "bypassed", "reason": reason.strip()},
+                            occurred_at=now,
+                        )
                     )
                 job["revision"] += 1
                 job["updated_at"] = now
@@ -3156,42 +3166,20 @@ class ImportRepository:
                     ),
                     {"reason": reason.strip(), "actor": actor["id"], "now": now, "id": issue_id},
                 )
-                self._audit(
+                insert_audit(
                     connection,
-                    actor,
-                    "import_issue",
-                    issue_id,
-                    {"status": "open"},
-                    {"status": "bypassed", "reason": reason.strip()},
-                    now,
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_issue",
+                        issue_id,
+                        {"status": "open"},
+                        {"status": "bypassed", "reason": reason.strip()},
+                        occurred_at=now,
+                    ),
                 )
             connection.execute(
                 text("UPDATE import_job SET revision = revision + 1, updated_at = :now WHERE id = :id"),
                 {"now": now, "id": job_id},
             )
             return {"revision": int(job["revision"]) + 1, "bypassedCount": len(issue_ids)}
-
-    def _memory_audit(
-        self,
-        actor: dict[str, Any],
-        table: str,
-        record_id: str,
-        before: dict[str, Any],
-        after: dict[str, Any],
-        now: datetime,
-    ) -> None:
-        self.store.state.audits.append(
-            {
-                "id": uuid7(),
-                "tableName": table,
-                "recordId": record_id,
-                "action": "UPDATE",
-                "oldValues": before,
-                "newValues": after,
-                "operatorId": None,
-                "deviceId": None,
-                "actorUserId": actor["id"],
-                "actorEmail": actor["email"],
-                "occurredAt": _iso(now),
-            }
-        )

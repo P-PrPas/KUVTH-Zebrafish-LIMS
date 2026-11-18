@@ -24,6 +24,7 @@ from ..domain.signin import (
 from ..domain.signin import (
     as_utc as _utc,
 )
+from ..runtime.audit import audit_entry, insert_audit
 from ..runtime.email import validated_email
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
@@ -485,7 +486,11 @@ class AuthRepository:
                     challenge = self.store.auth_challenges.get(email)
                     if challenge:
                         challenge.update(code_hash="", expires_at=now)
-                    self._memory_audit(actor, "UPDATE", existing["id"], old, _user_payload(existing), now)
+                    self.store.state.audits.append(
+                        audit_entry(
+                            actor, "UPDATE", "auth_user", existing["id"], old, _user_payload(existing), occurred_at=now
+                        )
+                    )
                     return dict(existing)
                 if existing:
                     raise APIError(409, "already_invited", "This email already has an account")
@@ -501,8 +506,16 @@ class AuthRepository:
                     "updated_at": now,
                 }
                 self.store.auth_users[user_id] = user
-                self._memory_audit(
-                    actor, "INSERT", user_id, None, {"email": email, "role": "member", "active": True}, now
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "INSERT",
+                        "auth_user",
+                        user_id,
+                        None,
+                        {"email": email, "role": "member", "active": True},
+                        occurred_at=now,
+                    )
                 )
                 return dict(user)
         with self.engine.begin() as connection:
@@ -529,8 +542,17 @@ class AuthRepository:
                     .mappings()
                     .one()
                 )
-                self._sql_audit(
-                    connection, actor, "UPDATE", existing["id"], _user_payload(existing), _user_payload(row), now
+                insert_audit(
+                    connection,
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "auth_user",
+                        existing["id"],
+                        _user_payload(existing),
+                        _user_payload(row),
+                        occurred_at=now,
+                    ),
                 )
                 return _user_payload(row)
             if existing:
@@ -543,8 +565,17 @@ class AuthRepository:
                 ),
                 {"id": user_id, "email": email, "active": True, "now": _stored(now), "actor": actor["id"]},
             )
-            self._sql_audit(
-                connection, actor, "INSERT", user_id, None, {"email": email, "role": "member", "active": True}, now
+            insert_audit(
+                connection,
+                audit_entry(
+                    actor,
+                    "INSERT",
+                    "auth_user",
+                    user_id,
+                    None,
+                    {"email": email, "role": "member", "active": True},
+                    occurred_at=now,
+                ),
             )
             row = connection.execute(text("SELECT * FROM auth_user WHERE id = :id"), {"id": user_id}).mappings().one()
             return _user_payload(row)
@@ -634,7 +665,11 @@ class AuthRepository:
                         window_started_at=now,
                         failed_window_started_at=now,
                     )
-                self._memory_audit(actor, "UPDATE", user_id, None, {"loginUnlockedAt": _iso(now)}, now)
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor, "UPDATE", "auth_user", user_id, None, {"loginUnlockedAt": _iso(now)}, occurred_at=now
+                    )
+                )
             return
         with self.engine.begin() as connection:
             user = connection.execute(
@@ -651,7 +686,12 @@ class AuthRepository:
                 {"email": user[0], "now": _stored(now), "last": _stored(_utc(now) - OTP_COOLDOWN)},
             )
             connection.execute(text("DELETE FROM auth_login_failure WHERE email = :email"), {"email": user[0]})
-            self._sql_audit(connection, actor, "UPDATE", user_id, None, {"loginUnlockedAt": _iso(now)}, now)
+            insert_audit(
+                connection,
+                audit_entry(
+                    actor, "UPDATE", "auth_user", user_id, None, {"loginUnlockedAt": _iso(now)}, occurred_at=now
+                ),
+            )
 
     def update_user(
         self, user_id: str, changes: dict[str, Any], actor: dict[str, Any], now: datetime
@@ -694,7 +734,9 @@ class AuthRepository:
                 user["updated_at"] = now
                 new = {"role": user["role"], "active": user["active"], "operatorId": user.get("operator_id")}
                 if old != new:
-                    self._memory_audit(actor, "UPDATE", user_id, old, new, now)
+                    self.store.state.audits.append(
+                        audit_entry(actor, "UPDATE", "auth_user", user_id, old, new, occurred_at=now)
+                    )
                 if changes.get("active") is False:
                     for session in self.store.auth_sessions.values():
                         if session["user_id"] == user_id and session["revoked_at"] is None:
@@ -776,7 +818,7 @@ class AuthRepository:
                 "operatorId": str(updated["operator_id"]) if updated["operator_id"] else None,
             }
             if old != new:
-                self._sql_audit(connection, actor, "UPDATE", user_id, old, new, now)
+                insert_audit(connection, audit_entry(actor, "UPDATE", "auth_user", user_id, old, new, occurred_at=now))
             return _user_payload(updated)
 
     def _validate_update(
@@ -921,8 +963,16 @@ class AuthRepository:
             with self.lock:
                 old = self.store.auth_settings.get("sender_email")
                 self.store.auth_settings["sender_email"] = email
-                self._memory_audit(
-                    actor, "UPDATE", "sender_email", {"senderEmail": old}, {"senderEmail": email}, now, "auth_setting"
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "auth_setting",
+                        "sender_email",
+                        {"senderEmail": old},
+                        {"senderEmail": email},
+                        occurred_at=now,
+                    )
                 )
             return
         with self.engine.begin() as connection:
@@ -947,25 +997,29 @@ class AuthRepository:
                     ),
                     {"value": email, "now": _stored(now), "actor": actor["id"]},
                 )
-            self._sql_audit(
+            insert_audit(
                 connection,
-                actor,
-                "UPDATE",
-                "sender_email",
-                {"senderEmail": old},
-                {"senderEmail": email},
-                now,
-                "auth_setting",
+                audit_entry(
+                    actor,
+                    "UPDATE",
+                    "auth_setting",
+                    "sender_email",
+                    {"senderEmail": old},
+                    {"senderEmail": email},
+                    occurred_at=now,
+                ),
             )
 
     def record_invitation_sent(self, user_id: str, actor: dict[str, Any], now: datetime) -> None:
         payload = {"invitationSentAt": _iso(now)}
         if self.engine is None:
             with self.lock:
-                self._memory_audit(actor, "UPDATE", user_id, None, payload, now)
+                self.store.state.audits.append(
+                    audit_entry(actor, "UPDATE", "auth_user", user_id, None, payload, occurred_at=now)
+                )
             return
         with self.engine.begin() as connection:
-            self._sql_audit(connection, actor, "UPDATE", user_id, None, payload, now)
+            insert_audit(connection, audit_entry(actor, "UPDATE", "auth_user", user_id, None, payload, occurred_at=now))
 
     def revoke_session(self, user_id: str, session_id: str, actor: dict[str, Any], now: datetime) -> None:
         if self.engine is None:
@@ -978,8 +1032,16 @@ class AuthRepository:
                     raise APIError(404, "not_found", "Session was not found")
                 old = {"userId": user_id, "deviceId": session["device_id"], "revokedAt": _iso(session["revoked_at"])}
                 session["revoked_at"] = now
-                self._memory_audit(
-                    actor, "UPDATE", session_id, old, {**old, "revokedAt": _iso(now)}, now, "auth_session"
+                self.store.state.audits.append(
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "auth_session",
+                        session_id,
+                        old,
+                        {**old, "revokedAt": _iso(now)},
+                        occurred_at=now,
+                    )
                 )
                 return
         with self.engine.begin() as connection:
@@ -1006,64 +1068,9 @@ class AuthRepository:
             ).rowcount
             if not changed:
                 raise APIError(404, "not_found", "Active session was not found")
-            self._sql_audit(
-                connection, actor, "UPDATE", session_id, old, {**old, "revokedAt": _iso(now)}, now, "auth_session"
+            insert_audit(
+                connection,
+                audit_entry(
+                    actor, "UPDATE", "auth_session", session_id, old, {**old, "revokedAt": _iso(now)}, occurred_at=now
+                ),
             )
-
-    def _memory_audit(
-        self,
-        actor: dict[str, Any],
-        action: str,
-        user_id: str,
-        old: Any,
-        new: Any,
-        now: datetime,
-        table: str = "auth_user",
-    ) -> None:
-        self.store.state.audits.append(
-            {
-                "id": uuid7(),
-                "tableName": table,
-                "recordId": user_id,
-                "action": action,
-                "oldValues": old,
-                "newValues": new,
-                "operatorId": None,
-                "deviceId": None,
-                "actorUserId": actor["id"],
-                "actorEmail": actor["email"],
-                "occurredAt": _iso(now),
-            }
-        )
-
-    def _sql_audit(
-        self,
-        connection: Any,
-        actor: dict[str, Any],
-        action: str,
-        user_id: str,
-        old: Any,
-        new: Any,
-        now: datetime,
-        table: str = "auth_user",
-    ) -> None:
-        import json
-
-        connection.execute(
-            text(
-                "INSERT INTO audit_log "
-                "(id, table_name, record_id, action, old_values, new_values, actor_user_id, actor_email, occurred_at) "
-                "VALUES (:id, :table, :record, :action, :old, :new, :actor, :email, :now)"
-            ),
-            {
-                "id": uuid7(),
-                "table": table,
-                "record": user_id,
-                "action": action,
-                "old": json.dumps(old, ensure_ascii=False) if old is not None else None,
-                "new": json.dumps(new, ensure_ascii=False) if new is not None else None,
-                "actor": actor["id"],
-                "email": actor["email"],
-                "now": _stored(now),
-            },
-        )
