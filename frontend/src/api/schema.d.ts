@@ -417,7 +417,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/imports/{jobId}/confirm-fish-specimens": {
+    "/imports/{jobId}/confirm": {
         parameters: {
             query?: never;
             header?: never;
@@ -429,67 +429,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Atomically confirm a fish/specimen-only import draft
-         * @description Requires an active site with time zone per fish sheet and active donor cell per source label.
+         * Atomically confirm an import draft by the path its record kinds allow
+         * @description The server picks fish/specimen, historical count, V2 embryo, or mixed confirmation from the job's record kinds (see mapping-requirements). Fish, embryo, and mixed jobs require siteMappings; fish and mixed jobs also require donorMappings.
          */
-        post: operations["confirmFishSpecimenImport"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/imports/{jobId}/confirm-aggregate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Atomically confirm V1, MSU, or QC historical count sheets */
-        post: operations["confirmAggregateImport"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/imports/{jobId}/confirm-v2-embryos": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm V2 embryos and historical observations without inventing operational lot data */
-        post: operations["confirmV2EmbryoImport"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/imports/{jobId}/confirm-all": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Confirm selected data sheets atomically and retain summary sheets as references */
-        post: operations["confirmMixedImport"];
+        post: operations["confirmImport"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4302,7 +4245,7 @@ export interface operations {
             };
         };
     };
-    confirmFishSpecimenImport: {
+    confirmImport: {
         parameters: {
             query?: never;
             header: {
@@ -4322,163 +4265,10 @@ export interface operations {
             content: {
                 "application/json": {
                     revision: number;
-                    siteMappings: {
+                    siteMappings?: {
                         [key: string]: string;
                     };
-                    donorMappings: {
-                        [key: string]: string;
-                    };
-                    zeroBypassReason?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Canonical fish/specimen and historical observation counts */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Stale draft */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    confirmAggregateImport: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Stable per-device identifier generated on first use and kept in local storage. */
-                "X-Device-Id": components["parameters"]["DeviceId"];
-                /** @description Stable key for one logical mutation. Replays return the original result. */
-                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                /** @description Account id for this write; must match the authenticated session. */
-                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
-            };
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    revision: number;
-                    warningBypassReason?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Historical count rows created with source provenance */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Stale draft */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    confirmV2EmbryoImport: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Stable per-device identifier generated on first use and kept in local storage. */
-                "X-Device-Id": components["parameters"]["DeviceId"];
-                /** @description Stable key for one logical mutation. Replays return the original result. */
-                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                /** @description Account id for this write; must match the authenticated session. */
-                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
-            };
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    revision: number;
-                    siteMappings: {
-                        [key: string]: string;
-                    };
-                    warningBypassReason?: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Historical embryo identities and observations with provenance */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Admin access required */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Stale draft */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    confirmMixedImport: {
-        parameters: {
-            query?: never;
-            header: {
-                /** @description Stable per-device identifier generated on first use and kept in local storage. */
-                "X-Device-Id": components["parameters"]["DeviceId"];
-                /** @description Stable key for one logical mutation. Replays return the original result. */
-                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
-                /** @description Account id for this write; must match the authenticated session. */
-                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
-            };
-            path: {
-                jobId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    revision: number;
-                    siteMappings: {
-                        [key: string]: string;
-                    };
-                    donorMappings: {
+                    donorMappings?: {
                         [key: string]: string;
                     };
                     zeroBypassReason?: string;
@@ -4488,8 +4278,34 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Data committed atomically; reconciliation sheets retained without canonical writes */
+            /** @description Data committed atomically; only the counts of the path taken are present */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        jobId: string;
+                        status: string;
+                        revision: number;
+                        fishCount?: number;
+                        specimenCount?: number;
+                        historicalCountRows?: number;
+                        historicalEmbryoCount?: number;
+                        historicalObservationCount?: number;
+                        historicalControlCount?: number;
+                        components?: {
+                            [key: string]: unknown;
+                        };
+                        reconciliationReferenceCount?: number;
+                    } & {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Missing revision */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4502,7 +4318,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Any unresolved issue or validation failure rolls back the whole job */
+            /** @description Unsupported job */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -236,14 +236,7 @@ function mockImportApi(status = "draft", ready = false, inputKind: "xlsx" | "csv
         return {
           interpretation: { fishCode: "CL1", observations: [{ day: 1 }] },
         };
-      if (path === "/imports/job-1/confirm-fish-specimens") return { fishCount: 1, specimenCount: 1 };
-      if (path === "/imports/job-1/confirm-aggregate") return { historicalCountRows: 1 };
-      if (path === "/imports/job-1/confirm-v2-embryos")
-        return {
-          historicalEmbryoCount: 1,
-          historicalObservationCount: 1,
-          historicalControlCount: 1,
-        };
+      if (path === "/imports/job-1/confirm") return { fishCount: 1, specimenCount: 1 };
       return {};
     })();
     return new Response(JSON.stringify(result), { status: 200 });
@@ -469,6 +462,7 @@ it.each(["en", "th"] as const)("archives summary-only sheets as references (%s)"
         canConfirmAggregate: false,
       });
     if (String(input).endsWith("/comparison")) Object.assign(body, { matchedFiles: [], records: [] });
+    if (String(input).endsWith("/confirm")) return new Response(JSON.stringify({ components: {} }));
     return new Response(JSON.stringify(body));
   });
   const root = createRoot(document.body.appendChild(document.createElement("div")));
@@ -480,7 +474,7 @@ it.each(["en", "th"] as const)("archives summary-only sheets as references (%s)"
     await Promise.resolve();
   });
   await flush();
-  expect(api.mock.calls.some(([input]) => String(input).endsWith("/confirm-all"))).toBe(true);
+  expect(api.mock.calls.some(([input]) => String(input).endsWith("/confirm"))).toBe(true);
   expect(document.body.textContent).toContain(
     language === "en" ? "Summary sheets archived as references" : "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว",
   );
@@ -927,7 +921,7 @@ it("confirms each supported draft type through the guarded actions", async () =>
     });
     await clickButton(label);
   }
-  expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/confirm-")).length).toBe(4);
+  expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/confirm")).length).toBe(4);
   root.unmount();
 });
 
@@ -1087,20 +1081,20 @@ it.each(["en", "th"] as const)("renders all guarded confirmation paths in %s", a
     });
     await flush();
   }
-  expect(api.mock.calls.filter(([input]) => String(input).includes("/confirm-")).length).toBe(4);
+  expect(api.mock.calls.filter(([input]) => String(input).endsWith("/confirm")).length).toBe(4);
   root.unmount();
 });
 
-it.each(["/confirm-all", "/confirm-fish-specimens", "/confirm-v2-embryos", "/confirm-aggregate"])(
-  "shows stale revision errors from %s without claiming success",
-  async (endpoint) => {
+it.each(["mixed", "fish", "embryos", "aggregate"])(
+  "shows stale revision errors from the %s confirmation without claiming success",
+  async (mode) => {
     const api = mockImportApi("draft", true);
     vi.stubGlobal(
       "confirm",
       vi.fn(() => true),
     );
     vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) =>
-      String(input).endsWith(endpoint)
+      String(input).endsWith("/confirm")
         ? new Response(
             JSON.stringify({
               error: {
@@ -1116,20 +1110,13 @@ it.each(["/confirm-all", "/confirm-fish-specimens", "/confirm-v2-embryos", "/con
     await act(async () => root.render(<Imports language="en" />));
     await openJob();
     const labels: Record<string, string> = {
-      "/confirm-all": "Confirm all selected sheets",
-      "/confirm-fish-specimens": "Confirm entire job",
-      "/confirm-v2-embryos": "Confirm entire embryo job",
-      "/confirm-aggregate": "Confirm entire count job",
+      mixed: "Confirm all selected sheets",
+      fish: "Confirm entire job",
+      embryos: "Confirm entire embryo job",
+      aggregate: "Confirm entire count job",
     };
-    await selectImportMethod(
-      {
-        "/confirm-all": "mixed",
-        "/confirm-fish-specimens": "fish",
-        "/confirm-v2-embryos": "embryos",
-        "/confirm-aggregate": "aggregate",
-      }[endpoint]!,
-    );
-    await clickButton(labels[endpoint]);
+    await selectImportMethod(mode);
+    await clickButton(labels[mode]);
     expect(document.body.textContent).toContain("Draft changed; reload before confirming");
     root.unmount();
   },

@@ -71,7 +71,7 @@ describe("API write context", () => {
     ["PATCH", "/batches/b-1?x=1", "operator"],
     ["POST", "/corrections/c-1/decide", "account"],
     ["POST", "/imports/inspect", "account"],
-    ["POST", "/imports/job-1/confirm-all", "account"],
+    ["POST", "/imports/job-1/confirm", "account"],
     ["POST", "/auth/logout", "none"],
   ] as const)("sends %s %s with %s write context", async (method, path, kind) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
