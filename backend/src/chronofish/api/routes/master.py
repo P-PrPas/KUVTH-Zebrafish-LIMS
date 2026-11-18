@@ -120,7 +120,7 @@ def build_master_router(store: Store) -> APIRouter:
                     now, item_id = iso_now(), str(body.get("id") or uuid7())
                     item = {**body, "id": item_id, "active": True, "createdAt": now, "updatedAt": now}
                     state.entities[current_resource][item_id] = item
-                    audit(state, request, "INSERT", current_resource, item_id, None, item)
+                    audit(state, request.state.write_context, "INSERT", current_resource, item_id, None, item)
                     return 201, item
 
                 return store.execute_mutation(request, body, operation)
@@ -145,7 +145,7 @@ def build_master_router(store: Store) -> APIRouter:
                         updated["deletedAt"] = None
                     _validate(state, current_resource, updated, item_id)
                     state.entities[current_resource][item_id] = updated
-                    audit(state, request, "UPDATE", current_resource, item_id, old, updated)
+                    audit(state, request.state.write_context, "UPDATE", current_resource, item_id, old, updated)
                     return 200, updated
 
                 return store.execute_mutation(request, body, operation)

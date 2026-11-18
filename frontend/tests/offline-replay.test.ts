@@ -173,7 +173,7 @@ describe("browser offline replay", () => {
     localStorage.setItem("chronofish.operator_id", "operator-a");
     localStorage.setItem("chronofish.device_id", "device-a");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
-    await expect(putQueue("/fish-observations/fish-1", undefined, "application/json", "DELETE")).resolves.toMatchObject(
+    await expect(putQueue("/observations/fish/fish-1", undefined, "application/json", "DELETE")).resolves.toMatchObject(
       { queued: true },
     );
     await drainQueue(true);

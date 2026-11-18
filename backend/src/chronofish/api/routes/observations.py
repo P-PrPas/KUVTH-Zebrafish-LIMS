@@ -525,14 +525,30 @@ def build_observations_router(store: Store) -> APIRouter:
                     ) = interval
                     result["intervalActual"], result["intervalExpected"], result["intervalDeviationH"] = interval
                 state.observations[observation_id] = observation
-                audit(state, request, "INSERT", "embryo_observation", observation_id, None, observation)
+                audit(
+                    state,
+                    request.state.write_context,
+                    "INSERT",
+                    "embryo_observation",
+                    observation_id,
+                    None,
+                    observation,
+                )
                 touched.add(str(embryo["id"]))
                 results.append(result)
             for embryo_id in touched:
                 old = copy.deepcopy(state.entities["embryos"][embryo_id])
                 _recompute_embryo(state, embryo_id)
                 if old != state.entities["embryos"][embryo_id]:
-                    audit(state, request, "UPDATE", "embryo", embryo_id, old, state.entities["embryos"][embryo_id])
+                    audit(
+                        state,
+                        request.state.write_context,
+                        "UPDATE",
+                        "embryo",
+                        embryo_id,
+                        old,
+                        state.entities["embryos"][embryo_id],
+                    )
             return 200, {"results": results}
 
         return store.execute_mutation(request, body, operation)
@@ -612,7 +628,7 @@ def build_observations_router(store: Store) -> APIRouter:
                 if after_interval["id"] != observation_id:
                     audit(
                         state,
-                        request,
+                        request.state.write_context,
                         "UPDATE",
                         "embryo_observation",
                         str(after_interval["id"]),
@@ -622,14 +638,30 @@ def build_observations_router(store: Store) -> APIRouter:
             old_embryo = copy.deepcopy(state.entities["embryos"].get(embryo_id, {}))
             _recompute_embryo(state, embryo_id)
             if old_embryo != state.entities["embryos"].get(embryo_id):
-                audit(state, request, "UPDATE", "embryo", embryo_id, old_embryo, state.entities["embryos"][embryo_id])
+                audit(
+                    state,
+                    request.state.write_context,
+                    "UPDATE",
+                    "embryo",
+                    embryo_id,
+                    old_embryo,
+                    state.entities["embryos"][embryo_id],
+                )
             if fish := find_fish_for_embryo(state, embryo_id):
                 fish_id = str(fish["id"])
                 old_fish = copy.deepcopy(fish)
                 recompute_fish(state, fish_id)
                 if old_fish != state.entities["fish"].get(fish_id):
-                    audit(state, request, "UPDATE", "clone_fish", fish_id, old_fish, state.entities["fish"][fish_id])
-            audit(state, request, action, "embryo_observation", observation_id, old, observation)
+                    audit(
+                        state,
+                        request.state.write_context,
+                        "UPDATE",
+                        "clone_fish",
+                        fish_id,
+                        old_fish,
+                        state.entities["fish"][fish_id],
+                    )
+            audit(state, request.state.write_context, action, "embryo_observation", observation_id, old, observation)
             return status, result
 
         return store.execute_mutation(request, payload, operation)

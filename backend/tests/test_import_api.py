@@ -216,6 +216,27 @@ def test_v5_commit_duplicate_and_revert_preserve_existing_data(import_client, ki
         assert client.get(f"/api/v1/{path}").json() == expected
 
 
+def test_confirm_template_replays_the_original_result_for_the_same_idempotency_key(import_client):
+    from test_import_v5 import registry
+
+    from chronofish.services.import_v5 import FISH, SPECIMENS
+
+    client = import_client
+    book = registry()
+    v5_master_data(client, book)
+    job_id = v5_job(client, book, [FISH, SPECIMENS])["job"]["id"]
+    url = f"/api/v1/imports/{job_id}/confirm-template"
+    key = uuid7()
+    first = client.post(url, headers={"X-Idempotency-Key": key}, json={"revision": 1})
+    assert first.status_code == 200, first.text
+    replay = client.post(url, headers={"X-Idempotency-Key": key}, json={"revision": 1})
+    assert (replay.status_code, replay.json()) == (200, first.json())
+    reused = client.post(url, headers={"X-Idempotency-Key": key}, json={"revision": 2})
+    assert (reused.status_code, reused.json()["error"]["code"]) == (409, "idempotency_conflict")
+    fresh = client.post(url, headers={"X-Idempotency-Key": uuid7()}, json={"revision": 1})
+    assert (fresh.status_code, fresh.json()["error"]["code"]) == (409, "import_not_draft")
+
+
 def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     from test_import_v5 import experiment
 
@@ -333,7 +354,10 @@ def test_schema_template_download_validate_and_atomic_commit(import_client):
     committed = client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1})
     assert committed.status_code == 200, committed.text
     assert committed.json()["status"] == "committed"
-    assert client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1}).status_code == 409
+    second = client.post(
+        f"/api/v1/imports/{job_id}/confirm-template", headers={"X-Idempotency-Key": uuid7()}, json={"revision": 1}
+    )
+    assert second.status_code == 409
     imported = client.get(f"/api/v1/imports/{job_id}/records").json()["items"]
     assert all(row["status"] == "imported" for row in imported)
     duplicate = create_job(client, output.getvalue(), sheets=list(SHEETS))

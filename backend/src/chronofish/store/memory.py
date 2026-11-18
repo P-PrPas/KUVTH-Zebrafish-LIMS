@@ -10,7 +10,7 @@ from fastapi.responses import Response
 
 from ..domain.state import State
 from ..runtime.errors import APIError
-from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context
+from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context, write_kind
 from ..runtime.values import parse_datetime
 from .base import Mutation
 
@@ -37,7 +37,9 @@ class MemoryStore:
 
     def execute_mutation(self, request: Request, body: Any, operation: Mutation) -> Response:
         with self.lock:
-            _operator, _device, key = validate_write_context(request, self.state, body)
+            context = validate_write_context(request, self.state, body, write_kind(request))
+            request.state.write_context = context
+            key = context.idempotency_key
             scope, request_hash = request_fingerprint(request, body)
             scope = f"{scope}:{key}"
             previous = self.idempotency.get(scope)

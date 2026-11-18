@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import text
 
 from ..runtime.errors import APIError
+from ..runtime.mutations import WriteContext
 from ..runtime.values import uuid7
 from ..services.import_deferred import deferred_cells
 from ..services.import_interpret import embryo_validation_errors, interpret
@@ -813,11 +814,25 @@ class ImportRepository:
             "canConfirmMixed": ((groups >= 2 or "reconciliation" in kinds) and kinds <= supported_kinds),
         }
 
-    def confirm_template(self, job_id: str, revision: int, request: Any, *, validate_only: bool = False) -> dict:
-        from ..runtime.mutations import validate_write_context
+    def confirm_template(
+        self,
+        job_id: str,
+        revision: int,
+        ctx: WriteContext,
+        fingerprint: tuple[str, str],
+        *,
+        validate_only: bool = False,
+    ) -> dict:
         from ..services.import_template_apply import apply_template
 
-        actor = request.state.user
+        actor = ctx.actor
+        scope, request_hash = fingerprint
+        key = ctx.idempotency_key
+
+        def replay(previous: Any) -> dict:
+            if previous["request_hash"] != request_hash:
+                raise APIError(409, "idempotency_conflict", "X-Idempotency-Key was used by another request")
+            return json.loads(previous["response_body"])
 
         def build(job: dict, records: list[dict], state: Any, unresolved: bool) -> tuple[Any, dict, dict]:
             self._check_draft(job, revision)
@@ -826,21 +841,28 @@ class ImportRepository:
             if not records:
                 raise APIError(409, "not_ready", "The template contains no data rows")
             working = copy.deepcopy(state)
-            validate_write_context(request, working, {"revision": revision})
             for record in records:
                 record["values"] = json.loads(record["working_json"])
             extra = {}
             if any(r["record_kind"].startswith("schema:v5_") for r in records):
                 from ..services.import_v5 import apply_v5
 
-                targets, extra = apply_v5(working, records, request, job_id)
+                targets, extra = apply_v5(working, records, ctx, job_id)
                 if extra["aggregates"] and self.engine is None:
                     raise APIError(
                         503, "database_required", "Historical aggregate counts require the configured database"
                     )
             else:
-                targets = apply_template(working, records, request, job_id)
+                targets = apply_template(working, records, ctx, job_id)
             return working, targets, extra
+
+        def outcome(targets: dict) -> dict:
+            return {
+                "jobId": job_id,
+                "status": "validated" if validate_only else "committed",
+                "revision": revision if validate_only else revision + 1,
+                "recordCount": len(targets),
+            }
 
         now = _now()
         if self.engine is None:
@@ -848,6 +870,9 @@ class ImportRepository:
                 job = self.store.import_jobs.get(job_id)
                 if job is None:
                     raise APIError(404, "not_found", "Import job was not found")
+                memory = self.store.idempotency
+                if not validate_only and (previous := memory.get(f"{scope}:{key}")):
+                    return replay({"request_hash": previous.request_hash, "response_body": previous.body})
                 records = [dict(r) for r in self.store.import_records.values() if r["job_id"] == job_id]
                 unresolved = any(
                     i["job_id"] == job_id and i["status"] == "open" and i["severity"] in {"blocking", "overridable"}
@@ -867,6 +892,10 @@ class ImportRepository:
                         updated_at=now,
                         revision=revision + 1,
                     )
+                    from .memory import StoredResponse
+
+                    body = json.dumps(outcome(targets)).encode()
+                    memory[f"{scope}:{key}"] = StoredResponse(request_hash, 200, "application/json", body)
         else:
             with self.engine.begin() as connection:
                 job = (
@@ -876,6 +905,20 @@ class ImportRepository:
                 )
                 if job is None:
                     raise APIError(404, "not_found", "Import job was not found")
+                if not validate_only:
+                    previous = (
+                        connection.execute(
+                            text(
+                                "SELECT request_hash, response_body FROM request_idempotency "
+                                "WHERE scope = :scope AND idempotency_key = :key"
+                            ),
+                            {"scope": scope, "key": key},
+                        )
+                        .mappings()
+                        .first()
+                    )
+                    if previous:
+                        return replay(previous)
                 # Same serialization lock used by normal application writes, including fish sequence allocation.
                 connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
                 records = [
@@ -970,12 +1013,25 @@ class ImportRepository:
                         },
                         now,
                     )
-        return {
-            "jobId": job_id,
-            "status": "validated" if validate_only else "committed",
-            "revision": revision if validate_only else revision + 1,
-            "recordCount": len(targets),
-        }
+                    self.store._insert(
+                        connection,
+                        "request_idempotency",
+                        {
+                            "scope": scope,
+                            "idempotency_key": key,
+                            "request_hash": request_hash,
+                            "status_code": 200,
+                            "content_type": "application/json",
+                            "response_body": json.dumps(outcome(targets)),
+                            "operator_id": ctx.operator_id,
+                            "device_id": ctx.device_id,
+                            "created_at": now,
+                            "completed_at": now,
+                            "lease_until": now,
+                            "lease_token": key,
+                        },
+                    )
+        return outcome(targets)
 
     def confirm_all(
         self,
