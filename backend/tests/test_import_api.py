@@ -867,15 +867,16 @@ def test_mutation_auth_and_import_audit_rows_share_one_shape(import_client):
     assert client.post(f"/api/v1/imports/{job_id}/confirm", json=body).status_code == 200
     invited = client.post("/api/v1/auth/admin/users", json={"email": f"audit-{uuid7()}@ku.th"})
     assert invited.status_code == 201, invited.text
-    items = client.get("/api/v1/audit-log?limit=500").json()["items"]
+
+    def latest(table, record_id):
+        response = client.get("/api/v1/audit-log", params={"table": table, "recordId": record_id, "limit": 1})
+        assert response.status_code == 200, response.text
+        return response.json()["items"][0]
+
     rows = {
-        "mutation": next(
-            i for i in items if i["tableName"] == "sites" and i["recordId"] == next(iter(body["siteMappings"].values()))
-        ),
-        "auth": next(
-            i for i in items if i["tableName"] == "auth_user" and i["recordId"] == invited.json()["user"]["id"]
-        ),
-        "import": next(i for i in items if i["tableName"] == "import_job" and i["recordId"] == job_id),
+        "mutation": latest("sites", next(iter(body["siteMappings"].values()))),
+        "auth": latest("auth_user", invited.json()["user"]["id"]),
+        "import": latest("import_job", job_id),
     }
     assert len({tuple(sorted(row)) for row in rows.values()}) == 1
     for row in rows.values():
