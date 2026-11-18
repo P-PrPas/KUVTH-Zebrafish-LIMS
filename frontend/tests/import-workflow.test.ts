@@ -158,7 +158,7 @@ it("a stale-revision 409 surfaces the error and leaves state untouched", async (
   await expect(t.workflow.writeAndReload("/imports/job-1/issues/i1/decision", { revision: 1 })).rejects.toThrow(
     "REVISION_CONFLICT",
   );
-  await expect(t.workflow.confirm({})).rejects.toThrow("REVISION_CONFLICT");
+  await expect(t.workflow.confirm({}, () => {})).rejects.toThrow("REVISION_CONFLICT");
   expect(t.workflow.getState()).toBe(snapshot);
   expect(t.calls.every((call) => call.method === "POST")).toBe(true);
 });
@@ -186,12 +186,33 @@ it("confirm sends revision first, then reloads jobs and the current page", async
   const t = setup();
   await t.workflow.openJob("job-1", 50, 50);
   t.calls.length = 0;
-  await t.workflow.confirm({ siteMappings: {} });
+  await t.workflow.confirm({ siteMappings: {} }, () => {});
   expect(t.calls[0]).toEqual({ path: "/imports/job-1/confirm", method: "POST" });
   expect(t.calls[1]).toEqual({ path: "/imports", method: "GET" });
   expect(t.calls[2].path).toBe("/imports/job-1");
   expect(t.calls.some((call) => call.path === "/imports/job-1/issues?offset=50&limit=50")).toBe(true);
   expect(Object.keys(t.bodies["/imports/job-1/confirm"] as object)).toEqual(["revision", "siteMappings"]);
+});
+
+it("confirm succeeds but reads fail: committed + refreshNeeded, retry is GET-only", async () => {
+  const t = setup();
+  await t.workflow.openJob("job-1");
+  t.calls.length = 0;
+  t.failReads(true);
+  const written = vi.fn();
+  await t.workflow.confirm({ siteMappings: {} }, written);
+  expect(written).toHaveBeenCalledTimes(1);
+  const state = t.workflow.getState();
+  expect(state.detail?.job).toMatchObject({ status: "committed", revision: 3 });
+  expect(state.importStep).toBe(5);
+  expect(state.refreshNeeded).toBe("committed");
+  expect(t.writes()).toEqual([{ path: "/imports/job-1/confirm", method: "POST" }]);
+
+  t.calls.length = 0;
+  t.failReads(false);
+  await t.workflow.retryRefresh();
+  expect(t.writes()).toEqual([]);
+  expect(t.workflow.getState().refreshNeeded).toBeNull();
 });
 
 it("notifies subscribers on state change", () => {

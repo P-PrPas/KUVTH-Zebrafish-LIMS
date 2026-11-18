@@ -478,41 +478,46 @@ export function Imports({ language }: { language: Language }) {
     setError("");
     try {
       // The server picks fish / aggregate / embryo / mixed from the job's record kinds.
-      const result = await workflow.confirm<{
+      await workflow.confirm<{
+        revision?: number;
         fishCount?: number;
         specimenCount?: number;
         historicalCountRows?: number;
         historicalEmbryoCount?: number;
         historicalObservationCount?: number;
         historicalControlCount?: number;
-      }>({
-        siteMappings,
-        donorMappings,
-        zeroBypassReason,
-        aggregateWarningBypassReason: aggregateWarningReason,
-        embryoWarningBypassReason: embryoWarningReason,
-      });
-      const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
-      setNotice(
-        result.fishCount !== undefined
-          ? th
-            ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
-            : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`
-          : result.historicalCountRows !== undefined
-            ? th
-              ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
-              : `Imported ${result.historicalCountRows} historical count rows.`
-            : result.historicalEmbryoCount !== undefined
+      }>(
+        {
+          siteMappings,
+          donorMappings,
+          zeroBypassReason,
+          aggregateWarningBypassReason: aggregateWarningReason,
+          embryoWarningBypassReason: embryoWarningReason,
+        },
+        (result) => {
+          const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
+          setNotice(
+            result.fishCount !== undefined
               ? th
-                ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
-                : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`
-              : referenceOnly
+                ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
+                : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`
+              : result.historicalCountRows !== undefined
                 ? th
-                  ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
-                  : "Summary sheets archived as references."
-                : th
-                  ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
-                  : "Selected data sheets committed atomically; summary sheets were kept as references.",
+                  ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
+                  : `Imported ${result.historicalCountRows} historical count rows.`
+                : result.historicalEmbryoCount !== undefined
+                  ? th
+                    ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
+                    : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`
+                  : referenceOnly
+                    ? th
+                      ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
+                      : "Summary sheets archived as references."
+                    : th
+                      ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
+                      : "Selected data sheets committed atomically; summary sheets were kept as references.",
+          );
+        },
       );
     } catch (cause) {
       setError((cause as Error).message);

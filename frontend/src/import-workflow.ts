@@ -327,14 +327,29 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       await json(`/imports/deferred-fields/${id}/apply`, { method: "POST", body: JSON.stringify(body) });
       await loadDeferred(state.deferredOffset);
     },
-    async confirm<T>(fields: Record<string, unknown>): Promise<T> {
-      const result = await json<T>(`/imports/${jobId()}/confirm`, {
+    // Like submitTemplate(commit): once the write succeeds the job is committed; failing reads only set refreshNeeded.
+    async confirm<T extends { revision?: number }>(fields: Record<string, unknown>, onWritten: (result: T) => void) {
+      const detail = state.detail as Detail;
+      const result = await json<T>(`/imports/${detail.job.id}/confirm`, {
         method: "POST",
-        body: JSON.stringify({ revision: state.detail?.job.revision, ...fields }),
+        body: JSON.stringify({ revision: detail.job.revision, ...fields }),
       });
-      await reloadJobs();
-      await reloadCurrent();
-      return result;
+      onWritten(result);
+      set({
+        detail: {
+          ...detail,
+          job: { ...detail.job, status: "committed", revision: result.revision ?? detail.job.revision },
+        },
+        importStep: 5,
+        historicalSummary: null,
+      });
+      try {
+        await reloadJobs();
+        await reloadCurrent();
+        set({ refreshNeeded: null });
+      } catch {
+        set({ refreshNeeded: "committed" });
+      }
     },
     // onWritten runs right after the write succeeds, before the follow-up reads.
     async submitTemplate(commit: boolean, onWritten: (result: { recordCount: number }) => void) {
