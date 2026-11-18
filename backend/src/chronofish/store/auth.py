@@ -3,61 +3,38 @@ from __future__ import annotations
 import hashlib
 import hmac
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
 
+from ..domain.signin import (
+    ABSOLUTE_TTL,
+    OTP_COOLDOWN,
+    OTP_DAILY_WINDOW,
+    check_code,
+    locked_until,
+    may_password_login,
+    password_lockout,
+    plan_code_issue,
+    session_expired,
+    session_needs_touch,
+)
+from ..domain.signin import (
+    as_utc as _utc,
+)
 from ..runtime.email import validated_email
 from ..runtime.errors import APIError
 from ..runtime.values import uuid7
 from ..services.passwords import check_password, hash_password
 
-IDLE_TTL = timedelta(hours=12)
-SESSION_TOUCH_INTERVAL = timedelta(minutes=1)
-ABSOLUTE_TTL = timedelta(days=90)
-OTP_TTL = timedelta(minutes=10)
-OTP_COOLDOWN = timedelta(seconds=60)
-OTP_WINDOW = timedelta(hours=1)
-OTP_MAX_SENDS = 5
-OTP_MAX_ATTEMPTS = 5
-OTP_DAILY_MAX_FAILURES = 15
-OTP_DAILY_WINDOW = timedelta(days=1)
 SYNC_STALE_AFTER = timedelta(minutes=10)
 
 
 class VerificationResult(NamedTuple):
     user: dict[str, Any] | None
     lock_reached: bool
-
-
-def _locked_until(challenge: Any, now: datetime) -> datetime | None:
-    if not challenge:
-        return None
-    until = challenge.get("locked_until")
-    if until is None and int(challenge["failed_count"]) >= OTP_DAILY_MAX_FAILURES:
-        until = _utc(challenge["failed_window_started_at"]) + OTP_DAILY_WINDOW
-    return _utc(until) if until and _utc(until) > _utc(now) else None
-
-
-def _code_still_usable(challenge: Any, now: datetime) -> bool:
-    return bool(
-        challenge["code_hash"]
-        and _utc(now) < _utc(challenge["expires_at"])
-        and int(challenge["attempts"]) < OTP_MAX_ATTEMPTS
-    )
-
-
-def _recent_failures(challenge: Any, recorded: list[datetime], now: datetime) -> list[datetime]:
-    # Older deployments recorded a count and window start, not individual timestamps.
-    if not recorded and int(challenge["failed_count"]):
-        recorded = [challenge["failed_window_started_at"]] * min(int(challenge["failed_count"]), OTP_DAILY_MAX_FAILURES)
-    return [at for at in recorded if _utc(at) > _utc(now) - OTP_DAILY_WINDOW]
-
-
-def _utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=value.tzinfo or UTC).astimezone(UTC)
 
 
 def _stored(value: datetime) -> datetime:
@@ -108,28 +85,19 @@ class AuthRepository:
     def password_login(
         self, email: str, password: str, session_id: str, token_hash: str, device_id: str, now: datetime
     ) -> dict[str, Any] | None:
-        def valid(user: Any) -> bool:
-            eligible = bool(
-                user
-                and user["active"]
-                and user["verified_at"]
-                and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"]))
-            )
+        def accepted_by(user: Any) -> bool:
+            eligible = may_password_login(user, now)
             return check_password(password, user.get("password_hash") if eligible else None) and eligible
 
         if self.engine is None:
             with self.lock:
                 user = next((u for u in self.store.auth_users.values() if u["email"] == email), None)
-                accepted = valid(user)
+                accepted = accepted_by(user)
+                lockout = password_lockout(user, accepted, now) if user else None
+                if lockout:
+                    user.update(lockout)
                 if not accepted:
-                    if user and not (
-                        user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"])
-                    ):
-                        attempts = 0 if user.get("password_locked_until") else user.get("password_attempts", 0)
-                        user["password_attempts"] = attempts + 1
-                        user["password_locked_until"] = _utc(now) + timedelta(minutes=15) if attempts >= 4 else None
                     return None
-                user.update(password_attempts=0, password_locked_until=None)
                 self.store.auth_sessions[token_hash] = {
                     "id": session_id,
                     "user_id": user["id"],
@@ -139,7 +107,7 @@ class AuthRepository:
                     "revoked_at": None,
                     "absolute_expires_at": _utc(now) + ABSOLUTE_TTL,
                 }
-                return {**user, "sessionId": session_id, "deviceId": device_id}
+                return {**_user_payload(user), "sessionId": session_id, "deviceId": device_id}
         with self.engine.begin() as connection:
             row = (
                 connection.execute(text("SELECT * FROM auth_user WHERE email = :email FOR UPDATE"), {"email": email})
@@ -147,10 +115,10 @@ class AuthRepository:
                 .first()
             )
             user = dict(row) if row else None
-            accepted = valid(user)
-            if user and not (user.get("password_locked_until") and _utc(now) < _utc(user["password_locked_until"])):
-                attempts = 0 if accepted or user["password_locked_until"] else int(user["password_attempts"])
-                attempts = 0 if accepted else attempts + 1
+            accepted = accepted_by(user)
+            lockout = password_lockout(user, accepted, now) if user else None
+            if lockout:
+                locked = lockout["password_locked_until"]
                 connection.execute(
                     text(
                         "UPDATE auth_user SET password_attempts = :attempts, password_locked_until = :locked "
@@ -158,8 +126,8 @@ class AuthRepository:
                     ),
                     {
                         "id": user["id"],
-                        "attempts": attempts,
-                        "locked": _stored(_utc(now) + timedelta(minutes=15)) if attempts >= 5 else None,
+                        "attempts": lockout["password_attempts"],
+                        "locked": _stored(locked) if locked else None,
                     },
                 )
             if not accepted:
@@ -243,37 +211,13 @@ class AuthRepository:
                 if not user or not user["active"]:
                     return False
                 challenge = self.store.auth_challenges.get(email)
+                fields = plan_code_issue(challenge, digest, now)
+                if fields is None:
+                    return False
                 if challenge:
-                    if _locked_until(challenge, now):
-                        return False
-                    last = challenge["last_sent_at"]
-                    if _utc(now) - _utc(last) < OTP_COOLDOWN:
-                        raise APIError(429, "otp_cooldown", "Wait before requesting another code")
-                    if _code_still_usable(challenge, now):
-                        return False
-                    window_start = challenge["window_started_at"]
-                    if _utc(now) - _utc(window_start) >= OTP_WINDOW:
-                        challenge.update(window_started_at=now, send_count=0)
-                    if challenge["send_count"] >= OTP_MAX_SENDS:
-                        raise APIError(429, "otp_rate_limited", "Too many codes requested for this email")
-                    challenge.update(
-                        code_hash=digest,
-                        expires_at=_utc(now) + OTP_TTL,
-                        attempts=0,
-                        last_sent_at=now,
-                        send_count=challenge["send_count"] + 1,
-                    )
+                    challenge.update(fields)
                 else:
-                    self.store.auth_challenges[email] = {
-                        "code_hash": digest,
-                        "expires_at": _utc(now) + OTP_TTL,
-                        "attempts": 0,
-                        "last_sent_at": now,
-                        "window_started_at": now,
-                        "send_count": 1,
-                        "failed_count": 0,
-                        "failed_window_started_at": now,
-                    }
+                    self.store.auth_challenges[email] = {**fields, "failed_count": 0, "failed_window_started_at": now}
                 return True
         with self.engine.begin() as connection:
             user = connection.execute(
@@ -289,33 +233,24 @@ class AuthRepository:
                 .mappings()
                 .first()
             )
+            fields = plan_code_issue(challenge, digest, now)
+            if fields is None:
+                return False
+            params = {
+                "email": email,
+                "hash": fields["code_hash"],
+                "expires": _stored(fields["expires_at"]),
+                "now": _stored(fields["last_sent_at"]),
+                "window": _stored(fields["window_started_at"]),
+                "sends": fields["send_count"],
+            }
             if challenge:
-                if _locked_until(challenge, now):
-                    return False
-                last = _utc(challenge["last_sent_at"])
-                if _utc(now) - last < OTP_COOLDOWN:
-                    raise APIError(429, "otp_cooldown", "Wait before requesting another code")
-                if _code_still_usable(challenge, now):
-                    return False
-                window_start = _utc(challenge["window_started_at"])
-                sends = int(challenge["send_count"])
-                if _utc(now) - window_start >= OTP_WINDOW:
-                    window_start, sends = _stored(now), 0
-                if sends >= OTP_MAX_SENDS:
-                    raise APIError(429, "otp_rate_limited", "Too many codes requested for this email")
                 connection.execute(
                     text(
                         "UPDATE auth_login_challenge SET code_hash = :hash, expires_at = :expires, attempts = 0, "
                         "last_sent_at = :now, window_started_at = :window, send_count = :sends WHERE email = :email"
                     ),
-                    {
-                        "hash": digest,
-                        "expires": _stored(_utc(now) + OTP_TTL),
-                        "now": _stored(now),
-                        "window": window_start,
-                        "sends": sends + 1,
-                        "email": email,
-                    },
+                    params,
                 )
             else:
                 connection.execute(
@@ -323,9 +258,9 @@ class AuthRepository:
                         "INSERT INTO auth_login_challenge "
                         "(email, code_hash, expires_at, attempts, last_sent_at, window_started_at, "
                         "send_count, failed_window_started_at) "
-                        "VALUES (:email, :hash, :expires, 0, :now, :now, 1, :now)"
+                        "VALUES (:email, :hash, :expires, 0, :now, :window, :sends, :now)"
                     ),
-                    {"email": email, "hash": digest, "expires": _stored(_utc(now) + OTP_TTL), "now": _stored(now)},
+                    params,
                 )
             return True
 
@@ -345,40 +280,25 @@ class AuthRepository:
                 user = next((u for u in self.store.auth_users.values() if u["email"] == email), None)
                 if not challenge or not user or not user["active"]:
                     return VerificationResult(None, False)
-                if _locked_until(challenge, now) or not _code_still_usable(challenge, now):
-                    return VerificationResult(None, False)
-                if not hmac.compare_digest(challenge["code_hash"], digest):
-                    failures = _recent_failures(challenge, challenge.get("failures", []), now)
-                    failures.append(now)
-                    challenge.update(
-                        failures=failures,
-                        failed_count=len(failures),
-                        failed_window_started_at=failures[0],
-                        attempts=challenge["attempts"] + 1,
-                    )
-                    reached = len(failures) == OTP_DAILY_MAX_FAILURES
-                    if reached:
-                        challenge["locked_until"] = _utc(now) + OTP_DAILY_WINDOW
-                    return VerificationResult(None, reached)
-                if password is None:
-                    raise APIError(400, "password_required", "Set a password to complete email verification")
-                password_hash = hash_password(password) if password is not None else None
-                challenge.update(
-                    code_hash="",
-                    expires_at=_utc(now),
-                    attempts=0,
-                    failed_count=0,
-                    failures=[],
-                    locked_until=None,
-                    failed_window_started_at=now,
+                check = check_code(
+                    challenge, challenge.get("failures", []), digest, now, has_password=password is not None
                 )
-                user["verified_at"] = now
-                user["updated_at"] = now
-                if password_hash:
-                    user.update(password_hash=password_hash, password_attempts=0, password_locked_until=None)
-                    for session in self.store.auth_sessions.values():
-                        if session["user_id"] == user["id"]:
-                            session["revoked_at"] = now
+                if check.status == "rejected":
+                    return VerificationResult(None, False)
+                if check.status == "wrong":
+                    challenge.update(check.challenge, failures=check.failures)
+                    return VerificationResult(None, check.lock_reached)
+                challenge.update(check.challenge, failures=[])
+                user.update(
+                    verified_at=now,
+                    updated_at=now,
+                    password_hash=hash_password(password),
+                    password_attempts=0,
+                    password_locked_until=None,
+                )
+                for session in self.store.auth_sessions.values():
+                    if session["user_id"] == user["id"]:
+                        session["revoked_at"] = now
                 self.store.auth_sessions[token_hash] = {
                     "id": session_id,
                     "user_id": user["id"],
@@ -388,10 +308,9 @@ class AuthRepository:
                     "revoked_at": None,
                     "absolute_expires_at": _utc(now) + ABSOLUTE_TTL,
                 }
-                result = dict(user)
-                result["sessionId"] = session_id
-                result["deviceId"] = device_id
-                return VerificationResult(result, False)
+                return VerificationResult(
+                    {**_user_payload(user), "sessionId": session_id, "deviceId": device_id}, False
+                )
         with self.engine.begin() as connection:
             user = (
                 connection.execute(
@@ -410,57 +329,54 @@ class AuthRepository:
             )
             if not challenge or not user:
                 return VerificationResult(None, False)
-            if _locked_until(challenge, now) or not _code_still_usable(challenge, now):
+            cutoff = _stored(_utc(now) - OTP_DAILY_WINDOW)
+            recorded = list(
+                connection.execute(
+                    text("SELECT failed_at FROM auth_login_failure WHERE email = :email AND failed_at > :cutoff"),
+                    {"email": email, "cutoff": cutoff},
+                ).scalars()
+            )
+            check = check_code(challenge, recorded, digest, now, has_password=password is not None)
+            if check.status == "rejected":
                 return VerificationResult(None, False)
-            if not hmac.compare_digest(str(challenge["code_hash"]), digest):
+            if check.status == "wrong":
                 connection.execute(
                     text("DELETE FROM auth_login_failure WHERE email = :email AND failed_at <= :cutoff"),
-                    {"email": email, "cutoff": _stored(_utc(now) - OTP_DAILY_WINDOW)},
+                    {"email": email, "cutoff": cutoff},
                 )
-                recorded = list(
-                    connection.execute(
-                        text("SELECT failed_at FROM auth_login_failure WHERE email = :email"), {"email": email}
-                    ).scalars()
-                )
-                failures = _recent_failures(challenge, recorded, now)
-                for at in failures[len(recorded) :] + [now]:
+                for at in check.failures[len(recorded) :]:
                     connection.execute(
                         text("INSERT INTO auth_login_failure (id, email, failed_at) VALUES (:id, :email, :now)"),
                         {"id": uuid7(), "email": email, "now": _stored(at)},
                     )
-                failures.append(now)
-                count = len(failures)
-                reached = count == OTP_DAILY_MAX_FAILURES
+                until = check.challenge["locked_until"]
                 connection.execute(
                     text(
-                        "UPDATE auth_login_challenge SET attempts = attempts + 1, "
+                        "UPDATE auth_login_challenge SET attempts = :attempts, "
                         "failed_count = :count, failed_window_started_at = :start, "
                         "locked_until = :until WHERE email = :email"
                     ),
                     {
                         "email": email,
-                        "count": count,
-                        "start": _stored(min(failures, key=_utc)),
-                        "until": _stored(_utc(now) + OTP_DAILY_WINDOW) if reached else None,
+                        "attempts": check.challenge["attempts"],
+                        "count": check.challenge["failed_count"],
+                        "start": _stored(check.challenge["failed_window_started_at"]),
+                        "until": _stored(until) if until else None,
                     },
                 )
-                return VerificationResult(None, reached)
+                return VerificationResult(None, check.lock_reached)
             now_db = _stored(now)
-            if password is None:
-                raise APIError(400, "password_required", "Set a password to complete email verification")
-            password_hash = hash_password(password) if password is not None else None
-            if password_hash:
-                connection.execute(
-                    text(
-                        "UPDATE auth_user SET password_hash = :hash, password_attempts = 0, "
-                        "password_locked_until = NULL WHERE id = :id"
-                    ),
-                    {"hash": password_hash, "id": user["id"]},
-                )
-                connection.execute(
-                    text("UPDATE auth_session SET revoked_at = :now WHERE user_id = :id AND revoked_at IS NULL"),
-                    {"now": now_db, "id": user["id"]},
-                )
+            connection.execute(
+                text(
+                    "UPDATE auth_user SET password_hash = :hash, password_attempts = 0, "
+                    "password_locked_until = NULL WHERE id = :id"
+                ),
+                {"hash": hash_password(password), "id": user["id"]},
+            )
+            connection.execute(
+                text("UPDATE auth_session SET revoked_at = :now WHERE user_id = :id AND revoked_at IS NULL"),
+                {"now": now_db, "id": user["id"]},
+            )
             connection.execute(text("DELETE FROM auth_login_failure WHERE email = :email"), {"email": email})
             connection.execute(
                 text(
@@ -488,12 +404,9 @@ class AuthRepository:
                     "expires": _stored(_utc(now) + ABSOLUTE_TTL),
                 },
             )
-            result = dict(user)
-            result["verified_at"] = now
-            result = _user_payload(result)
-            result["sessionId"] = session_id
-            result["deviceId"] = device_id
-            return VerificationResult(result, False)
+            return VerificationResult(
+                {**_user_payload({**user, "verified_at": now}), "sessionId": session_id, "deviceId": device_id}, False
+            )
 
     def authenticate(self, token_hash: str, now: datetime, *, touch: bool = True) -> dict[str, Any] | None:
         if self.engine is None:
@@ -504,16 +417,11 @@ class AuthRepository:
                 user = self.store.auth_users.get(session["user_id"])
                 if not user or not user["active"]:
                     return None
-                if _utc(now) - _utc(session["last_seen_at"]) >= IDLE_TTL or _utc(now) >= _utc(
-                    session["absolute_expires_at"]
-                ):
+                if session_expired(session["last_seen_at"], session["absolute_expires_at"], now):
                     return None
-                if touch and _utc(now) - _utc(session["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+                if touch and session_needs_touch(session["last_seen_at"], now):
                     session["last_seen_at"] = now
-                result = dict(user)
-                result["sessionId"] = session["id"]
-                result["deviceId"] = session["device_id"]
-                return result
+                return {**_user_payload(user), "sessionId": session["id"], "deviceId": session["device_id"]}
         with self.engine.begin() as connection:
             row = (
                 connection.execute(
@@ -529,13 +437,13 @@ class AuthRepository:
             )
             if not row:
                 return None
-            if _utc(now) - _utc(row["last_seen_at"]) >= IDLE_TTL or _utc(now) >= _utc(row["absolute_expires_at"]):
+            if session_expired(row["last_seen_at"], row["absolute_expires_at"], now):
                 connection.execute(
                     text("UPDATE auth_session SET revoked_at = :now WHERE token_hash = :hash"),
                     {"now": _stored(now), "hash": token_hash},
                 )
                 return None
-            if touch and _utc(now) - _utc(row["last_seen_at"]) >= SESSION_TOUCH_INTERVAL:
+            if touch and session_needs_touch(row["last_seen_at"], now):
                 connection.execute(
                     text("UPDATE auth_session SET last_seen_at = :now WHERE token_hash = :hash AND revoked_at IS NULL"),
                     {"now": _stored(now), "hash": token_hash},
@@ -684,7 +592,7 @@ class AuthRepository:
                     "invitedAt": _iso(user.get("invited_at", user.get("invitedAt"))),
                     "operatorId": user.get("operator_id", user.get("operatorId")),
                     "syncDevices": grouped.get(str(user["id"]), []),
-                    "loginLockedUntil": _iso(_locked_until(challenges.get(user["email"]), now)),
+                    "loginLockedUntil": _iso(locked_until(challenges.get(user["email"]), now)),
                 }
             )
         return result
