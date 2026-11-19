@@ -2300,7 +2300,8 @@ class ImportRepository:
             with self.lock:
                 entities = self.store.state.entities
                 for _, _, _, resource, key, id_ in page:
-                    codes[id_] = entities[resource][id_][key]
+                    if id_ in entities[resource]:
+                        codes[id_] = entities[resource][id_][key]
         else:
             with self.engine.connect() as connection:
                 for table, column in {(row[1], row[2]) for row in page}:
@@ -2319,7 +2320,7 @@ class ImportRepository:
         return {
             "counts": [{"entity": table, "count": count} for table, count in counts.items()],
             "total": len(refs),
-            "items": [{"kind": kind, "id": id_, "code": codes[id_]} for kind, _, _, _, _, id_ in page],
+            "items": [{"kind": kind, "id": id_, "code": codes.get(id_, id_)} for kind, _, _, _, _, id_ in page],
         }
 
     def historical_structure(self, job_id: str, offset: int, limit: int) -> dict[str, Any]:
