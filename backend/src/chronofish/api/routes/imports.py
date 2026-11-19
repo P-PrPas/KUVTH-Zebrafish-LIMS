@@ -326,6 +326,13 @@ def build_import_router(store: Any) -> APIRouter:
         _actor(request)
         return {"items": repository.fish_statuses(job_id)}
 
+    @router.get("/{job_id}/result")
+    def result(request: Request, job_id: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+        _actor(request)
+        if offset < 0 or not 1 <= limit <= 100:
+            raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
+        return repository.result(job_id, offset, limit)
+
     @router.get("/{job_id}/historical-summary")
     def historical_summary(request: Request, job_id: str) -> dict[str, Any]:
         _actor(request)

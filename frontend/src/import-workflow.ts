@@ -120,6 +120,11 @@ export type HistoricalStructure = {
     }[];
   }[];
 };
+export type ImportResult = {
+  counts: { entity: string; count: number }[];
+  total: number;
+  items: { kind: "batch" | "fish" | "specimen"; id: string; code: string }[];
+};
 export type ImportComparison = {
   matchedFiles: {
     currentFile: string;
@@ -161,6 +166,8 @@ export type ImportWorkflowState = {
   historicalSummary: HistoricalSummary | null;
   historicalStructure: HistoricalStructure | null;
   structureOffset: number;
+  importResult: ImportResult | null;
+  resultOffset: number;
   comparison: ImportComparison | null;
   importStep: number;
   confirmationMode: string;
@@ -197,6 +204,8 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     historicalSummary: null,
     historicalStructure: null,
     structureOffset: 0,
+    importResult: null,
+    resultOffset: 0,
     comparison: null,
     importStep: 2,
     confirmationMode: "mixed",
@@ -241,6 +250,12 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     if (mine !== generation || !stillOpen(id)) return;
     set({ historicalStructure: result, structureOffset: offset });
   }
+  async function loadResult(id: string, offset = 0) {
+    const mine = generation;
+    const result = await json<ImportResult>(`/imports/${id}/result?offset=${offset}&limit=${PAGE}`);
+    if (mine !== generation || !stillOpen(id)) return;
+    set({ importResult: result, resultOffset: offset });
+  }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
     const mine = ++generation;
     const newJob = state.detail?.job.id !== id;
@@ -261,6 +276,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       summary,
       nextComparison,
       structure,
+      result,
     ] = await Promise.all([
       json<Detail>(`/imports/${id}`),
       json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=${PAGE}`),
@@ -272,6 +288,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       json<HistoricalSummary>(`/imports/${id}/historical-summary`),
       json<ImportComparison>(`/imports/${id}/comparison?offset=${nextRecords}&limit=${PAGE}`),
       json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=${PAGE}`),
+      json<ImportResult>(`/imports/${id}/result?offset=0&limit=${PAGE}`),
     ]).catch((cause) => {
       if (newJob && mine === generation) set({ opening: { id, failed: true } });
       throw cause;
@@ -290,6 +307,8 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       historicalSummary: summary,
       historicalStructure: structure,
       structureOffset: 0,
+      importResult: result,
+      resultOffset: 0,
       comparison: nextComparison,
       opening: null,
     };
@@ -330,6 +349,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     reloadJobs,
     loadDeferred,
     loadStructure,
+    loadResult,
     openJob,
     closeJob: () => {
       generation++;
@@ -375,6 +395,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         },
         importStep: 5,
         historicalSummary: null,
+        importResult: null,
       });
       try {
         await reloadJobs();
@@ -398,6 +419,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         detail: { ...detail, job: { ...detail.job, status: "committed", revision: result.revision } },
         importStep: 5,
         historicalSummary: null,
+        importResult: null,
       });
       await refreshAfterWrite(detail.job.id, picked).catch(markRefresh(detail.job.id, picked, "committed"));
     },
@@ -412,6 +434,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
         importStep: 5,
         historicalSummary: null,
+        importResult: null,
       });
       onWritten();
       await refreshAfterWrite(detail.job.id, picked).catch(markRefresh(detail.job.id, picked, "reverted"));

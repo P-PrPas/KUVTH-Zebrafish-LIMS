@@ -550,6 +550,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        /** What a committed job created, with counts per entity and a page of recognisable codes */
+        get: operations["getImportResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/historical-summary": {
         parameters: {
             query?: never;
@@ -4648,6 +4667,64 @@ export interface operations {
             };
             /** @description Admin access required */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getImportResult: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Counts per created table and batch/fish/specimen codes; empty unless the job is committed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        counts: {
+                            entity: string;
+                            count: number;
+                        }[];
+                        total: number;
+                        items: {
+                            /** @enum {string} */
+                            kind: "batch" | "fish" | "specimen";
+                            id: string;
+                            code: string;
+                        }[];
+                    };
+                };
+            };
+            /** @description Invalid page */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Import job was not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

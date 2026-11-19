@@ -187,6 +187,15 @@ function mockImportApi(status = "draft", ready = false, inputKind: "xlsx" | "csv
             },
           ],
         };
+      if (path === "/imports/job-1/result")
+        return {
+          counts: [
+            { entity: "experiment_batch", count: 1 },
+            { entity: "injection_lot", count: 2 },
+          ],
+          total: 1,
+          items: [{ kind: "batch", id: "batch-1", code: "B-RESULT" }],
+        };
       if (path === "/imports/job-1/historical-structure")
         return {
           total: 1,
@@ -552,6 +561,8 @@ it.each(["en", "th"] as const)(
     const root = createRoot(document.body.appendChild(document.createElement("div")));
     await act(async () => root.render(<Imports language={language} />));
     await openJob();
+    expect(document.body.textContent).toContain(language === "en" ? "Injection lots: 2" : "lot ฉีด: 2");
+    expect(document.querySelector<HTMLAnchorElement>('a[href="/#batches"]')?.textContent).toBe("B-RESULT");
     expect(document.body.textContent).not.toContain("Day30");
     await clickButton(language === "en" ? "Show all" : "แสดงทั้งหมด");
     expect(document.body.textContent).toContain("Day30");
@@ -588,6 +599,23 @@ it.each(["en", "th"] as const)(
     root.unmount();
   },
 );
+
+it("hides the historical summary when a committed job has no historical data", async () => {
+  const api = mockImportApi("committed");
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const body = await (await api(input, init)).json();
+    if (String(input).endsWith("/historical-summary"))
+      return new Response(JSON.stringify({ stageCounts: [], observations: [] }));
+    if (String(input).includes("/historical-structure")) return new Response(JSON.stringify({ total: 0, items: [] }));
+    return new Response(JSON.stringify(body));
+  });
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  expect(document.body.textContent).toContain("Import result: what this job created");
+  expect(document.body.textContent).not.toContain("Historical data summary");
+  root.unmount();
+});
 
 it("shows a reviewable import draft with source, issues, mapping, and deferred fields", async () => {
   const fetchMock = mockImportApi();
