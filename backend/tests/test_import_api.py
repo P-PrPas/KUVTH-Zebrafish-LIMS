@@ -731,6 +731,49 @@ def test_single_confirm_endpoint_picks_the_path_from_the_job_kinds(import_client
     assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "committed"
 
 
+@pytest.mark.parametrize(
+    ("alias", "kinds", "sheets", "expected"),
+    [
+        ("confirm-fish-specimens", {"fish": True}, ["V2Fish"], {"fishCount", "specimenCount"}),
+        ("confirm-aggregate", {"aggregate": True}, ["V1Raw"], {"historicalCountRows"}),
+        (
+            "confirm-v2-embryos",
+            {"embryos": True},
+            ["V2Raw"],
+            {"historicalEmbryoCount", "historicalObservationCount", "historicalControlCount"},
+        ),
+        ("confirm-all", {"embryos": True, "aggregate": True}, ["V2Raw", "V1Raw"], {"components"}),
+    ],
+)
+def test_old_confirm_urls_still_commit_with_the_old_body_and_response(import_client, alias, kinds, sheets, expected):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(**kinds), sheets)
+    job_id = created["job"]["id"]
+    body = confirm_body(client, created, ["V2Raw", "V2Fish"])
+    donor = client.post(
+        "/api/v1/donor-cell-lines",
+        headers={"X-Idempotency-Key": uuid7()},
+        json={"strain": f"confirm-{uuid7()[-8:]}", "preparation": "DISSOCIATED", "preservation": "FRESH"},
+    )
+    body["donorMappings"] = {"Import donor": donor.json()["id"]}
+    body["warningBypassReason"] = "Reviewed old client"  # the old aggregate/embryo endpoints' only reason field
+    response = client.post(f"/api/v1/imports/{job_id}/{alias}", json=body)
+    assert response.status_code == 200, response.text
+    assert expected <= response.json().keys() and response.json()["revision"] == 2
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "committed"
+
+
+def test_old_confirm_url_for_another_job_kind_is_refused(import_client):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(aggregate=True), ["V1Raw"])
+    response = client.post(
+        f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=confirm_body(client, created)
+    )
+    assert response.status_code == 409, response.text
+
+
 def test_single_confirm_endpoint_validates_the_fields_its_path_requires(import_client):
     client = import_client
     fish = create_job(client, multi_sheet_workbook(fish=True), ["V2Fish"])
