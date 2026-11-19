@@ -2,10 +2,10 @@ import io
 
 import pytest
 from openpyxl import load_workbook
-from starlette.requests import Request
 
 from chronofish.domain.state import DEMO_OPERATOR_ID, State
 from chronofish.runtime.errors import APIError
+from chronofish.runtime.mutations import WriteContext
 from chronofish.services.import_sources import _parse_matrix
 from chronofish.services.import_template import SHEETS, template_bytes
 from chronofish.services.import_template_apply import apply_template
@@ -41,12 +41,8 @@ def seeded():
     return state
 
 
-def request():
-    result = Request(
-        {"type": "http", "headers": [(b"x-operator-id", DEMO_OPERATOR_ID.encode()), (b"x-device-id", b"template-test")]}
-    )
-    result.state.user = {"id": "admin", "role": "admin"}
-    return result
+def request() -> WriteContext:
+    return WriteContext({"id": "admin", "role": "admin"}, DEMO_OPERATOR_ID, "template-test", "key")
 
 
 def records():

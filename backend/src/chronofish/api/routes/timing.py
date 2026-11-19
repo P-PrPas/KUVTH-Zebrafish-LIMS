@@ -234,7 +234,7 @@ def build_timing_router(store: Store) -> APIRouter:
                 if old.get("protocolId") == protocol_id and old.get("isCurrent"):
                     before = copy.deepcopy(old)
                     old["isCurrent"] = False
-                    audit(state, request, "UPDATE", "stage_timing_profile", old["id"], before, old)
+                    audit(state, request.state.write_context, "UPDATE", "stage_timing_profile", old["id"], before, old)
             now, profile_id = iso_now(), uuid7()
             profile = {
                 **body,
@@ -247,7 +247,7 @@ def build_timing_router(store: Store) -> APIRouter:
                 "createdByOperatorId": request.headers.get("X-Operator-Id"),
             }
             state.entities["timing-profiles"][profile_id] = profile
-            audit(state, request, "INSERT", "stage_timing_profile", profile_id, None, profile)
+            audit(state, request.state.write_context, "INSERT", "stage_timing_profile", profile_id, None, profile)
             return 201, profile
 
         return store.execute_mutation(request, body, operation)

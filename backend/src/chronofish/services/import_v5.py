@@ -19,6 +19,7 @@ from openpyxl.formula.translate import Translator
 from openpyxl.utils import get_column_letter
 
 from ..runtime.errors import APIError
+from ..runtime.mutations import WriteContext, audit
 
 EXPERIMENT = "ข้อมูลการทดลอง"
 EMBRYOS = "ผลเอ็มบริโอ"
@@ -484,9 +485,8 @@ def expand_v5(records: list[dict]) -> tuple[list[dict], dict]:
     return canonical, extra
 
 
-def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tuple[dict, dict]:
+def apply_v5(state: Any, records: list[dict], ctx: WriteContext, job_id: str) -> tuple[dict, dict]:
     from ..domain.state import State
-    from ..runtime.mutations import audit
     from ..runtime.values import iso_now, uuid7
     from .fish import is_disability_record, record_disability
     from .import_template_apply import apply_template
@@ -530,10 +530,10 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
         if resource not in {"batches", "injection-lots", "embryos", "fish", "specimens", "control-arm-counts"}:
             historical.entities[resource] = state.entities[resource]
     historical_targets = (
-        apply_template(historical, list(historical_records.values()), request, job_id) if historical_records else {}
+        apply_template(historical, list(historical_records.values()), ctx, job_id) if historical_records else {}
     )
     canonical = [r for r in canonical if r["id"] not in historical_records]
-    targets = apply_template(state, canonical, request, job_id)
+    targets = apply_template(state, canonical, ctx, job_id)
     original_ids = {r["id"] for r in records}
     result = {key: value for key, value in targets.items() if key in original_ids}
     now = iso_now()
@@ -570,7 +570,7 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
         item["disabilityAtRegistration"] = item["isDisabled"] or item["condition"] == "ABNORMAL"
         if exit_condition:
             item["remarks"] = "\n".join(filter(None, [item.get("remarks"), f"v5 exit condition: {exit_condition}"]))
-        audit(state, request, "UPDATE", "clone_fish", item["id"], old, item)
+        audit(state, ctx, "UPDATE", "clone_fish", item["id"], old, item)
     for record in canonical:
         if record.get("v5_time_only"):
             observation = state.observations[targets[record["id"]][1]]
@@ -585,7 +585,7 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             old = item.copy()
             item.update(health(record["v5_condition"]))
             record_disability(item)
-            audit(state, request, "UPDATE", "fish_observation", item["id"], old, item)
+            audit(state, ctx, "UPDATE", "fish_observation", item["id"], old, item)
     from ..domain.rules import stage_number
 
     embryo_observations = defaultdict(list)
@@ -656,7 +656,7 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
         item = state.entities["injection-lots"][targets[key][1]]
         old = item.copy()
         item["notes"] = payload["cells"].get("I")
-        audit(state, request, "UPDATE", "injection_lot", item["id"], old, item)
+        audit(state, ctx, "UPDATE", "injection_lot", item["id"], old, item)
     for notes in extra["embryos"].values():
         # Embryos have no notes column; the immutable import record retains it.
         if notes and not isinstance(notes, str):
@@ -721,10 +721,10 @@ def apply_v5(state: Any, records: list[dict], request: Any, job_id: str) -> tupl
             raise APIError(422, "invalid_template", f"{code}: CL/CLA cannot be shared by multiple fish")
         specimen.update(linkedFishIds=links, cloneFishId=links[0] if len(links) == 1 else None)
         if specimen["id"] not in new_specimen_ids:
-            audit(state, request, "UPDATE", "specimen", specimen["id"], old, specimen)
+            audit(state, ctx, "UPDATE", "specimen", specimen["id"], old, specimen)
     for record, _code, _raw_type in extra["specimens"]:
         item = state.entities["specimens"][result[record["id"]][1]]
-        audit(state, request, "INSERT", "specimen", item["id"], None, item)
+        audit(state, ctx, "INSERT", "specimen", item["id"], None, item)
 
     # Validate counts before the repository writes them in the same SQL transaction.
     for record in extra["aggregates"]:

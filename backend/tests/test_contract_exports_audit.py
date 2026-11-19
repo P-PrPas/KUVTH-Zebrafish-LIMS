@@ -14,6 +14,7 @@ from test_fish import BANGKOK
 from test_observations import setup_embryo
 
 from chronofish.reporting.xlsx import build_xlsx
+from chronofish.runtime.mutations import WRITE_KINDS
 
 
 def worksheet_rows(xml: bytes) -> list[list[str]]:
@@ -48,6 +49,28 @@ def test_fastapi_registers_every_openapi_operation(client):
     }
     assert expected <= actual
     assert len(expected) == 129
+
+
+def test_declared_write_kinds_match_the_openapi_contract():
+    document = yaml.safe_load((Path(__file__).parents[2] / "api" / "openapi.yaml").read_text(encoding="utf-8"))
+    shared = document["components"]["parameters"]
+
+    def declared_headers(parameters):
+        return {(shared[p["$ref"].rsplit("/", 1)[-1]] if "$ref" in p else p)["name"] for p in parameters or []}
+
+    operations = {
+        f"{method.upper()} {re.sub(r'{[^/]+}', '{}', path)}": declared_headers(item.get("parameters"))
+        | declared_headers(op.get("parameters"))
+        for path, item in document["paths"].items()
+        for method, op in item.items()
+        if method in {"post", "put", "patch", "delete"}
+    }
+    assert set(WRITE_KINDS) <= set(operations)
+    for operation, declared in operations.items():
+        kind = WRITE_KINDS.get(operation)
+        assert (kind in {"operator", "operator_bootstrap"}) == ("X-Operator-Id" in declared), operation
+        if kind == "account":
+            assert "X-Idempotency-Key" in declared, operation
 
 
 def test_r_export_has_stable_30_column_shape(client):

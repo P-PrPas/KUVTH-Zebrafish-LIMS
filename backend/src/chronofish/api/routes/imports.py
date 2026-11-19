@@ -12,6 +12,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Body, File, Form, Request, Response, UploadFile
 
 from ...runtime.errors import APIError
+from ...runtime.mutations import request_fingerprint, validate_write_context, write_kind
 from ...services.import_sources import (
     MAX_FILE_BYTES,
     MAX_FILES,
@@ -149,7 +150,10 @@ def build_import_router(store: Any) -> APIRouter:
         revision = body.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        return repository.confirm_template(job_id, revision, request, validate_only=True)
+        ctx = validate_write_context(request, None, body, write_kind(request))
+        return repository.confirm_template(
+            job_id, revision, ctx, request_fingerprint(request, body), validate_only=True
+        )
 
     @router.post("/{job_id}/confirm-template")
     def confirm_template(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict:
@@ -157,7 +161,8 @@ def build_import_router(store: Any) -> APIRouter:
         revision = body.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        return repository.confirm_template(job_id, revision, request)
+        ctx = validate_write_context(request, None, body, write_kind(request))
+        return repository.confirm_template(job_id, revision, ctx, request_fingerprint(request, body))
 
     @router.post("/inspect")
     async def inspect(request: Request, files: Annotated[list[UploadFile], File(...)]) -> dict[str, Any]:

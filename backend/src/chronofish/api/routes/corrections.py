@@ -23,7 +23,7 @@ from ...domain.rules import (
 )
 from ...domain.state import State
 from ...runtime.errors import APIError
-from ...runtime.mutations import audit
+from ...runtime.mutations import WriteContext, audit
 from ...runtime.values import iso_now, normalize, parse_datetime, utc_now, uuid7
 from ...services.fish import (
     apply_fish_update,
@@ -169,6 +169,8 @@ def _target_label(state: State, table: str, item: dict[str, Any]) -> str:
 def _validate_and_apply(
     state: State, request: Request, table: str, target_id: str, field: str, value: Any, reason: str
 ) -> None:
+    # Read-side dry runs (detail views) have no write context; their audits land on a discarded copy.
+    ctx = getattr(request.state, "write_context", None) or WriteContext(getattr(request.state, "user", {}), "", "", "")
     item = _target(state, table, target_id, request)
     old = copy.deepcopy(item)
     candidate = {**item, field: value, "updatedAt": iso_now()}
@@ -254,7 +256,7 @@ def _validate_and_apply(
             if after_interval["id"] != target_id:
                 audit(
                     state,
-                    request,
+                    ctx,
                     "UPDATE",
                     "embryo_observation",
                     str(after_interval["id"]),
@@ -264,13 +266,29 @@ def _validate_and_apply(
         old_embryo = copy.deepcopy(state.entities["embryos"].get(embryo_id, {}))
         _recompute_embryo(state, embryo_id)
         if old_embryo != state.entities["embryos"].get(embryo_id):
-            audit(state, request, "UPDATE", "embryo", embryo_id, old_embryo, state.entities["embryos"][embryo_id])
+            audit(
+                state,
+                ctx,
+                "UPDATE",
+                "embryo",
+                embryo_id,
+                old_embryo,
+                state.entities["embryos"][embryo_id],
+            )
         if fish := find_fish_for_embryo(state, embryo_id):
             fish_id = str(fish["id"])
             old_fish = copy.deepcopy(fish)
             recompute_fish(state, fish_id)
             if old_fish != state.entities["fish"].get(fish_id):
-                audit(state, request, "UPDATE", "clone_fish", fish_id, old_fish, state.entities["fish"][fish_id])
+                audit(
+                    state,
+                    ctx,
+                    "UPDATE",
+                    "clone_fish",
+                    fish_id,
+                    old_fish,
+                    state.entities["fish"][fish_id],
+                )
     elif table == "clone_fish":
         old, candidate = apply_fish_update(state, target_id, {field: value})
     elif table == "fish_observation":
@@ -316,8 +334,16 @@ def _validate_and_apply(
         old_fish = copy.deepcopy(state.entities["fish"].get(fish_id, {}))
         recompute_fish(state, fish_id)
         if old_fish != state.entities["fish"].get(fish_id):
-            audit(state, request, "UPDATE", "clone_fish", fish_id, old_fish, state.entities["fish"][fish_id])
-    audit(state, request, "UPDATE", table, target_id, old, {**candidate, "correctionReason": reason})
+            audit(
+                state,
+                ctx,
+                "UPDATE",
+                "clone_fish",
+                fish_id,
+                old_fish,
+                state.entities["fish"][fish_id],
+            )
+    audit(state, ctx, "UPDATE", table, target_id, old, {**candidate, "correctionReason": reason})
 
 
 def build_corrections_router(store: Store) -> APIRouter:
@@ -520,7 +546,7 @@ def build_corrections_router(store: Store) -> APIRouter:
             if table == "auth_user":
                 row["recordedByUserId"] = user["id"]
             state.correction_requests[request_id] = row
-            audit(state, request, "INSERT", "correction_request", request_id, None, row)
+            audit(state, request.state.write_context, "INSERT", "correction_request", request_id, None, row)
             return 201, row
 
         response = store.execute_mutation(request, body, operation)
@@ -548,7 +574,7 @@ def build_corrections_router(store: Store) -> APIRouter:
                 raise APIError(409, "invalid_state", "Only pending requests can be withdrawn")
             old = copy.deepcopy(row)
             row.update(status="withdrawn", updatedAt=iso_now())
-            audit(state, request, "UPDATE", "correction_request", request_id, old, row)
+            audit(state, request.state.write_context, "UPDATE", "correction_request", request_id, old, row)
             return 200, row
 
         return store.execute_mutation(request, body, operation)
@@ -607,7 +633,7 @@ def build_corrections_router(store: Store) -> APIRouter:
                 decidedByUserId=request.state.user["id"],
                 updatedAt=iso_now(),
             )
-            audit(state, request, "UPDATE", "correction_request", request_id, old, row)
+            audit(state, request.state.write_context, "UPDATE", "correction_request", request_id, old, row)
             return 200, row
 
         response = store.execute_mutation(request, body, operation)

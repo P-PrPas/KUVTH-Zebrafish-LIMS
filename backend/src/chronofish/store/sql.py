@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from ..config import Config
 from ..domain.state import State
 from ..runtime.errors import APIError
-from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context
+from ..runtime.mutations import encode_result, request_fingerprint, validate_write_context, write_kind
 from ..runtime.values import parse_datetime, uuid7
 from .base import Mutation
 from .database import create_database_engine
@@ -532,7 +532,9 @@ class SQLStore:
                     {"id": FISH_SEQUENCE_ID},
                 ).scalar_one()
                 state = self._load_state(connection)
-                operator_id, device_id, key = validate_write_context(request, state, body)
+                context = validate_write_context(request, state, body, write_kind(request))
+                request.state.write_context = context
+                key = context.idempotency_key
                 previous = (
                     connection.execute(
                         text(
@@ -570,8 +572,8 @@ class SQLStore:
                         "status_code": status,
                         "content_type": media_type,
                         "response_body": "base64:" + base64.b64encode(encoded).decode(),
-                        "operator_id": operator_id or None,
-                        "device_id": device_id,
+                        "operator_id": context.operator_id or None,
+                        "device_id": context.device_id,
                         "created_at": now,
                         "completed_at": now,
                         "lease_until": now + timedelta(seconds=30),
