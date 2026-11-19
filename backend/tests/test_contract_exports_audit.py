@@ -48,7 +48,7 @@ def test_fastapi_registers_every_openapi_operation(client):
         if method in {"GET", "POST", "PUT", "PATCH", "DELETE"}
     }
     assert expected <= actual
-    assert len(expected) == 126
+    assert len(expected) == 127
 
 
 def test_declared_write_kinds_match_the_openapi_contract():
