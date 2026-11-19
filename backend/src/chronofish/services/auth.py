@@ -9,10 +9,11 @@ from datetime import datetime
 from typing import Any
 
 from ..config import Config
+from ..domain.signin import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW
 from ..runtime.email import validated_email as _email
 from ..runtime.errors import APIError
 from ..runtime.values import utc_now, uuid7
-from ..store.auth import OTP_DAILY_MAX_FAILURES, OTP_DAILY_WINDOW, AuthRepository
+from ..store.auth import AuthRepository
 from .mail import Mailer
 from .passwords import validate_password
 
