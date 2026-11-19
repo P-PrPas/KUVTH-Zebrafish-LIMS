@@ -16,14 +16,23 @@ def fingerprint(row):
     return hashlib.sha256(json.dumps(dict(row), sort_keys=True, default=str).encode()).hexdigest()
 
 
-def manifest(connection, before, after, job_id):
-    collections = [(table, before.entities[key], after.entities[key]) for key, table in RESOURCE_TABLE.items()]
-    collections += [
+def collections(before, after):
+    result = [(table, before.entities[key], after.entities[key]) for key, table in RESOURCE_TABLE.items()]
+    return result + [
         ("embryo_observation", before.observations, after.observations),
         ("fish_observation", before.fish_observations, after.fish_observations),
     ]
+
+
+def created_ids(before, after):
+    """Ids of the canonical rows a template import added, per table (what revert would remove)."""
+    found = {table: sorted(new.keys() - old.keys()) for table, old, new in collections(before, after)}
+    return {table: ids for table, ids in found.items() if ids}
+
+
+def manifest(connection, before, after, job_id):
     result = {}
-    for table, old, new in collections:
+    for table, old, new in collections(before, after):
         # Never promise rollback for imports which modify pre-existing records.
         if any(new.get(key) != value for key, value in old.items()):
             return None

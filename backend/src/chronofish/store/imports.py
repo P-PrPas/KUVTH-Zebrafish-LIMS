@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from ..runtime.audit import audit_entry, insert_audit
 from ..runtime.errors import APIError
@@ -1004,6 +1004,9 @@ class ImportRepository:
                 raise APIError(409, "issues_open", issues_message)
             working, targets, extra = build(records, self.store.state)
             if not validate_only:
+                from .import_revert import created_ids
+
+                job["created"] = created_ids(self.store.state, working)
                 self.store.state = working
                 for record_id, (table, target) in targets.items():
                     self.store.import_records[record_id].update(target_table=table, target_id=target, status="imported")
@@ -2239,6 +2242,86 @@ class ImportRepository:
             ],
         }
 
+    # Identifiers users recognise: (table, code column, memory resource, memory code key, item kind).
+    RESULT_CODES = (
+        ("experiment_batch", "batch_code", "batches", "batchCode", "batch"),
+        ("clone_fish", "fish_code", "fish", "fishCode", "fish"),
+        ("specimen", "specimen_code", "specimens", "specimenCode", "specimen"),
+    )
+    RESULT_HISTORICAL = (
+        "historical_experiment",
+        "historical_lot",
+        "historical_stage_count",
+        "historical_embryo",
+        "historical_observation",
+    )
+
+    def result(self, job_id: str, offset: int, limit: int) -> dict[str, Any]:
+        """What a committed job created: the revert enumeration (manifest or targets) plus job-scoped history."""
+        job = self._job(job_id)
+        empty = {"counts": [], "total": 0, "items": []}
+        if job["status"] != "committed":
+            return empty
+        if self.engine is None:
+            created = dict(job.get("created") or {})
+            counts = {table: len(ids) for table, ids in created.items()}
+        else:
+            with self.engine.connect() as connection:
+                rollback = self._rollback_manifest(connection, job_id)
+                if rollback is not None:
+                    created = {table: sorted(rows) for table, rows in rollback.items()}
+                else:
+                    created = {}
+                    for row in connection.execute(
+                        text(
+                            "SELECT target_table, target_id FROM import_record "
+                            "WHERE job_id = :job AND status = 'imported' ORDER BY target_id"
+                        ),
+                        {"job": job_id},
+                    ).mappings():
+                        created.setdefault(row["target_table"], []).append(str(row["target_id"]))
+                counts = {table: len(ids) for table, ids in created.items()}
+                for table in self.RESULT_HISTORICAL:
+                    counts.pop(table, None)
+                    total = connection.execute(
+                        text(f"SELECT COUNT(*) FROM {table} WHERE import_job_id = :job AND deleted_at IS NULL"),
+                        {"job": job_id},
+                    ).scalar_one()
+                    if total:
+                        counts[table] = int(total)
+        refs = [
+            (kind, table, column, resource, key, id_)
+            for table, column, resource, key, kind in self.RESULT_CODES
+            for id_ in created.get(table, [])
+        ]
+        page = refs[offset : offset + limit]
+        codes: dict[str, str] = {}
+        if self.engine is None:
+            with self.lock:
+                entities = self.store.state.entities
+                for _, _, _, resource, key, id_ in page:
+                    codes[id_] = entities[resource][id_][key]
+        else:
+            with self.engine.connect() as connection:
+                for table, column in {(row[1], row[2]) for row in page}:
+                    ids = [row[5] for row in page if row[1] == table]
+                    codes.update(
+                        {
+                            str(row["id"]): row["code"]
+                            for row in connection.execute(
+                                text(f"SELECT id, {column} AS code FROM {table} WHERE id IN :ids").bindparams(
+                                    bindparam("ids", expanding=True)
+                                ),
+                                {"ids": ids},
+                            ).mappings()
+                        }
+                    )
+        return {
+            "counts": [{"entity": table, "count": count} for table, count in counts.items()],
+            "total": len(refs),
+            "items": [{"kind": kind, "id": id_, "code": codes[id_]} for kind, _, _, _, _, id_ in page],
+        }
+
     def historical_structure(self, job_id: str, offset: int, limit: int) -> dict[str, Any]:
         self._job(job_id)
         if self.engine is None:
@@ -2406,6 +2489,18 @@ class ImportRepository:
 
         return manifest(connection, before, working, job_id)
 
+    @staticmethod
+    def _rollback_manifest(connection, job_id: str) -> dict[str, Any] | None:
+        audits = connection.execute(
+            text("SELECT new_values FROM audit_log WHERE table_name = 'import_job' AND record_id = :id"),
+            {"id": job_id},
+        ).scalars()
+        for raw in audits:
+            values = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(values, dict) and values.get("rollbackManifest"):
+                return values["rollbackManifest"]
+        return None
+
     def revert_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any], reason: str) -> dict[str, Any]:
         if self.engine is None:
             raise APIError(503, "database_required", "Import revert requires the configured database")
@@ -2422,37 +2517,31 @@ class ImportRepository:
                 raise APIError(404, "not_found", "Import job was not found")
             if job["status"] != "committed" or int(job["revision"]) != revision:
                 raise APIError(409, "import_changed", "Only an unchanged committed job can be reverted")
-            audits = connection.execute(
-                text("SELECT new_values FROM audit_log WHERE table_name = 'import_job' AND record_id = :id"),
-                {"id": job_id},
-            ).scalars()
-            for raw in audits:
-                values = json.loads(raw) if isinstance(raw, str) else raw
-                rollback = values.get("rollbackManifest") if isinstance(values, dict) else None
-                if rollback:
-                    from .import_revert import revert
+            rollback = self._rollback_manifest(connection, job_id)
+            if rollback:
+                from .import_revert import revert
 
-                    revert(connection, rollback, job_id, now)
-                    connection.execute(
-                        text(
-                            "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
-                            "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
-                        ),
-                        {"actor": actor["id"], "now": now, "job": job_id},
-                    )
-                    insert_audit(
-                        connection,
-                        audit_entry(
-                            actor,
-                            "UPDATE",
-                            "import_job",
-                            job_id,
-                            {"status": "committed"},
-                            {"status": "reverted", "reason": reason.strip()},
-                            occurred_at=now,
-                        ),
-                    )
-                    return {"jobId": job_id, "status": "reverted", "revision": revision + 1}
+                revert(connection, rollback, job_id, now)
+                connection.execute(
+                    text(
+                        "UPDATE import_job SET status = 'reverted', reverted_by_user_id = :actor, "
+                        "reverted_at = :now, updated_at = :now, revision = revision + 1 WHERE id = :job"
+                    ),
+                    {"actor": actor["id"], "now": now, "job": job_id},
+                )
+                insert_audit(
+                    connection,
+                    audit_entry(
+                        actor,
+                        "UPDATE",
+                        "import_job",
+                        job_id,
+                        {"status": "committed"},
+                        {"status": "reverted", "reason": reason.strip()},
+                        occurred_at=now,
+                    ),
+                )
+                return {"jobId": job_id, "status": "reverted", "revision": revision + 1}
             targets = [
                 dict(row)
                 for row in connection.execute(

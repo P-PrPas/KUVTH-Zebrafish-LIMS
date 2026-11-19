@@ -621,6 +621,46 @@ paths:
       responses:
         '200': { description: Fish status, life state, disposition, and row versions }
         '403': { description: Admin access required }
+  /imports/{jobId}/result:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [Imports]
+      summary: What a committed job created, with counts per entity and a page of recognisable codes
+      operationId: getImportResult
+      parameters:
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: Counts per created table and batch/fish/specimen codes; empty unless the job is committed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [counts, total, items]
+                properties:
+                  counts:
+                    type: array
+                    items:
+                      type: object
+                      required: [entity, count]
+                      properties:
+                        entity: { type: string }
+                        count: { type: integer }
+                  total: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, id, code]
+                      properties:
+                        kind: { type: string, enum: [batch, fish, specimen] }
+                        id: { type: string }
+                        code: { type: string }
+        '400': { description: Invalid page }
+        '403': { description: Admin access required }
+        '404': { description: Import job was not found }
   /imports/{jobId}/historical-summary:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }

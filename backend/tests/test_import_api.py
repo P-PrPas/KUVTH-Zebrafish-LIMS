@@ -285,6 +285,61 @@ def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     assert client.get("/api/v1/batches").json() == before_batches
 
 
+def test_import_result_counts_everything_a_committed_v5_experiment_job_created(import_client):
+    from test_import_v5 import experiment
+
+    from chronofish.services.import_v5 import EMBRYOS, EXPERIMENT
+
+    client = import_client
+    book = experiment()
+    suffix = v5_master_data(client, book)
+    job_id = v5_job(client, book, [EXPERIMENT, EMBRYOS])["job"]["id"]
+    path = f"/api/v1/imports/{job_id}/result"
+    assert client.get(path).json() == {"counts": [], "total": 0, "items": []}
+    assert client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1}).status_code == 200
+    result = client.get(path).json()
+    counts = {row["entity"]: row["count"] for row in result["counts"]}
+    # The lot record targets injection_lot, yet the batch it created must be counted too.
+    assert counts["experiment_batch"] == 1 and counts["injection_lot"] >= 1 and counts["embryo"] >= 1
+    assert result["total"] == 1 and result["items"][0]["kind"] == "batch" and result["items"][0]["code"] == "B" + suffix
+    assert client.get(f"{path}?offset=1&limit=5").json()["items"] == []
+    assert client.get(f"{path}?limit=0").status_code == 400
+    assert client.get(f"/api/v1/imports/{uuid7()}/result").status_code == 404
+
+
+def test_import_result_lists_fish_and_specimens_of_a_registry_job(import_client):
+    from test_import_v5 import registry
+
+    from chronofish.services.import_v5 import FISH, SPECIMENS
+
+    client = import_client
+    book = registry()
+    v5_master_data(client, book)
+    job_id = v5_job(client, book, [FISH, SPECIMENS])["job"]["id"]
+    assert client.post(f"/api/v1/imports/{job_id}/confirm-template", json={"revision": 1}).status_code == 200
+    result = client.get(f"/api/v1/imports/{job_id}/result?limit=100").json()
+    counts = {row["entity"]: row["count"] for row in result["counts"]}
+    kinds = [item["kind"] for item in result["items"]]
+    assert counts["clone_fish"] == kinds.count("fish") > 0 and counts["specimen"] == kinds.count("specimen") > 0
+    assert result["total"] == len(kinds)
+    assert all(item["code"] for item in result["items"])
+
+
+def test_import_result_of_a_historical_job_counts_job_scoped_history(import_client):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(aggregate=True), ["V1Raw"])
+    job_id = created["job"]["id"]
+    response = client.post(f"/api/v1/imports/{job_id}/confirm", json=confirm_body(client, created, ["V1Raw"]))
+    assert response.status_code == 200, response.text
+    result = client.get(f"/api/v1/imports/{job_id}/result").json()
+    counts = {row["entity"]: row["count"] for row in result["counts"]}
+    assert counts["historical_stage_count"] == scalar(
+        client, "SELECT COUNT(*) FROM historical_stage_count WHERE import_job_id = :job", job_id
+    )
+    assert result["items"] == [] and result["total"] == 0
+
+
 def test_schema_template_download_validate_and_atomic_commit(import_client):
     from test_import_template import records
 
