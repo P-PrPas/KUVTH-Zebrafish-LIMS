@@ -144,14 +144,14 @@ def test_sql_operator_request_and_account_update_roll_back_together(monkeypatch)
     )
     assert created.status_code == 201, created.text
     request_id = created.json()["id"]
-    persist = store._persist
+    persist = store.persist_changes
 
     def failing_persist(connection, before, after):
         persist(connection, before, after)
         raise APIError(409, "injected_failure", "Simulated persistence failure")
 
     with monkeypatch.context() as patch:
-        patch.setattr(store, "_persist", failing_persist)
+        patch.setattr(store, "persist_changes", failing_persist)
         failed = admin.post(
             f"/api/v1/corrections/{request_id}/decide", headers=headers(admin_id), json={"decision": "approve"}
         )

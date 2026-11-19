@@ -274,6 +274,39 @@ def test_confirm_template_rejects_operator_deactivated_after_route_validation(im
     assert client.get("/api/v1/fish").json()["items"] == fish_before
 
 
+def test_confirm_template_waiting_for_a_deactivation_lock_sees_the_deactivation(import_client):
+    from test_import_v5 import registry
+
+    from chronofish.services.import_v5 import FISH, SPECIMENS
+
+    client = import_client
+    store = client.app.state.store
+    if getattr(store, "engine", None) is None:
+        pytest.skip("lock waits require SQL")
+    book = registry()
+    v5_master_data(client, book)
+    job_id = v5_job(client, book, [FISH, SPECIMENS])["job"]["id"]
+    created = client.post("/api/v1/operators", headers={"X-Idempotency-Key": uuid7()}, json={"name": f"Gone {uuid7()}"})
+    assert created.status_code == 201, created.text
+    operator_id = created.json()["id"]
+    headers = {"X-Operator-Id": operator_id, "X-Idempotency-Key": uuid7()}
+    with ThreadPoolExecutor(max_workers=1) as pool, store.engine.connect() as holder:
+        # The deactivation holds the write lock while the confirm starts and queues behind it.
+        holder.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
+        holder.execute(text("UPDATE operator SET active = FALSE WHERE id = :id"), {"id": operator_id})
+        pending = pool.submit(
+            client.post, f"/api/v1/imports/{job_id}/confirm-template", headers=headers, json={"revision": 1}
+        )
+        try:
+            pending.result(timeout=1)
+        except TimeoutError:
+            pass
+        holder.commit()
+        rejected = pending.result(timeout=30)
+    assert rejected.status_code == 400 and rejected.json()["error"]["code"] == "invalid_context", rejected.text
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "draft"
+
+
 def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     from test_import_v5 import experiment
 
@@ -772,3 +805,31 @@ def test_fish_import_sets_registration_disability_after_migration(import_client,
     fish = client.get(f"/api/v1/fish/{record['id']}").json()
     assert fish["isDisabled"] is disabled
     assert fish["condition"] == ("ABNORMAL" if disabled else "NORMAL" if condition else "UNDETERMINED")
+
+
+def test_standalone_embryo_commit_refuses_stale_revision_and_open_issues_then_commits_and_reverts(import_client):
+    client = import_client
+    sql_required(client)
+    path = "/api/v1/imports/{}/confirm-v2-embryos"
+    rows = "SELECT COUNT(*) FROM historical_embryo WHERE import_job_id = :job"
+    blocked = create_job(client, workbook(incomplete=True))
+    body = confirm_body(client, blocked)
+    refused = client.post(path.format(blocked["job"]["id"]), json=body)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "issues_open"
+    assert scalar(client, rows, blocked["job"]["id"]) == 0
+
+    created = create_job(client, workbook())
+    job_id = created["job"]["id"]
+    body = confirm_body(client, created)
+    stale = client.post(path.format(job_id), json={**body, "revision": 2})
+    assert stale.status_code == 409 and stale.json()["error"]["code"] == "import_changed"
+    assert scalar(client, rows, job_id) == 0
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["revision"] == 1
+
+    committed = client.post(path.format(job_id), json=body)
+    assert committed.status_code == 200 and committed.json()["revision"] == 2, committed.text
+    assert scalar(client, rows, job_id) == 1
+    job = client.get(f"/api/v1/imports/{job_id}").json()["job"]
+    assert (job["status"], job["revision"]) == ("committed", 2)
+    reverted = client.post(f"/api/v1/imports/{job_id}/revert", json={"revision": 2, "reason": "Fixture cleanup"})
+    assert reverted.status_code == 200, reverted.text
