@@ -805,6 +805,10 @@ def test_old_confirm_url_for_another_job_kind_is_refused(import_client):
         f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=confirm_body(client, created)
     )
     assert response.status_code == 409, response.text
+    # The old endpoints rejected an explicit null reason instead of treating it as empty.
+    body = {**confirm_body(client, created), "zeroBypassReason": None}
+    response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=body)
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "invalid_reason"), response.text
 
 
 def test_single_confirm_endpoint_validates_the_fields_its_path_requires(import_client):
