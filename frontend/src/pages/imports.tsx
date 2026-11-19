@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { request } from "../api/client";
+import {
+  createImportWorkflow,
+  type DeferredField,
+  type ImportedFishStatus,
+  type Issue,
+  type Job,
+  type RecordRow,
+} from "../import-workflow";
 import { formatBangkokDateTime } from "../time";
 import { Toast } from "../toast";
 import { type Language, text } from "../types";
@@ -13,151 +21,8 @@ type InspectFile = {
   preview?: string[][];
 };
 type Inspect = { inputKind: "xlsx" | "csv_set"; files: InspectFile[] };
-type Job = { id: string; status: string; inputKind: string; revision: number; createdAt: string };
-type Detail = {
-  job: Job;
-  files: { id: string; fileName: string; sha256: string; sizeBytes: number }[];
-  recordCount: number;
-  issueCount: number;
-  deferredFieldCount: number;
-};
-type RecordRow = {
-  id: string;
-  sheetName: string;
-  sourceLocator: string;
-  recordKind: string;
-  status: string;
-  source: Record<string, unknown>;
-  working: Record<string, unknown>;
-  targetTable?: string | null;
-  targetId?: string | null;
-};
-type Issue = {
-  id: string;
-  recordId: string | null;
-  sheetName: string;
-  rowNo: number | null;
-  sourceColumn: string | null;
-  sourceValue: string | null;
-  severity: string;
-  code: string;
-  message: string;
-  status: string;
-};
-type MappingRequirements = {
-  canConfirmTemplate?: boolean;
-  donorSources: string[];
-  sheetNames: string[];
-  recordKinds: string[];
-  ambiguousZeroRecords: string[];
-  unresolvedIssueCount: number;
-  canConfirmFishSpecimens: boolean;
-  canConfirmAggregate: boolean;
-  aggregateWarningCount: number;
-  aggregateWarningPreview: string[];
-  canConfirmEmbryos: boolean;
-  embryoWarningCount: number;
-  embryoWarningPreview: string[];
-  canConfirmMixed: boolean;
-};
-type MasterOption = {
-  id: string;
-  code?: string;
-  name?: string;
-  strain?: string;
-  preparation?: string;
-  batchCode?: string;
-  timeZone?: string | null;
-};
-type ImportedFishStatus = {
-  id: string;
-  fishCode: string;
-  status: string;
-  lifeState: string;
-  disposition: string;
-  exitDate: string | null;
-  rowVersion: number;
-};
 type FishStatusEdit = { status: string; lifeState: string; disposition: string; exitDate: string; reason: string };
-type DeferredField = {
-  id: string;
-  jobId: string;
-  sheetName: string;
-  sourceLocator: string;
-  sourceColumn: string;
-  sourceValue: unknown;
-  status: string;
-  targetTable: string | null;
-  targetId: string | null;
-  targetField?: string | null;
-  targetFields: string[];
-  rowVersion: number | null;
-};
 type DeferredEdit = { targetField: string; value: string; reason: string };
-type HistoricalSummary = {
-  stageCounts: {
-    stageLabel: string;
-    armType: string | null;
-    sourceCount: number;
-    nTotal: number | null;
-    nAlive: number | null;
-    nNormal: number | null;
-    nAbnormal: number | null;
-    numerator: number | null;
-    denominator: number | null;
-  }[];
-  observations: {
-    subjectType: string;
-    stageLabel: string | null;
-    outcome: string | null;
-    timePrecision: string;
-    count: number;
-  }[];
-};
-type HistoricalStructure = {
-  total: number;
-  items: {
-    id: string;
-    sourceSheet: string;
-    sourceKind: string;
-    experimentDate: string | null;
-    siteId: string | null;
-    recipientSource: string | null;
-    eggCodeSource: string | null;
-    groupSource: string | null;
-    csofSource: string | null;
-    lots: {
-      id: string;
-      lotNoSource: string | null;
-      donorSource: string | null;
-      injectionSource: string | null;
-      activationLocalTime: string | null;
-    }[];
-  }[];
-};
-type ImportComparison = {
-  matchedFiles: {
-    currentFile: string;
-    priorFile: string;
-    priorJobId: string;
-    priorJobStatus: string;
-    sha256: string;
-  }[];
-  records: {
-    recordId: string;
-    sheetName: string;
-    sourceLocator: string;
-    recordKind: string;
-    activeTargetId: string | null;
-    previousJobId: string | null;
-    previousRecordId: string | null;
-    sameSourcePosition: boolean;
-    sourceChanged: boolean | null;
-    workingChanged: boolean | null;
-    changedFieldCount: number;
-    changedFields: { field: string; before: string | null; after: string | null }[];
-  }[];
-};
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
@@ -165,7 +30,6 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function Imports({ language }: { language: Language }) {
   const th = language === "th";
-  const [jobs, setJobs] = useState<Job[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [inspection, setInspection] = useState<Inspect | null>(null);
@@ -173,11 +37,6 @@ export function Imports({ language }: { language: Language }) {
   const [csvOptions, setCsvOptions] = useState<
     { include: boolean; sheetName: string; encoding: string; delimiter: string; ignoreReason: string }[]
   >([]);
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [records, setRecords] = useState<RecordRow[]>([]);
-  const [issues, setIssues] = useState<Issue[]>([]);
-  const [recordOffset, setRecordOffset] = useState(0);
-  const [issueOffset, setIssueOffset] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
   const [interpretation, setInterpretation] = useState<{ recordId: string; value: Record<string, unknown> } | null>(
     null,
@@ -188,35 +47,87 @@ export function Imports({ language }: { language: Language }) {
   const [correctedValues, setCorrectedValues] = useState<Record<string, string>>({});
   const [selectedIssueIds, setSelectedIssueIds] = useState<string[]>([]);
   const [bulkBypassReason, setBulkBypassReason] = useState("");
-  const [mappingRequirements, setMappingRequirements] = useState<MappingRequirements | null>(null);
-  const [siteOptions, setSiteOptions] = useState<MasterOption[]>([]);
-  const [donorOptions, setDonorOptions] = useState<MasterOption[]>([]);
   const [siteMappings, setSiteMappings] = useState<Record<string, string>>({});
   const [donorMappings, setDonorMappings] = useState<Record<string, string>>({});
   const [zeroBypassReason, setZeroBypassReason] = useState("");
   const [aggregateWarningReason, setAggregateWarningReason] = useState("");
   const [embryoWarningReason, setEmbryoWarningReason] = useState("");
-  const [fishStatuses, setFishStatuses] = useState<ImportedFishStatus[]>([]);
   const [fishStatusEdits, setFishStatusEdits] = useState<Record<string, FishStatusEdit>>({});
   const [revertReason, setRevertReason] = useState("");
   const [activeTab, setActiveTab] = useState<"jobs" | "deferred">("jobs");
-  const [deferredFields, setDeferredFields] = useState<DeferredField[]>([]);
-  const [deferredTotal, setDeferredTotal] = useState(0);
-  const [deferredOffset, setDeferredOffset] = useState(0);
   const [deferredEdits, setDeferredEdits] = useState<Record<string, DeferredEdit>>({});
-  const [historicalSummary, setHistoricalSummary] = useState<HistoricalSummary | null>(null);
-  const [historicalStructure, setHistoricalStructure] = useState<HistoricalStructure | null>(null);
-  const [structureOffset, setStructureOffset] = useState(0);
   const [summaryExpanded, setSummaryExpanded] = useState(false);
-  const [comparison, setComparison] = useState<ImportComparison | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [refreshNeeded, setRefreshNeeded] = useState<"committed" | "reverted" | null>(null);
-  const [importStep, setImportStep] = useState(2);
-  const [confirmationMode, setConfirmationMode] = useState("mixed");
   const [issueFilter, setIssueFilter] = useState("all");
   const [jobsLoading, setJobsLoading] = useState(true);
+  const [workflow] = useState(() =>
+    createImportWorkflow(request, {
+      onNewJob() {
+        setSiteMappings({});
+        setDonorMappings({});
+        setZeroBypassReason("");
+      },
+      onJobLoaded({ fishStatuses }) {
+        setSelectedIssueIds([]);
+        setSummaryExpanded(false);
+        setFishStatusEdits(
+          Object.fromEntries(
+            fishStatuses.map((fish) => [
+              fish.id,
+              {
+                status: fish.status,
+                lifeState: fish.lifeState,
+                disposition: fish.disposition,
+                exitDate: fish.exitDate ?? "",
+                reason: "",
+              },
+            ]),
+          ),
+        );
+        setEditing(null);
+        setInterpretation(null);
+      },
+      onDeferredLoaded(items) {
+        setDeferredEdits(
+          Object.fromEntries(
+            items.map((field) => [
+              field.id,
+              {
+                targetField: field.targetFields[0] ?? "",
+                value: typeof field.sourceValue === "string" ? field.sourceValue : JSON.stringify(field.sourceValue),
+                reason: "",
+              },
+            ]),
+          ),
+        );
+      },
+    }),
+  );
+  const {
+    jobs,
+    detail,
+    records,
+    issues,
+    recordOffset,
+    issueOffset,
+    mappingRequirements,
+    siteOptions,
+    donorOptions,
+    fishStatuses,
+    deferredFields,
+    deferredTotal,
+    deferredOffset,
+    historicalSummary,
+    historicalStructure,
+    structureOffset,
+    comparison,
+    refreshNeeded,
+    opening,
+    importStep,
+    confirmationMode,
+  } = useSyncExternalStore(workflow.subscribe, workflow.getState);
   const usesSites = confirmationMode !== "aggregate" && confirmationMode !== "template";
   const usesDonors = confirmationMode === "mixed" || confirmationMode === "fish";
   const usesAggregateWarnings = confirmationMode === "mixed" || confirmationMode === "aggregate";
@@ -302,7 +213,7 @@ export function Imports({ language }: { language: Language }) {
   const importReady = Boolean(mappingRequirements && importChecks.every((check) => check.ready));
   const workflowRef = useRef<HTMLElement>(null);
   function changeStep(next: number) {
-    setImportStep(next);
+    workflow.setStep(next);
     window.requestAnimationFrame(() => {
       workflowRef.current?.scrollIntoView({ block: "start" });
       workflowRef.current?.querySelector<HTMLButtonElement>('[aria-current="step"]')?.focus({ preventScroll: true });
@@ -312,114 +223,9 @@ export function Imports({ language }: { language: Language }) {
     (issue) => issueFilter === "all" || issue.severity === issueFilter || issue.status === issueFilter,
   );
 
-  async function reloadJobs() {
-    const result = await json<{ items: Job[] }>("/imports");
-    setJobs(result.items);
-  }
-  async function loadDeferred(offset = 0) {
-    const result = await json<{ total: number; items: DeferredField[] }>(
-      `/imports/deferred-fields?offset=${offset}&limit=50`,
-    );
-    setDeferredFields(result.items);
-    setDeferredTotal(result.total);
-    setDeferredOffset(offset);
-    setDeferredEdits(
-      Object.fromEntries(
-        result.items.map((field) => [
-          field.id,
-          {
-            targetField: field.targetFields[0] ?? "",
-            value: typeof field.sourceValue === "string" ? field.sourceValue : JSON.stringify(field.sourceValue),
-            reason: "",
-          },
-        ]),
-      ),
-    );
-  }
-  async function loadStructure(jobId: string, offset = 0) {
-    const result = await json<HistoricalStructure>(`/imports/${jobId}/historical-structure?offset=${offset}&limit=50`);
-    setHistoricalStructure(result);
-    setStructureOffset(offset);
-  }
-  async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
-    const newJob = detail?.job.id !== id;
-    if (newJob) {
-      setSiteMappings({});
-      setDonorMappings({});
-      setZeroBypassReason("");
-    }
-    const [
-      nextDetail,
-      nextRecordPage,
-      nextIssuePage,
-      requirements,
-      siteCatalog,
-      donorCatalog,
-      importedFish,
-      summary,
-      nextComparison,
-      structure,
-    ] = await Promise.all([
-      json<Detail>(`/imports/${id}`),
-      json<{ items: RecordRow[] }>(`/imports/${id}/records?offset=${nextRecords}&limit=50`),
-      json<{ items: Issue[] }>(`/imports/${id}/issues?offset=${nextIssues}&limit=50`),
-      json<MappingRequirements>(`/imports/${id}/mapping-requirements`),
-      json<{ items: MasterOption[] }>("/sites?limit=500"),
-      json<{ items: MasterOption[] }>("/donor-cell-lines?limit=500"),
-      json<{ items: ImportedFishStatus[] }>(`/imports/${id}/fish-status`),
-      json<HistoricalSummary>(`/imports/${id}/historical-summary`),
-      json<ImportComparison>(`/imports/${id}/comparison?offset=${nextRecords}&limit=50`),
-      json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=50`),
-    ]);
-    setDetail(nextDetail);
-    if (newJob) setRefreshNeeded(null);
-    if (newJob || nextDetail.job.status !== "draft") {
-      setImportStep(nextDetail.job.status === "draft" ? 2 : 5);
-      setConfirmationMode(
-        requirements.canConfirmTemplate
-          ? "template"
-          : requirements.canConfirmMixed
-            ? "mixed"
-            : requirements.canConfirmFishSpecimens
-              ? "fish"
-              : requirements.canConfirmEmbryos
-                ? "embryos"
-                : "aggregate",
-      );
-    }
-    setRecords(nextRecordPage.items);
-    setIssues(nextIssuePage.items);
-    setSelectedIssueIds([]);
-    setRecordOffset(nextRecords);
-    setIssueOffset(nextIssues);
-    setMappingRequirements(requirements);
-    setSiteOptions(siteCatalog.items);
-    setDonorOptions(donorCatalog.items);
-    setFishStatuses(importedFish.items);
-    setHistoricalSummary(summary);
-    setHistoricalStructure(structure);
-    setStructureOffset(0);
-    setComparison(nextComparison);
-    setSummaryExpanded(false);
-    setFishStatusEdits(
-      Object.fromEntries(
-        importedFish.items.map((fish) => [
-          fish.id,
-          {
-            status: fish.status,
-            lifeState: fish.lifeState,
-            disposition: fish.disposition,
-            exitDate: fish.exitDate ?? "",
-            reason: "",
-          },
-        ]),
-      ),
-    );
-    setEditing(null);
-    setInterpretation(null);
-  }
   useEffect(() => {
-    void reloadJobs()
+    void workflow
+      .reloadJobs()
       .catch((cause: Error) => setError(cause.message))
       .finally(() => setJobsLoading(false));
   }, []);
@@ -430,11 +236,7 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/deferred-fields/${field.id}/apply`, {
-        method: "POST",
-        body: JSON.stringify({ ...edit, rowVersion: field.rowVersion }),
-      });
-      await loadDeferred(deferredOffset);
+      await workflow.applyDeferred(field.id, { ...edit, rowVersion: field.rowVersion });
       setNotice(th ? "เพิ่มค่าจากไฟล์ต้นฉบับแล้ว" : "Deferred source value applied.");
     } catch (cause) {
       setError((cause as Error).message);
@@ -483,8 +285,8 @@ export function Imports({ language }: { language: Language }) {
       setInspection(null);
       setFiles([]);
       if (fileInput.current) fileInput.current.value = "";
-      await reloadJobs();
-      await openJob(created.job.id);
+      await workflow.reloadJobs();
+      await workflow.openJob(created.job.id);
       setNotice(
         th
           ? `บันทึกฉบับร่างแล้ว มี ${created.deferredFieldCount} ค่ารอเพิ่มฟิลด์ในภายหลัง`
@@ -505,11 +307,11 @@ export function Imports({ language }: { language: Language }) {
       const working = JSON.parse(workingText) as Record<string, unknown>;
       if (!working || typeof working !== "object" || Array.isArray(working))
         throw new Error("Working values must be a JSON object");
-      await json(`/imports/${detail.job.id}/records/${row.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ revision: detail.job.revision, working, reason }),
-      });
-      await openJob(detail.job.id, recordOffset, issueOffset);
+      await workflow.writeAndReload(
+        `/imports/${detail.job.id}/records/${row.id}`,
+        { revision: detail.job.revision, working, reason },
+        "PATCH",
+      );
       setNotice(th ? "บันทึกการแก้ไขแล้ว" : "Edit saved.");
       setReason("");
     } catch (cause) {
@@ -524,11 +326,11 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/${detail.job.id}/issues/${issue.id}/decision`, {
-        method: "POST",
-        body: JSON.stringify({ revision: detail.job.revision, decision, reason: decisionReason[issue.id] ?? "" }),
+      await workflow.writeAndReload(`/imports/${detail.job.id}/issues/${issue.id}/decision`, {
+        revision: detail.job.revision,
+        decision,
+        reason: decisionReason[issue.id] ?? "",
       });
-      await openJob(detail.job.id, recordOffset, issueOffset);
       setNotice(th ? "บันทึกการตัดสินใจแล้ว" : "Decision saved.");
     } catch (cause) {
       setError((cause as Error).message);
@@ -542,15 +344,11 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/${detail.job.id}/issues/${issue.id}/correct-cell`, {
-        method: "POST",
-        body: JSON.stringify({
-          revision: detail.job.revision,
-          value: correctedValues[issue.id] ?? "",
-          reason: decisionReason[issue.id] ?? "",
-        }),
+      await workflow.writeAndReload(`/imports/${detail.job.id}/issues/${issue.id}/correct-cell`, {
+        revision: detail.job.revision,
+        value: correctedValues[issue.id] ?? "",
+        reason: decisionReason[issue.id] ?? "",
       });
-      await openJob(detail.job.id, recordOffset, issueOffset);
       setNotice(th ? "แก้ค่าของเซลล์และปิดประเด็นแล้ว" : "Cell corrected and issue resolved.");
     } catch (cause) {
       setError((cause as Error).message);
@@ -564,11 +362,11 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/${detail.job.id}/issues/bulk-bypass`, {
-        method: "POST",
-        body: JSON.stringify({ revision: detail.job.revision, issueIds: selectedIssueIds, reason: bulkBypassReason }),
+      await workflow.writeAndReload(`/imports/${detail.job.id}/issues/bulk-bypass`, {
+        revision: detail.job.revision,
+        issueIds: selectedIssueIds,
+        reason: bulkBypassReason,
       });
-      await openJob(detail.job.id, recordOffset, issueOffset);
       setBulkBypassReason("");
       setNotice(
         th
@@ -617,27 +415,13 @@ export function Imports({ language }: { language: Language }) {
     setError("");
     setNotice("");
     try {
-      const result = await json<{ recordCount: number; revision: number }>(
-        `/imports/${detail.job.id}/${commit ? "confirm-template" : "validate-template"}`,
-        { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
+      await workflow.submitTemplate(commit, (result) =>
+        setNotice(
+          th
+            ? `${commit ? "นำเข้าแล้ว" : "ตรวจสอบผ่าน"} ${result.recordCount} รายการ`
+            : `${result.recordCount} records ${commit ? "imported" : "validated"}.`,
+        ),
       );
-      setNotice(
-        th
-          ? `${commit ? "นำเข้าแล้ว" : "ตรวจสอบผ่าน"} ${result.recordCount} รายการ`
-          : `${result.recordCount} records ${commit ? "imported" : "validated"}.`,
-      );
-      if (commit) {
-        setDetail({ ...detail, job: { ...detail.job, status: "committed", revision: result.revision } });
-        setImportStep(5);
-        setHistoricalSummary(null);
-        try {
-          await openJob(detail.job.id);
-          await reloadJobs();
-          setRefreshNeeded(null);
-        } catch {
-          setRefreshNeeded("committed");
-        }
-      }
     } catch (cause) {
       const message = (cause as Error).message;
       setError(message === "OPERATOR_REQUIRED" ? text[language].operatorRequired : message);
@@ -651,9 +435,7 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await openJob(detail.job.id);
-      await reloadJobs();
-      setRefreshNeeded(null);
+      await workflow.retryRefresh();
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -697,47 +479,46 @@ export function Imports({ language }: { language: Language }) {
     setError("");
     try {
       // The server picks fish / aggregate / embryo / mixed from the job's record kinds.
-      const result = await json<{
+      await workflow.confirm<{
+        revision?: number;
         fishCount?: number;
         specimenCount?: number;
         historicalCountRows?: number;
         historicalEmbryoCount?: number;
         historicalObservationCount?: number;
         historicalControlCount?: number;
-      }>(`/imports/${detail.job.id}/confirm`, {
-        method: "POST",
-        body: JSON.stringify({
-          revision: detail.job.revision,
+      }>(
+        {
           siteMappings,
           donorMappings,
           zeroBypassReason,
           aggregateWarningBypassReason: aggregateWarningReason,
           embryoWarningBypassReason: embryoWarningReason,
-        }),
-      });
-      await reloadJobs();
-      await openJob(detail.job.id, recordOffset, issueOffset);
-      const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
-      setNotice(
-        result.fishCount !== undefined
-          ? th
-            ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
-            : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`
-          : result.historicalCountRows !== undefined
-            ? th
-              ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
-              : `Imported ${result.historicalCountRows} historical count rows.`
-            : result.historicalEmbryoCount !== undefined
+        },
+        (result) => {
+          const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
+          setNotice(
+            result.fishCount !== undefined
               ? th
-                ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
-                : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`
-              : referenceOnly
+                ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
+                : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`
+              : result.historicalCountRows !== undefined
                 ? th
-                  ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
-                  : "Summary sheets archived as references."
-                : th
-                  ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
-                  : "Selected data sheets committed atomically; summary sheets were kept as references.",
+                  ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
+                  : `Imported ${result.historicalCountRows} historical count rows.`
+                : result.historicalEmbryoCount !== undefined
+                  ? th
+                    ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
+                    : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`
+                  : referenceOnly
+                    ? th
+                      ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
+                      : "Summary sheets archived as references."
+                    : th
+                      ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
+                      : "Selected data sheets committed atomically; summary sheets were kept as references.",
+          );
+        },
       );
     } catch (cause) {
       setError((cause as Error).message);
@@ -753,11 +534,11 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      await json(`/imports/${detail.job.id}/fish-status/${fish.id}`, {
-        method: "POST",
-        body: JSON.stringify({ ...edit, exitDate: edit.exitDate || null, rowVersion: fish.rowVersion }),
+      await workflow.writeAndReload(`/imports/${detail.job.id}/fish-status/${fish.id}`, {
+        ...edit,
+        exitDate: edit.exitDate || null,
+        rowVersion: fish.rowVersion,
       });
-      await openJob(detail.job.id, recordOffset, issueOffset);
       setNotice(th ? "บันทึกการยืนยันสถานะปลาแล้ว" : "Fish status reviewed.");
     } catch (cause) {
       setError((cause as Error).message);
@@ -779,22 +560,10 @@ export function Imports({ language }: { language: Language }) {
     setBusy(true);
     setError("");
     try {
-      const result = await json<{ revision: number }>(`/imports/${detail.job.id}/revert`, {
-        method: "POST",
-        body: JSON.stringify({ revision: detail.job.revision, reason: revertReason }),
+      await workflow.revert(revertReason, () => {
+        setRevertReason("");
+        setNotice(th ? "ย้อนงานนำเข้าแล้ว" : "Import reverted.");
       });
-      setDetail({ ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } });
-      setImportStep(5);
-      setHistoricalSummary(null);
-      setRevertReason("");
-      setNotice(th ? "ย้อนงานนำเข้าแล้ว" : "Import reverted.");
-      try {
-        await openJob(detail.job.id);
-        await reloadJobs();
-        setRefreshNeeded(null);
-      } catch {
-        setRefreshNeeded("reverted");
-      }
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -867,7 +636,7 @@ export function Imports({ language }: { language: Language }) {
           aria-current={activeTab === "deferred" ? "page" : undefined}
           onClick={() => {
             setActiveTab("deferred");
-            void loadDeferred().catch((cause: Error) => setError(cause.message));
+            void workflow.loadDeferred().catch((cause: Error) => setError(cause.message));
           }}
         >
           {th ? "ฟิลด์ที่รอเพิ่ม" : "Deferred fields"}
@@ -1045,7 +814,7 @@ export function Imports({ language }: { language: Language }) {
                     type="button"
                     key={job.id}
                     aria-current={detail?.job.id === job.id ? "true" : undefined}
-                    onClick={() => void openJob(job.id).catch((cause: Error) => setError(cause.message))}
+                    onClick={() => void workflow.openJob(job.id).catch((cause: Error) => setError(cause.message))}
                   >
                     <strong>{formatBangkokDateTime(job.createdAt)}</strong>
                     <span>
@@ -1069,6 +838,23 @@ export function Imports({ language }: { language: Language }) {
               </div>
             </section>
           </div>
+          {!detail && opening && (
+            <section className="import-page__panel">
+              {opening.failed ? (
+                <>
+                  <p role="alert">{th ? "โหลดงานนำเข้าไม่สำเร็จ" : "Could not load the import job."}</p>
+                  <button
+                    type="button"
+                    onClick={() => void workflow.openJob(opening.id).catch((cause: Error) => setError(cause.message))}
+                  >
+                    {th ? "โหลดอีกครั้ง" : "Retry"}
+                  </button>
+                </>
+              ) : (
+                <p role="status">{th ? "กำลังโหลดงานนำเข้า…" : "Loading import job…"}</p>
+              )}
+            </section>
+          )}
           {detail && (
             <section className="import-page__panel">
               <div className="import-job-heading">
@@ -1088,7 +874,7 @@ export function Imports({ language }: { language: Language }) {
                   </p>
                   <h2>{detail.files.map((file) => file.fileName).join(", ") || (th ? "งานนำเข้า" : "Import job")}</h2>
                 </div>
-                <button type="button" onClick={() => setDetail(null)}>
+                <button type="button" onClick={() => workflow.closeJob()}>
                   {th ? "กลับรายการงานนำเข้า" : "Back to import jobs"}
                 </button>
               </div>
@@ -1172,7 +958,9 @@ export function Imports({ language }: { language: Language }) {
                           <button
                             type="button"
                             onClick={() =>
-                              void openJob(match.previousJobId!).catch((cause: Error) => setError(cause.message))
+                              void workflow
+                                .openJob(match.previousJobId!)
+                                .catch((cause: Error) => setError(cause.message))
                             }
                           >
                             {th ? "เปิดงานนำเข้าเดิม" : "Open prior job"}
@@ -1220,7 +1008,10 @@ export function Imports({ language }: { language: Language }) {
               <div hidden={importStep !== 2 && importStep !== 4} className="import-confirmation">
                 <label className="import-mode">
                   {th ? "วิธีนำเข้า" : "Import method"}
-                  <select value={confirmationMode} onChange={(event) => setConfirmationMode(event.target.value)}>
+                  <select
+                    value={confirmationMode}
+                    onChange={(event) => workflow.setConfirmationMode(event.target.value)}
+                  >
                     {mappingRequirements?.canConfirmTemplate && (
                       <option value="template">{th ? "Excel template ของระบบ" : "System Excel template"}</option>
                     )}
@@ -1711,7 +1502,9 @@ export function Imports({ language }: { language: Language }) {
                         <div className="import-page__pager">
                           <button
                             disabled={structureOffset === 0}
-                            onClick={() => void loadStructure(detail.job.id, Math.max(0, structureOffset - 50))}
+                            onClick={() =>
+                              void workflow.loadStructure(detail.job.id, Math.max(0, structureOffset - 50))
+                            }
                           >
                             ←
                           </button>
@@ -1721,7 +1514,7 @@ export function Imports({ language }: { language: Language }) {
                           </span>
                           <button
                             disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total}
-                            onClick={() => void loadStructure(detail.job.id, structureOffset + 50)}
+                            onClick={() => void workflow.loadStructure(detail.job.id, structureOffset + 50)}
                           >
                             →
                           </button>
@@ -2068,10 +1861,7 @@ export function Imports({ language }: { language: Language }) {
                   <p className="muted">{th ? "ไม่มีประเด็นในหน้านี้" : "No issues on this page."}</p>
                 )}
                 <div className="import-page__pager">
-                  <button
-                    disabled={issueOffset === 0}
-                    onClick={() => void openJob(detail.job.id, recordOffset, Math.max(0, issueOffset - 50))}
-                  >
+                  <button disabled={issueOffset === 0} onClick={() => void workflow.pageIssues(-1)}>
                     ←
                   </button>
                   <span>
@@ -2079,7 +1869,7 @@ export function Imports({ language }: { language: Language }) {
                   </span>
                   <button
                     disabled={issueOffset + issues.length >= detail.issueCount}
-                    onClick={() => void openJob(detail.job.id, recordOffset, issueOffset + 50)}
+                    onClick={() => void workflow.pageIssues(1)}
                   >
                     →
                   </button>
@@ -2209,10 +1999,7 @@ export function Imports({ language }: { language: Language }) {
                     </article>
                   ))}
                   <div className="import-page__pager">
-                    <button
-                      disabled={recordOffset === 0}
-                      onClick={() => void openJob(detail.job.id, Math.max(0, recordOffset - 50), issueOffset)}
-                    >
+                    <button disabled={recordOffset === 0} onClick={() => void workflow.pageRecords(-1)}>
                       ←
                     </button>
                     {!records.length && (
@@ -2231,7 +2018,7 @@ export function Imports({ language }: { language: Language }) {
                     </span>
                     <button
                       disabled={recordOffset + records.length >= detail.recordCount}
-                      onClick={() => void openJob(detail.job.id, recordOffset + 50, issueOffset)}
+                      onClick={() => void workflow.pageRecords(1)}
                     >
                       →
                     </button>
@@ -2332,7 +2119,10 @@ export function Imports({ language }: { language: Language }) {
             );
           })}
           <div className="import-page__pager">
-            <button disabled={deferredOffset === 0} onClick={() => void loadDeferred(Math.max(0, deferredOffset - 50))}>
+            <button
+              disabled={deferredOffset === 0}
+              onClick={() => void workflow.loadDeferred(Math.max(0, deferredOffset - 50))}
+            >
               ←
             </button>
             <span>
@@ -2340,7 +2130,7 @@ export function Imports({ language }: { language: Language }) {
             </span>
             <button
               disabled={deferredOffset + deferredFields.length >= deferredTotal}
-              onClick={() => void loadDeferred(deferredOffset + 50)}
+              onClick={() => void workflow.loadDeferred(deferredOffset + 50)}
             >
               →
             </button>

@@ -788,6 +788,42 @@ it("keeps a successful template commit distinct from a failed refresh and retrie
   root.unmount();
 });
 
+it("keeps a successful confirm distinct from a failed refresh and retries reads only", async () => {
+  const api = mockImportApi("draft", true);
+  let committed = false;
+  let failRefresh = true;
+  let confirmCount = 0;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = new URL(String(input), "http://testserver").pathname;
+    if (path.endsWith("/confirm")) {
+      committed = true;
+      confirmCount += 1;
+      return new Response(JSON.stringify({ fishCount: 1, specimenCount: 1, revision: 3 }));
+    }
+    if (committed && failRefresh && path.endsWith("/imports")) {
+      return new Response(JSON.stringify({ error: { message: "Rate limited" } }), { status: 429 });
+    }
+    const body = await (await api(input, init)).json();
+    if (committed && path.endsWith("/job-1")) Object.assign(body.job, { status: "committed", revision: 3 });
+    return new Response(JSON.stringify(body));
+  });
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  const root = createRoot(document.body.appendChild(document.createElement("div")));
+  await act(async () => root.render(<Imports language="en" />));
+  await openJob();
+  await clickButton("Confirm all selected sheets");
+  expect(document.body.textContent).toContain("Imported 1 fish and 1 specimens.");
+  expect(document.body.textContent).toContain("Import succeeded, but the latest results could not be loaded");
+  failRefresh = false;
+  await clickButton("Retry loading results");
+  expect(document.body.textContent).not.toContain("Import succeeded, but the latest results could not be loaded");
+  expect(confirmCount).toBe(1);
+  root.unmount();
+});
+
 it("shows the server conflict when a template rollback has later dependencies", async () => {
   const api = mockImportApi("committed", true);
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1069,14 +1105,16 @@ it.each(["en", "th"] as const)("renders all guarded confirmation paths in %s", a
   const root = createRoot(document.body.appendChild(document.createElement("div")));
   await act(async () => root.render(<Imports language={language} />));
   await openJob();
-  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(".import-page__mapping button")).filter(
-    (button) => button.textContent?.includes(language === "en" ? "Confirm" : "ยืนยัน"),
-  );
-  expect(buttons).toHaveLength(4);
-  for (const [index, button] of buttons.entries()) {
+  // Re-query each time: a successful confirm now marks the job committed before the reload restores the mock's draft.
+  const confirmButtons = () =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".import-page__mapping button")).filter((button) =>
+      button.textContent?.includes(language === "en" ? "Confirm" : "ยืนยัน"),
+    );
+  expect(confirmButtons()).toHaveLength(4);
+  for (const index of [0, 1, 2, 3]) {
     await selectImportMethod(["mixed", "fish", "embryos", "aggregate"][index]);
     await act(async () => {
-      button.click();
+      confirmButtons()[index].click();
       await Promise.resolve();
     });
     await flush();
