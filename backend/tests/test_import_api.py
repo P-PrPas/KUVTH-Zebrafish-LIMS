@@ -274,6 +274,39 @@ def test_confirm_template_rejects_operator_deactivated_after_route_validation(im
     assert client.get("/api/v1/fish").json()["items"] == fish_before
 
 
+def test_confirm_template_waiting_for_a_deactivation_lock_sees_the_deactivation(import_client):
+    from test_import_v5 import registry
+
+    from chronofish.services.import_v5 import FISH, SPECIMENS
+
+    client = import_client
+    store = client.app.state.store
+    if getattr(store, "engine", None) is None:
+        pytest.skip("lock waits require SQL")
+    book = registry()
+    v5_master_data(client, book)
+    job_id = v5_job(client, book, [FISH, SPECIMENS])["job"]["id"]
+    created = client.post("/api/v1/operators", headers={"X-Idempotency-Key": uuid7()}, json={"name": f"Gone {uuid7()}"})
+    assert created.status_code == 201, created.text
+    operator_id = created.json()["id"]
+    headers = {"X-Operator-Id": operator_id, "X-Idempotency-Key": uuid7()}
+    with ThreadPoolExecutor(max_workers=1) as pool, store.engine.connect() as holder:
+        # The deactivation holds the write lock while the confirm starts and queues behind it.
+        holder.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
+        holder.execute(text("UPDATE operator SET active = FALSE WHERE id = :id"), {"id": operator_id})
+        pending = pool.submit(
+            client.post, f"/api/v1/imports/{job_id}/confirm-template", headers=headers, json={"revision": 1}
+        )
+        try:
+            pending.result(timeout=1)
+        except TimeoutError:
+            pass
+        holder.commit()
+        rejected = pending.result(timeout=30)
+    assert rejected.status_code == 400 and rejected.json()["error"]["code"] == "invalid_context", rejected.text
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "draft"
+
+
 def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     from test_import_v5 import experiment
 
@@ -827,6 +860,10 @@ def test_old_confirm_url_for_another_job_kind_is_refused(import_client):
         f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=confirm_body(client, created)
     )
     assert response.status_code == 409, response.text
+    # The old endpoints rejected an explicit null reason instead of treating it as empty.
+    body = {**confirm_body(client, created), "zeroBypassReason": None}
+    response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=body)
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "invalid_reason"), response.text
 
 
 def test_single_confirm_endpoint_validates_the_fields_its_path_requires(import_client):

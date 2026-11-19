@@ -247,11 +247,17 @@ it("notifies subscribers on state change", () => {
   expect(listener).toHaveBeenCalledTimes(1);
 });
 
-// Job-scoped reads: `/imports/<id>` detail and historical-structure can be held until released.
+// Job-scoped reads: `/imports/<id>` detail and historical-structure can be held until released; so can writes.
 function gated() {
   const gates = new Map<string, () => void>();
-  const request: RequestFn = async (path) => {
+  let failJobList = false;
+  const request: RequestFn = async (path, init) => {
     const url = new URL(path, "http://x");
+    if (init?.method === "POST") {
+      await new Promise<void>((resolve) => gates.set(`POST ${url.pathname}`, resolve));
+      return { json: async () => ({ recordCount: 1, revision: 3 }) };
+    }
+    if (url.pathname === "/imports" && failJobList) throw new Error("network down");
     const m = url.pathname.match(/^\/imports\/(job-\w+)(\/historical-structure)?$/);
     if (m) {
       const key = m[1] + (m[2] ?? "");
@@ -289,7 +295,10 @@ function gated() {
     await vi.waitFor(() => expect(gates.has(key)).toBe(true));
     gates.get(key)?.();
   };
-  return { workflow, release };
+  const failJobs = () => {
+    failJobList = true;
+  };
+  return { workflow, release, failJobs };
 }
 
 it("keeps the latest opened job when an older response arrives last", async () => {
@@ -326,4 +335,35 @@ it("ignores a structure page for a job that is no longer open", async () => {
   await page;
   expect(workflow.getState().structureOffset).toBe(0);
   expect(workflow.getState().detail?.job.id).toBe("job-b");
+});
+
+it("a commit that finishes after the user picked another job leaves that job on screen", async () => {
+  const { workflow, release } = gated();
+  const a = workflow.openJob("job-a");
+  await release("job-a?null");
+  await a;
+  const write = workflow.submitTemplate(true, () => {});
+  const b = workflow.openJob("job-b");
+  await release("POST /imports/job-a/confirm-template");
+  await write;
+  await release("job-b?null");
+  await b;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+  expect(workflow.getState().refreshNeeded).toBeNull();
+});
+
+it("a revert whose job-list refresh fails after the user opened another job leaves no retry banner", async () => {
+  const { workflow, release, failJobs } = gated();
+  const a = workflow.openJob("job-a");
+  await release("job-a?null");
+  await a;
+  const write = workflow.revert("wrong batch", () => {});
+  const b = workflow.openJob("job-b");
+  await release("job-b?null");
+  await b;
+  failJobs();
+  await release("POST /imports/job-a/revert");
+  await write;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+  expect(workflow.getState().refreshNeeded).toBeNull();
 });

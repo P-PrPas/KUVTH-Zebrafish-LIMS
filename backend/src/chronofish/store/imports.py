@@ -870,8 +870,17 @@ class ImportRepository:
 
         now = _now()
         if self.engine is not None:
+            locked: dict[str, Any] = {}
 
-            def replay_stored(connection: Any) -> dict | None:
+            def lock_and_replay(connection: Any) -> dict | None:
+                # Lock and check before any plain read: on MySQL REPEATABLE READ the first plain read fixes the
+                # snapshot, so reading earlier could still see an operator deactivated while we waited.
+                # Same serialization lock used by normal application writes, including fish sequence allocation.
+                connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
+                locked["before"] = self.store.load_state(connection)
+                require_active_operator(locked["before"], ctx.operator_id)
+                if validate_only:
+                    return None
                 previous = (
                     connection.execute(
                         text(
@@ -886,8 +895,6 @@ class ImportRepository:
                 return replay(previous) if previous else None
 
             def collect(connection: Any) -> tuple[list[dict], Any]:
-                # Same serialization lock used by normal application writes, including fish sequence allocation.
-                connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
                 records = [
                     dict(r)
                     for r in connection.execute(
@@ -895,10 +902,7 @@ class ImportRepository:
                         {"id": job_id},
                     ).mappings()
                 ]
-                before = self.store.load_state(connection)
-                # Checked on state read under the commit lock so a concurrent deactivation cannot slip in.
-                require_active_operator(before, ctx.operator_id)
-                return records, before
+                return records, locked["before"]
 
             def apply(connection: Any, collected: tuple[list[dict], Any]) -> tuple[dict, dict, dict]:
                 records, before = collected
@@ -992,17 +996,17 @@ class ImportRepository:
                 collect=collect,
                 apply=apply,
                 finalize=not validate_only,
-                replay=None if validate_only else replay_stored,
+                replay=lock_and_replay,
                 issues_message=issues_message,
             )
         with self.lock:
             job = self.store.import_jobs.get(job_id)
             if job is None:
                 raise APIError(404, "not_found", "Import job was not found")
+            require_active_operator(self.store.state, ctx.operator_id)
             memory = self.store.idempotency
             if not validate_only and (previous := memory.get(f"{scope}:{key}")):
                 return replay({"request_hash": previous.request_hash, "response_body": previous.body})
-            require_active_operator(self.store.state, ctx.operator_id)
             records = [dict(r) for r in self.store.import_records.values() if r["job_id"] == job_id]
             self._check_draft(job, revision)
             if any(
