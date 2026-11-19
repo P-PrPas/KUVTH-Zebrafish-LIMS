@@ -154,6 +154,7 @@ export function Imports({ language }: { language: Language }) {
     resultOffset,
     comparison,
     refreshNeeded,
+    opening,
     importStep,
     confirmationMode,
   } = useSyncExternalStore(workflow.subscribe, workflow.getState);
@@ -867,6 +868,23 @@ export function Imports({ language }: { language: Language }) {
               </div>
             </section>
           </div>
+          {!detail && opening && (
+            <section className="import-page__panel">
+              {opening.failed ? (
+                <>
+                  <p role="alert">{th ? "โหลดงานนำเข้าไม่สำเร็จ" : "Could not load the import job."}</p>
+                  <button
+                    type="button"
+                    onClick={() => void workflow.openJob(opening.id).catch((cause: Error) => setError(cause.message))}
+                  >
+                    {th ? "โหลดอีกครั้ง" : "Retry"}
+                  </button>
+                </>
+              ) : (
+                <p role="status">{th ? "กำลังโหลดงานนำเข้า…" : "Loading import job…"}</p>
+              )}
+            </section>
+          )}
           {detail && (
             <section className="import-page__panel">
               <div className="import-job-heading">

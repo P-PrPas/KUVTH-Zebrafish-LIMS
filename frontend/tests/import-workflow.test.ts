@@ -251,6 +251,7 @@ it("notifies subscribers on state change", () => {
 function gated() {
   const gates = new Map<string, () => void>();
   let failJobList = false;
+  const failing = new Set<string>();
   const request: RequestFn = async (path, init) => {
     const url = new URL(path, "http://x");
     if (init?.method === "POST") {
@@ -259,6 +260,7 @@ function gated() {
     }
     if (url.pathname === "/imports" && failJobList) throw new Error("network down");
     const m = url.pathname.match(/^\/imports\/(job-\w+)(\/historical-structure)?$/);
+    if (m && failing.has(m[1])) throw new Error("network down");
     if (m) {
       const key = m[1] + (m[2] ?? "");
       if (!m[2] || url.searchParams.get("offset") === "50")
@@ -298,7 +300,7 @@ function gated() {
   const failJobs = () => {
     failJobList = true;
   };
-  return { workflow, release, failJobs };
+  return { workflow, release, failJobs, failing };
 }
 
 it("keeps the latest opened job when an older response arrives last", async () => {
@@ -342,7 +344,8 @@ it("a commit that finishes after the user picked another job leaves that job on 
   const a = workflow.openJob("job-a");
   await release("job-a?null");
   await a;
-  const write = workflow.submitTemplate(true, () => {});
+  const written = vi.fn();
+  const write = workflow.submitTemplate(true, written);
   const b = workflow.openJob("job-b");
   await release("POST /imports/job-a/confirm-template");
   await write;
@@ -350,6 +353,7 @@ it("a commit that finishes after the user picked another job leaves that job on 
   await b;
   expect(workflow.getState().detail?.job.id).toBe("job-b");
   expect(workflow.getState().refreshNeeded).toBeNull();
+  expect(written).not.toHaveBeenCalled();
 });
 
 it("a revert whose job-list refresh fails after the user opened another job leaves no retry banner", async () => {
@@ -357,7 +361,8 @@ it("a revert whose job-list refresh fails after the user opened another job leav
   const a = workflow.openJob("job-a");
   await release("job-a?null");
   await a;
-  const write = workflow.revert("wrong batch", () => {});
+  const written = vi.fn();
+  const write = workflow.revert("wrong batch", written);
   const b = workflow.openJob("job-b");
   await release("job-b?null");
   await b;
@@ -366,4 +371,36 @@ it("a revert whose job-list refresh fails after the user opened another job leav
   await write;
   expect(workflow.getState().detail?.job.id).toBe("job-b");
   expect(workflow.getState().refreshNeeded).toBeNull();
+  expect(written).not.toHaveBeenCalled();
+});
+
+it("picking another job hides the old one at once, so nothing can be written to it while the new one loads", async () => {
+  const { workflow, release } = gated();
+  const a = workflow.openJob("job-a");
+  await release("job-a?null");
+  await a;
+  const b = workflow.openJob("job-b");
+  expect(workflow.getState().detail).toBeNull();
+  expect(workflow.getState().opening).toEqual({ id: "job-b", failed: false });
+  await release("job-b?null");
+  await b;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+  expect(workflow.getState().opening).toBeNull();
+});
+
+it("a failed load of the picked job leaves no old draft on screen and retries that job", async () => {
+  const { workflow, release, failing } = gated();
+  const a = workflow.openJob("job-a");
+  await release("job-a?null");
+  await a;
+  failing.add("job-b");
+  await expect(workflow.openJob("job-b")).rejects.toThrow("network down");
+  expect(workflow.getState().detail).toBeNull();
+  expect(workflow.getState().opening).toEqual({ id: "job-b", failed: true });
+  failing.clear();
+  const retry = workflow.openJob("job-b");
+  await release("job-b?null");
+  await retry;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+  expect(workflow.getState().opening).toBeNull();
 });

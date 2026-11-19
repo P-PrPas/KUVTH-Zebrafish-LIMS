@@ -173,6 +173,8 @@ export type ImportWorkflowState = {
   confirmationMode: string;
   // Write succeeded but the follow-up reads failed: show success + a read-only retry, never re-send the write.
   refreshNeeded: "committed" | "reverted" | null;
+  // Another job was picked and is loading (or failed to load); the previous job is no longer shown.
+  opening: { id: string; failed: boolean } | null;
   deferredFields: DeferredField[];
   deferredTotal: number;
   deferredOffset: number;
@@ -208,6 +210,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     importStep: 2,
     confirmationMode: "mixed",
     refreshNeeded: null,
+    opening: null,
     deferredFields: [],
     deferredTotal: 0,
     deferredOffset: 0,
@@ -259,6 +262,8 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     if (newJob) {
       selection++;
       hooks.onNewJob();
+      // Hide the previous job at once so its write buttons cannot act on it while this one loads.
+      set({ detail: null, opening: { id, failed: false } });
     }
     const [
       nextDetail,
@@ -284,7 +289,10 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       json<ImportComparison>(`/imports/${id}/comparison?offset=${nextRecords}&limit=${PAGE}`),
       json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=${PAGE}`),
       json<ImportResult>(`/imports/${id}/result?offset=0&limit=${PAGE}`),
-    ]);
+    ]).catch((cause) => {
+      if (newJob && mine === generation) set({ opening: { id, failed: true } });
+      throw cause;
+    });
     if (mine !== generation) return;
     const patch: Partial<ImportWorkflowState> = {
       detail: nextDetail,
@@ -302,6 +310,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       importResult: result,
       resultOffset: 0,
       comparison: nextComparison,
+      opening: null,
     };
     if (newJob) patch.refreshNeeded = null;
     if (newJob || nextDetail.job.status !== "draft") {
@@ -345,7 +354,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     closeJob: () => {
       generation++;
       selection++;
-      set({ detail: null });
+      set({ detail: null, opening: null });
     },
     setStep: (importStep: number) => set({ importStep }),
     setConfirmationMode: (confirmationMode: string) => set({ confirmationMode }),
@@ -377,8 +386,8 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, ...fields }),
       });
-      onWritten(result);
       if (!owns(detail.job.id, picked)) return void (await reloadJobs().catch(() => undefined));
+      onWritten(result);
       set({
         detail: {
           ...detail,
@@ -396,16 +405,16 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         markRefresh(detail.job.id, picked, "committed")();
       }
     },
-    // onWritten runs right after the write succeeds, before the follow-up reads.
+    // onWritten runs right after the write succeeds, before the follow-up reads, and only while its job is shown.
     async submitTemplate(commit: boolean, onWritten: (result: { recordCount: number }) => void) {
       const [detail, picked] = [state.detail as Detail, selection];
       const result = await json<{ recordCount: number; revision: number }>(
         `/imports/${detail.job.id}/${commit ? "confirm-template" : "validate-template"}`,
         { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
       );
+      if (!owns(detail.job.id, picked)) return void (commit && (await reloadJobs().catch(() => undefined)));
       onWritten(result);
       if (!commit) return;
-      if (!owns(detail.job.id, picked)) return void (await reloadJobs().catch(() => undefined));
       set({
         detail: { ...detail, job: { ...detail.job, status: "committed", revision: result.revision } },
         importStep: 5,
@@ -420,14 +429,13 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, reason }),
       });
-      if (owns(detail.job.id, picked)) {
-        set({
-          detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
-          importStep: 5,
-          historicalSummary: null,
-          importResult: null,
-        });
-      }
+      if (!owns(detail.job.id, picked)) return void (await reloadJobs().catch(() => undefined));
+      set({
+        detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
+        importStep: 5,
+        historicalSummary: null,
+        importResult: null,
+      });
       onWritten();
       await refreshAfterWrite(detail.job.id, picked).catch(markRefresh(detail.job.id, picked, "reverted"));
     },
