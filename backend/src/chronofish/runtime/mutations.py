@@ -82,7 +82,14 @@ def write_kind(request: Request) -> WriteKind:
         raise APIError(500, "write_kind_undeclared", f"No write kind is declared for {key}") from error
 
 
-def validate_write_context(request: Request, state: State, body: Any, kind: WriteKind) -> WriteContext:
+def require_active_operator(state: State, operator_id: str) -> None:
+    operator = state.entities["operators"].get(operator_id)
+    if not operator or operator.get("active") is False:
+        raise APIError(400, "invalid_context", "operator ไม่ถูกต้องหรือถูกปิดใช้งาน")
+
+
+def validate_write_context(request: Request, state: State | None, body: Any, kind: WriteKind) -> WriteContext:
+    """Validate the request shape; a None state defers the operator lookup to a caller that checks it under its lock."""
     operator_id = request.headers.get("X-Operator-Id", "").strip()
     device_id = request.headers.get("X-Device-Id", "").strip()
     key = request.headers.get("X-Idempotency-Key", "").strip()
@@ -105,9 +112,8 @@ def validate_write_context(request: Request, state: State, body: Any, kind: Writ
             raise APIError(403, "operator_mismatch", "This account can only record work for its linked operator")
     if not device_id or len(device_id) > 64 or "\n" in device_id or "\r" in device_id:
         raise APIError(400, "invalid_context", "X-Device-Id ต้องมีความยาว 1-64 ตัวอักษร")
-    operator = state.entities["operators"].get(operator_id)
-    if kind == "operator" and (not operator or operator.get("active") is False):
-        raise APIError(400, "invalid_context", "operator ไม่ถูกต้องหรือถูกปิดใช้งาน")
+    if kind == "operator" and state is not None:
+        require_active_operator(state, operator_id)
     try:
         UUID(key)
     except ValueError as error:
