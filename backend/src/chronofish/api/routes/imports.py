@@ -250,84 +250,76 @@ def build_import_router(store: Any) -> APIRouter:
             raise APIError(400, "invalid_page", "Use offset >= 0 and limit 1 through 100")
         return repository.comparison(job_id, offset, limit)
 
-    @router.post("/{job_id}/confirm-fish-specimens")
+    @router.post("/{job_id}/confirm")
+    def confirm(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
+        actor = _actor(request)
+        revision = body.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        fields: dict[str, Any] = {}
+        for name in ("siteMappings", "donorMappings"):
+            mapping = fields[name] = body.get(name)
+            if mapping is not None and (
+                not isinstance(mapping, dict)
+                or not all(isinstance(key, str) and isinstance(value, str) for key, value in mapping.items())
+            ):
+                raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
+        for name in ("zeroBypassReason", "aggregateWarningBypassReason", "embryoWarningBypassReason"):
+            fields[name] = body.get(name, "")
+            if not isinstance(fields[name], str):
+                raise APIError(400, "invalid_reason", "Bypass reasons must be text")
+        return repository.confirm(job_id, revision, actor, fields)
+
+    # shortcut: compatibility aliases for pre-deploy tabs, remove one release after the single /confirm ships
+    # They call the old repository methods directly, so a job of another kind gets the error the old endpoint gave.
+    def _legacy_confirm(body: dict[str, Any], *names: str) -> tuple[int, list[Any]]:
+        revision = body.get("revision")
+        if not isinstance(revision, int) or isinstance(revision, bool):
+            raise APIError(400, "invalid_revision", "Provide the import revision")
+        # Like the old endpoints: a missing reason is empty, an explicit null is rejected.
+        values = [body.get(name, None if name.endswith("Mappings") else "") for name in names]
+        for name, value in zip(names, values, strict=True):
+            if name.endswith("Mappings"):
+                if not isinstance(value, dict) or not all(
+                    isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+                ):
+                    raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
+            elif not isinstance(value, str):
+                raise APIError(400, "invalid_reason", "Bypass reasons must be text")
+        return revision, values
+
+    @router.post("/{job_id}/confirm-fish-specimens", deprecated=True)
     def confirm_fish_specimens(
         request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]
     ) -> dict[str, Any]:
         actor = _actor(request)
-        revision = body.get("revision")
-        sites = body.get("siteMappings")
-        donors = body.get("donorMappings")
-        if not isinstance(revision, int) or isinstance(revision, bool):
-            raise APIError(400, "invalid_revision", "Provide the import revision")
-        if (
-            not isinstance(sites, dict)
-            or not isinstance(donors, dict)
-            or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for mapping in (sites, donors)
-                for key, value in mapping.items()
-            )
-        ):
-            raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
-        zero_reason = body.get("zeroBypassReason", "")
-        if not isinstance(zero_reason, str):
-            raise APIError(400, "invalid_reason", "Bypass reason must be text")
-        return repository.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero_reason)
+        revision, args = _legacy_confirm(body, "siteMappings", "donorMappings", "zeroBypassReason")
+        return repository.confirm_fish_specimens(job_id, revision, actor, *args)
 
-    @router.post("/{job_id}/confirm-aggregate")
+    @router.post("/{job_id}/confirm-aggregate", deprecated=True)
     def confirm_aggregate(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
-        revision = body.get("revision")
-        warning_reason = body.get("warningBypassReason", "")
-        if not isinstance(revision, int) or isinstance(revision, bool):
-            raise APIError(400, "invalid_revision", "Provide the import revision")
-        if not isinstance(warning_reason, str):
-            raise APIError(400, "invalid_reason", "Warning bypass reason must be text")
-        return repository.confirm_aggregate(job_id, revision, actor, warning_reason)
+        revision, args = _legacy_confirm(body, "warningBypassReason")
+        return repository.confirm_aggregate(job_id, revision, actor, *args)
 
-    @router.post("/{job_id}/confirm-v2-embryos")
+    @router.post("/{job_id}/confirm-v2-embryos", deprecated=True)
     def confirm_v2_embryos(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
-        revision = body.get("revision")
-        sites = body.get("siteMappings")
-        warning_reason = body.get("warningBypassReason", "")
-        if not isinstance(revision, int) or isinstance(revision, bool):
-            raise APIError(400, "invalid_revision", "Provide the import revision")
-        if not isinstance(sites, dict) or not all(
-            isinstance(key, str) and isinstance(value, str) for key, value in sites.items()
-        ):
-            raise APIError(400, "invalid_mapping", "Provide site ID mappings")
-        if not isinstance(warning_reason, str):
-            raise APIError(400, "invalid_reason", "Warning bypass reason must be text")
-        return repository.confirm_v2_embryos(job_id, revision, actor, sites, warning_reason)
+        revision, args = _legacy_confirm(body, "siteMappings", "warningBypassReason")
+        return repository.confirm_v2_embryos(job_id, revision, actor, *args)
 
-    @router.post("/{job_id}/confirm-all")
+    @router.post("/{job_id}/confirm-all", deprecated=True)
     def confirm_all(request: Request, job_id: str, body: Annotated[dict[str, Any], Body(...)]) -> dict[str, Any]:
         actor = _actor(request)
-        revision = body.get("revision")
-        sites = body.get("siteMappings")
-        donors = body.get("donorMappings")
-        reasons = (
-            body.get("zeroBypassReason", ""),
-            body.get("aggregateWarningBypassReason", ""),
-            body.get("embryoWarningBypassReason", ""),
+        revision, args = _legacy_confirm(
+            body,
+            "siteMappings",
+            "donorMappings",
+            "zeroBypassReason",
+            "aggregateWarningBypassReason",
+            "embryoWarningBypassReason",
         )
-        if not isinstance(revision, int) or isinstance(revision, bool):
-            raise APIError(400, "invalid_revision", "Provide the import revision")
-        if (
-            not isinstance(sites, dict)
-            or not isinstance(donors, dict)
-            or not all(
-                isinstance(key, str) and isinstance(value, str)
-                for mapping in (sites, donors)
-                for key, value in mapping.items()
-            )
-        ):
-            raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
-        if any(not isinstance(reason, str) for reason in reasons):
-            raise APIError(400, "invalid_reason", "Bypass reasons must be text")
-        return repository.confirm_all(job_id, revision, actor, sites, donors, *reasons)
+        return repository.confirm_all(job_id, revision, actor, *args)
 
     @router.get("/{job_id}/fish-status")
     def fish_statuses(request: Request, job_id: str) -> dict[str, Any]:

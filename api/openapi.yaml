@@ -557,7 +557,7 @@ paths:
       responses:
         '200': { description: Advisory reimport matches without changing canonical data }
         '403': { description: Admin access required }
-  /imports/{jobId}/confirm-fish-specimens:
+  /imports/{jobId}/confirm:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
@@ -567,9 +567,66 @@ paths:
         - { $ref: '#/components/parameters/IdempotencyKey' }
         - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
-      summary: Atomically confirm a fish/specimen-only import draft
+      summary: Atomically confirm an import draft by the path its record kinds allow
+      operationId: confirmImport
+      description: >-
+        The server picks fish/specimen, historical count, V2 embryo, or mixed confirmation from the
+        job's record kinds (see mapping-requirements). Fish, embryo, and mixed jobs require siteMappings;
+        fish and mixed jobs also require donorMappings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+                aggregateWarningBypassReason: { type: string }
+                embryoWarningBypassReason: { type: string }
+      responses:
+        '200':
+          description: Data committed atomically; only the counts of the path taken are present
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobId, status, revision]
+                properties:
+                  jobId: { type: string, format: uuid }
+                  status: { type: string }
+                  revision: { type: integer }
+                  fishCount: { type: integer }
+                  specimenCount: { type: integer }
+                  historicalCountRows: { type: integer }
+                  historicalEmbryoCount: { type: integer }
+                  historicalObservationCount: { type: integer }
+                  historicalControlCount: { type: integer }
+                  components: { type: object, additionalProperties: true }
+                  reconciliationReferenceCount: { type: integer }
+                additionalProperties: true
+        '400': { description: Missing revision, site/donor mapping, or non-text bypass reason }
+        '403': { description: Admin access required }
+        '409': { description: Unsupported job, stale draft, unresolved issue, duplicate, missing master mapping, or warnings without bypass reason }
+  /imports/{jobId}/confirm-fish-specimens:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      deprecated: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Deprecated alias to confirm a fish/specimen-only import draft
       operationId: confirmFishSpecimenImport
-      description: Requires an active site with time zone per fish sheet and active donor cell per source label.
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
       requestBody:
         required: true
         content:
@@ -583,21 +640,25 @@ paths:
                 donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
                 zeroBypassReason: { type: string }
       responses:
-        '200': { description: Canonical fish/specimen and historical observation counts }
+        '200': { description: Same result the old endpoint returned }
         '403': { description: Admin access required }
-        '409': { description: Stale draft, unresolved issue, duplicate, or missing master mapping }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
   /imports/{jobId}/confirm-aggregate:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       x-account-write: true
+      deprecated: true
       parameters:
         - { $ref: '#/components/parameters/DeviceId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
         - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
-      summary: Atomically confirm V1, MSU, or QC historical count sheets
+      summary: Deprecated alias to confirm V1, MSU, or QC historical count sheets
       operationId: confirmAggregateImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
       requestBody:
         required: true
         content:
@@ -609,21 +670,25 @@ paths:
                 revision: { type: integer, minimum: 1 }
                 warningBypassReason: { type: string }
       responses:
-        '200': { description: Historical count rows created with source provenance }
+        '200': { description: Same result the old endpoint returned }
         '403': { description: Admin access required }
-        '409': { description: Stale draft, unresolved issues, or warnings without bypass reason }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
   /imports/{jobId}/confirm-v2-embryos:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       x-account-write: true
+      deprecated: true
       parameters:
         - { $ref: '#/components/parameters/DeviceId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
         - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
-      summary: Confirm V2 embryos and historical observations without inventing operational lot data
+      summary: Deprecated alias to confirm V2 embryos and historical observations
       operationId: confirmV2EmbryoImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
       requestBody:
         required: true
         content:
@@ -636,21 +701,25 @@ paths:
                 siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
                 warningBypassReason: { type: string }
       responses:
-        '200': { description: Historical embryo identities and observations with provenance }
+        '200': { description: Same result the old endpoint returned }
         '403': { description: Admin access required }
-        '409': { description: Stale draft, duplicate, unresolved issue, mapping or warnings }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
   /imports/{jobId}/confirm-all:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     post:
       x-account-write: true
+      deprecated: true
       parameters:
         - { $ref: '#/components/parameters/DeviceId' }
         - { $ref: '#/components/parameters/IdempotencyKey' }
         - { $ref: '#/components/parameters/ActorUserId' }
       tags: [Imports]
-      summary: Confirm selected data sheets atomically and retain summary sheets as references
+      summary: Deprecated alias to confirm selected data sheets atomically
       operationId: confirmMixedImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
       requestBody:
         required: true
         content:
@@ -666,9 +735,9 @@ paths:
                 aggregateWarningBypassReason: { type: string }
                 embryoWarningBypassReason: { type: string }
       responses:
-        '200': { description: Data committed atomically; reconciliation sheets retained without canonical writes }
+        '200': { description: Same result the old endpoint returned }
         '403': { description: Admin access required }
-        '409': { description: Any unresolved issue or validation failure rolls back the whole job }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
   /imports/{jobId}/fish-status:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }

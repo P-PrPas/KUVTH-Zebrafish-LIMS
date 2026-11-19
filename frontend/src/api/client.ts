@@ -159,6 +159,7 @@ export const WRITE_KINDS: Record<string, WriteKind> = {
   "POST /imports/{jobId}/issues/{issueId}/correct-cell": "account",
   "PATCH /imports/{jobId}/records/{recordId}": "account",
   "POST /imports/{jobId}/issues/{issueId}/decision": "account",
+  "POST /imports/{jobId}/confirm": "account",
   "POST /imports/{jobId}/confirm-fish-specimens": "account",
   "POST /imports/{jobId}/confirm-aggregate": "account",
   "POST /imports/{jobId}/confirm-v2-embryos": "account",

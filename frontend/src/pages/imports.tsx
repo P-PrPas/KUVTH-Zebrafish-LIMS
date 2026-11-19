@@ -673,93 +673,38 @@ export function Imports({ language }: { language: Language }) {
     }
   }
 
-  async function confirmFishSpecimens() {
+  async function confirmImport() {
     if (!detail || !mappingRequirements) return;
-    if (!window.confirm(th ? "ยืนยันนำเข้าปลาและ specimen ทั้งงาน?" : "Commit every fish and specimen in this job?")) return;
+    const mode = confirmationMode;
+    const prompt =
+      mode === "mixed"
+        ? th
+          ? "ยืนยันนำเข้าทุกชีตในงานนี้พร้อมกัน?"
+          : "Commit every selected sheet in one transaction?"
+        : mode === "fish"
+          ? th
+            ? "ยืนยันนำเข้าปลาและ specimen ทั้งงาน?"
+            : "Commit every fish and specimen in this job?"
+          : mode === "embryos"
+            ? th
+              ? "ยืนยันนำเข้าตัวอ่อนย้อนหลังทั้งหมดในงานนี้?"
+              : "Commit every historical embryo in this job?"
+            : th
+              ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งหมดในงานนี้?"
+              : "Commit every historical count in this job?";
+    if (!window.confirm(prompt)) return;
     setBusy(true);
     setError("");
     try {
-      const result = await json<{ fishCount: number; specimenCount: number }>(
-        `/imports/${detail.job.id}/confirm-fish-specimens`,
-        {
-          method: "POST",
-          body: JSON.stringify({ revision: detail.job.revision, siteMappings, donorMappings, zeroBypassReason }),
-        },
-      );
-      await reloadJobs();
-      await openJob(detail.job.id, recordOffset, issueOffset);
-      setNotice(
-        th
-          ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
-          : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`,
-      );
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmAggregate() {
-    if (!detail || !mappingRequirements) return;
-    if (!window.confirm(th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งหมดในงานนี้?" : "Commit every historical count in this job?")) return;
-    setBusy(true);
-    setError("");
-    try {
-      const result = await json<{ historicalCountRows: number }>(`/imports/${detail.job.id}/confirm-aggregate`, {
-        method: "POST",
-        body: JSON.stringify({ revision: detail.job.revision, warningBypassReason: aggregateWarningReason }),
-      });
-      await reloadJobs();
-      await openJob(detail.job.id, recordOffset, issueOffset);
-      setNotice(
-        th
-          ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
-          : `Imported ${result.historicalCountRows} historical count rows.`,
-      );
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmEmbryos() {
-    if (!detail || !mappingRequirements) return;
-    if (!window.confirm(th ? "ยืนยันนำเข้าตัวอ่อนย้อนหลังทั้งหมดในงานนี้?" : "Commit every historical embryo in this job?"))
-      return;
-    setBusy(true);
-    setError("");
-    try {
+      // The server picks fish / aggregate / embryo / mixed from the job's record kinds.
       const result = await json<{
-        historicalEmbryoCount: number;
-        historicalObservationCount: number;
-        historicalControlCount: number;
-      }>(`/imports/${detail.job.id}/confirm-v2-embryos`, {
-        method: "POST",
-        body: JSON.stringify({ revision: detail.job.revision, siteMappings, warningBypassReason: embryoWarningReason }),
-      });
-      await reloadJobs();
-      await openJob(detail.job.id, recordOffset, issueOffset);
-      setNotice(
-        th
-          ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
-          : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`,
-      );
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmAll() {
-    if (!detail || !mappingRequirements) return;
-    if (!window.confirm(th ? "ยืนยันนำเข้าทุกชีตในงานนี้พร้อมกัน?" : "Commit every selected sheet in one transaction?")) return;
-    setBusy(true);
-    setError("");
-    try {
-      await json(`/imports/${detail.job.id}/confirm-all`, {
+        fishCount?: number;
+        specimenCount?: number;
+        historicalCountRows?: number;
+        historicalEmbryoCount?: number;
+        historicalObservationCount?: number;
+        historicalControlCount?: number;
+      }>(`/imports/${detail.job.id}/confirm`, {
         method: "POST",
         body: JSON.stringify({
           revision: detail.job.revision,
@@ -774,13 +719,25 @@ export function Imports({ language }: { language: Language }) {
       await openJob(detail.job.id, recordOffset, issueOffset);
       const referenceOnly = mappingRequirements.recordKinds.every((kind) => kind === "reconciliation");
       setNotice(
-        referenceOnly
+        result.fishCount !== undefined
           ? th
-            ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
-            : "Summary sheets archived as references."
-          : th
-            ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
-            : "Selected data sheets committed atomically; summary sheets were kept as references.",
+            ? `นำเข้าแล้ว: ปลา ${result.fishCount} ตัว, specimen ${result.specimenCount} รายการ`
+            : `Imported ${result.fishCount} fish and ${result.specimenCount} specimens.`
+          : result.historicalCountRows !== undefined
+            ? th
+              ? `นำเข้าข้อมูลนับจำนวน ${result.historicalCountRows} รายการแล้ว`
+              : `Imported ${result.historicalCountRows} historical count rows.`
+            : result.historicalEmbryoCount !== undefined
+              ? th
+                ? `นำเข้าตัวอ่อน ${result.historicalEmbryoCount} ตัว การสังเกต ${result.historicalObservationCount} และข้อมูลควบคุม ${result.historicalControlCount} รายการแล้ว`
+                : `Imported ${result.historicalEmbryoCount} embryos, ${result.historicalObservationCount} observations and ${result.historicalControlCount} control counts.`
+              : referenceOnly
+                ? th
+                  ? "เก็บชีตสรุปเป็นเอกสารอ้างอิงแล้ว"
+                  : "Summary sheets archived as references."
+                : th
+                  ? "นำเข้าทุกชีตในงานพร้อมกันแล้ว ชีตสรุปเก็บเป็นเอกสารอ้างอิง"
+                  : "Selected data sheets committed atomically; summary sheets were kept as references.",
       );
     } catch (cause) {
       setError((cause as Error).message);
@@ -1508,7 +1465,7 @@ export function Imports({ language }: { language: Language }) {
                       hidden={importStep !== 4}
                       type="button"
                       disabled={busy || !importReady || confirmationMode !== "mixed"}
-                      onClick={() => void confirmAll()}
+                      onClick={() => void confirmImport()}
                     >
                       {th ? "ยืนยันนำเข้าทุกชีตพร้อมกัน" : "Confirm all selected sheets"}
                     </button>
@@ -1583,7 +1540,7 @@ export function Imports({ language }: { language: Language }) {
                       hidden={importStep !== 4}
                       type="button"
                       disabled={busy || !importReady || confirmationMode !== "fish"}
-                      onClick={() => void confirmFishSpecimens()}
+                      onClick={() => void confirmImport()}
                     >
                       {th ? "ยืนยันนำเข้าทั้งงาน" : "Confirm entire job"}
                     </button>
@@ -1658,7 +1615,7 @@ export function Imports({ language }: { language: Language }) {
                       hidden={importStep !== 4}
                       type="button"
                       disabled={busy || !importReady || confirmationMode !== "embryos"}
-                      onClick={() => void confirmEmbryos()}
+                      onClick={() => void confirmImport()}
                     >
                       {th ? "ยืนยันนำเข้าตัวอ่อนทั้งงาน" : "Confirm entire embryo job"}
                     </button>
@@ -1705,7 +1662,7 @@ export function Imports({ language }: { language: Language }) {
                       hidden={importStep !== 4}
                       type="button"
                       disabled={busy || !importReady || confirmationMode !== "aggregate"}
-                      onClick={() => void confirmAggregate()}
+                      onClick={() => void confirmImport()}
                     >
                       {th ? "ยืนยันนำเข้าข้อมูลนับจำนวนทั้งงาน" : "Confirm entire count job"}
                     </button>

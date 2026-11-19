@@ -1024,6 +1024,35 @@ class ImportRepository:
                 memory[f"{scope}:{key}"] = StoredResponse(request_hash, 200, "application/json", body)
         return outcome(targets)
 
+    def confirm(self, job_id: str, revision: int, actor: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
+        """Confirm a draft by the path its record kinds allow (the same flags `mapping_requirements` reports)."""
+        flags = self.mapping_requirements(job_id)
+        sites, donors = fields["siteMappings"], fields["donorMappings"]
+        zero, aggregate, embryo = (
+            fields["zeroBypassReason"],
+            fields["aggregateWarningBypassReason"],
+            fields["embryoWarningBypassReason"],
+        )
+        if flags["canConfirmMixed"] or flags["canConfirmFishSpecimens"]:
+            needs_donors = True
+        elif flags["canConfirmEmbryos"]:
+            needs_donors = False
+        elif flags["canConfirmAggregate"]:
+            sites = donors = {}
+            needs_donors = False
+        else:
+            raise APIError(409, "not_ready", "This job has unsupported or incomplete sheet types")
+        if sites is None or (needs_donors and donors is None):
+            raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
+        donors = donors or {}
+        if flags["canConfirmMixed"]:
+            return self.confirm_all(job_id, revision, actor, sites, donors, zero, aggregate, embryo)
+        if flags["canConfirmFishSpecimens"]:
+            return self.confirm_fish_specimens(job_id, revision, actor, sites, donors, zero)
+        if flags["canConfirmEmbryos"]:
+            return self.confirm_v2_embryos(job_id, revision, actor, sites, embryo)
+        return self.confirm_aggregate(job_id, revision, actor, aggregate)
+
     def confirm_all(
         self,
         job_id: str,

@@ -651,7 +651,7 @@ def test_missing_identity_is_blocking_and_can_be_corrected(import_client):
     assert "B" not in embryo["source"]["result"] and embryo["working"]["result"]["B"] == "2026-04-29"
     if getattr(client.app.state.store, "engine", None):
         created["job"]["revision"] = revision
-        response = client.post(f"/api/v1/imports/{job_id}/confirm-all", json=confirm_body(client, created))
+        response = client.post(f"/api/v1/imports/{job_id}/confirm", json=confirm_body(client, created))
         assert response.status_code == 200, response.text
 
 
@@ -662,7 +662,7 @@ def test_confirm_revert_duplicate_revision_and_atomic_failure(import_client):
     created = create_job(client, content)
     job_id = created["job"]["id"]
     body = confirm_body(client, created)
-    path = f"/api/v1/imports/{job_id}/confirm-all"
+    path = f"/api/v1/imports/{job_id}/confirm"
     assert client.post(path, json={**body, "revision": 2}).status_code == 409
     assert client.post(path, json={**body, "siteMappings": {}}).status_code == 409
     assert scalar(client, "SELECT COUNT(*) FROM historical_embryo WHERE import_job_id = :job", job_id) == 0
@@ -689,7 +689,7 @@ def test_confirm_revert_duplicate_revision_and_atomic_failure(import_client):
         >= 1
     )
     duplicate = create_job(client, content)
-    response = client.post(f"/api/v1/imports/{duplicate['job']['id']}/confirm-all", json=body)
+    response = client.post(f"/api/v1/imports/{duplicate['job']['id']}/confirm", json=body)
     assert response.status_code == 409 and response.json()["error"]["code"] == "duplicate_embryo"
     assert (
         scalar(client, "SELECT COUNT(*) FROM historical_experiment WHERE import_job_id = :job", duplicate["job"]["id"])
@@ -710,6 +710,146 @@ def test_confirm_revert_duplicate_revision_and_atomic_failure(import_client):
     assert client.post(revert_path, json={"revision": 3, "reason": "Again"}).status_code == 409
 
 
+def multi_sheet_workbook(*, fish=False, aggregate=False, embryos=False):
+    book = Workbook()
+    book.remove(book.active)
+    if embryos:
+        sheet = book.create_sheet("V2Raw")
+        for line in load_rows(workbook()):
+            sheet.append(line)
+    if fish:
+        sheet = book.create_sheet("V2Fish")
+        sheet.append(row(A="No", B="DOB", D="Donor", K="Condition"))
+        sheet.append(row(A=int(uuid7().replace("-", "")[-12:], 16), B="2026-01-01", D="Import donor", K="Normal"))
+    if aggregate:
+        sheet = book.create_sheet("V1Raw")
+        sheet.append(row(A="head"))
+        sheet.append(row(A="sub"))
+        sheet.append(row(B="2024-01-01", C="egg", F="CSOF", G=uuid7(), M=5, N=10, S=7))
+    output = io.BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
+def load_rows(content):
+    from openpyxl import load_workbook
+
+    return list(load_workbook(io.BytesIO(content)).active.iter_rows(values_only=True))
+
+
+@pytest.mark.parametrize(
+    ("kinds", "sheets", "expected"),
+    [
+        ({"fish": True}, ["V2Fish"], "fishCount"),
+        ({"aggregate": True}, ["V1Raw"], "historicalCountRows"),
+        ({"embryos": True}, ["V2Raw"], "historicalEmbryoCount"),
+        ({"embryos": True, "aggregate": True}, ["V2Raw", "V1Raw"], "components"),
+    ],
+)
+def test_single_confirm_endpoint_picks_the_path_from_the_job_kinds(import_client, kinds, sheets, expected):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(**kinds), sheets)
+    job_id = created["job"]["id"]
+    body = confirm_body(client, created, ["V2Raw", "V2Fish"])
+    donor = client.post(
+        "/api/v1/donor-cell-lines",
+        headers={"X-Idempotency-Key": uuid7()},
+        json={"strain": f"confirm-{uuid7()[-8:]}", "preparation": "DISSOCIATED", "preservation": "FRESH"},
+    )
+    body["donorMappings"] = {"Import donor": donor.json()["id"]}
+    response = client.post(f"/api/v1/imports/{job_id}/confirm", json=body)
+    assert response.status_code == 200, response.text
+    assert expected in response.json() and response.json()["revision"] == 2
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "committed"
+
+
+@pytest.mark.parametrize(
+    ("alias", "kinds", "sheets", "expected"),
+    [
+        ("confirm-fish-specimens", {"fish": True}, ["V2Fish"], {"fishCount", "specimenCount"}),
+        ("confirm-aggregate", {"aggregate": True}, ["V1Raw"], {"historicalCountRows"}),
+        (
+            "confirm-v2-embryos",
+            {"embryos": True},
+            ["V2Raw"],
+            {"historicalEmbryoCount", "historicalObservationCount", "historicalControlCount"},
+        ),
+        ("confirm-all", {"embryos": True, "aggregate": True}, ["V2Raw", "V1Raw"], {"components"}),
+    ],
+)
+def test_old_confirm_urls_still_commit_with_the_old_body_and_response(import_client, alias, kinds, sheets, expected):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(**kinds), sheets)
+    job_id = created["job"]["id"]
+    body = confirm_body(client, created, ["V2Raw", "V2Fish"])
+    donor = client.post(
+        "/api/v1/donor-cell-lines",
+        headers={"X-Idempotency-Key": uuid7()},
+        json={"strain": f"confirm-{uuid7()[-8:]}", "preparation": "DISSOCIATED", "preservation": "FRESH"},
+    )
+    body["donorMappings"] = {"Import donor": donor.json()["id"]}
+    body["warningBypassReason"] = "Reviewed old client"  # the old aggregate/embryo endpoints' only reason field
+    response = client.post(f"/api/v1/imports/{job_id}/{alias}", json=body)
+    assert response.status_code == 200, response.text
+    assert expected <= response.json().keys() and response.json()["revision"] == 2
+    assert client.get(f"/api/v1/imports/{job_id}").json()["job"]["status"] == "committed"
+
+
+def test_old_confirm_url_for_another_job_kind_is_refused(import_client):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, multi_sheet_workbook(aggregate=True), ["V1Raw"])
+    response = client.post(
+        f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=confirm_body(client, created)
+    )
+    assert response.status_code == 409, response.text
+    # The old endpoints rejected an explicit null reason instead of treating it as empty.
+    body = {**confirm_body(client, created), "zeroBypassReason": None}
+    response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=body)
+    assert (response.status_code, response.json()["error"]["code"]) == (400, "invalid_reason"), response.text
+
+
+def test_single_confirm_endpoint_validates_the_fields_its_path_requires(import_client):
+    client = import_client
+    fish = create_job(client, multi_sheet_workbook(fish=True), ["V2Fish"])
+    path = f"/api/v1/imports/{fish['job']['id']}/confirm"
+
+    def error(body):
+        response = client.post(path, json=body)
+        return response.status_code, response.json()["error"]["code"]
+
+    assert error({}) == (400, "invalid_revision")
+    assert error({"revision": True}) == (400, "invalid_revision")
+    assert error({"revision": 1}) == (400, "invalid_mapping")
+    assert error({"revision": 1, "siteMappings": {}}) == (400, "invalid_mapping")
+    assert error({"revision": 1, "siteMappings": {"V2Fish": 1}, "donorMappings": {}}) == (400, "invalid_mapping")
+    assert error({"revision": 1, "siteMappings": {}, "donorMappings": {}, "zeroBypassReason": 1}) == (
+        400,
+        "invalid_reason",
+    )
+    embryos = create_job(client, multi_sheet_workbook(embryos=True), ["V2Raw"])
+    assert client.post(f"/api/v1/imports/{embryos['job']['id']}/confirm", json={"revision": 1}).status_code == 400
+    # A count-only job needs no mappings, so it passes validation and only then reaches the database.
+    aggregate = create_job(client, multi_sheet_workbook(aggregate=True), ["V1Raw"])
+    response = client.post(f"/api/v1/imports/{aggregate['job']['id']}/confirm", json={"revision": 1})
+    assert response.status_code != 400, response.text
+
+
+def test_single_confirm_endpoint_refuses_jobs_without_a_supported_confirmation(import_client):
+    from test_import_v5 import experiment
+
+    from chronofish.services.import_v5 import EXPERIMENT
+
+    client = import_client
+    book = experiment()
+    v5_master_data(client, book)
+    created = v5_job(client, book, [EXPERIMENT])
+    response = client.post(f"/api/v1/imports/{created['job']['id']}/confirm", json={"revision": 1})
+    assert response.status_code == 409 and response.json()["error"]["code"] == "not_ready"
+
+
 def test_parallel_confirmation_writes_once(import_client):
     client = import_client
     sql_required(client)
@@ -722,7 +862,7 @@ def test_parallel_confirmation_writes_once(import_client):
         with TestClient(client.app) as browser:
             browser.cookies.set("chronofish_session", token)
             return browser.post(
-                f"/api/v1/imports/{job_id}/confirm-all", json=body, headers=dict(client.headers)
+                f"/api/v1/imports/{job_id}/confirm", json=body, headers=dict(client.headers)
             ).status_code
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -745,16 +885,16 @@ def test_customer_sheets_show_editable_issues_before_confirm(import_client):
     assert requirements["embryoWarningCount"] < 100
     assert requirements["unresolvedIssueCount"] >= len(missing)
     if getattr(client.app.state.store, "engine", None):
-        response = client.post(f"/api/v1/imports/{job_id}/confirm-all", json=confirm_body(client, created, sheets))
+        response = client.post(f"/api/v1/imports/{job_id}/confirm", json=confirm_body(client, created, sheets))
         assert response.status_code == 409 and response.json()["error"]["code"] == "issues_open"
         assert scalar(client, "SELECT COUNT(*) FROM historical_embryo WHERE import_job_id = :job", job_id) == 0
         for sheet, count in [(sheets[0], 29), (sheets[2], 30)]:
             good = create_job(client, filename.read_bytes(), [sheet])
             response = client.post(
-                f"/api/v1/imports/{good['job']['id']}/confirm-all", json=confirm_body(client, good, [sheet])
+                f"/api/v1/imports/{good['job']['id']}/confirm", json=confirm_body(client, good, [sheet])
             )
             assert response.status_code == 200, response.text
-            assert response.json()["components"]["embryos"]["historicalEmbryoCount"] == count
+            assert response.json()["historicalEmbryoCount"] == count
             assert (
                 client.post(
                     f"/api/v1/imports/{good['job']['id']}/revert", json={"revision": 2, "reason": "Fixture cleanup"}
@@ -788,7 +928,7 @@ def test_fish_import_sets_registration_disability_after_migration(import_client,
     )
     assert donor.status_code == 201, donor.text
     body["donorMappings"] = {"Import donor": donor.json()["id"]}
-    confirmed = client.post(f"/api/v1/imports/{created['job']['id']}/confirm-fish-specimens", json=body)
+    confirmed = client.post(f"/api/v1/imports/{created['job']['id']}/confirm", json=body)
     assert confirmed.status_code == 200, confirmed.text
     with client.app.state.store.engine.connect() as connection:
         record = (
@@ -810,7 +950,7 @@ def test_fish_import_sets_registration_disability_after_migration(import_client,
 def test_standalone_embryo_commit_refuses_stale_revision_and_open_issues_then_commits_and_reverts(import_client):
     client = import_client
     sql_required(client)
-    path = "/api/v1/imports/{}/confirm-v2-embryos"
+    path = "/api/v1/imports/{}/confirm"
     rows = "SELECT COUNT(*) FROM historical_embryo WHERE import_job_id = :job"
     blocked = create_job(client, workbook(incomplete=True))
     body = confirm_body(client, blocked)

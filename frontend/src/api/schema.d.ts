@@ -417,6 +417,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Atomically confirm an import draft by the path its record kinds allow
+         * @description The server picks fish/specimen, historical count, V2 embryo, or mixed confirmation from the job's record kinds (see mapping-requirements). Fish, embryo, and mixed jobs require siteMappings; fish and mixed jobs also require donorMappings.
+         */
+        post: operations["confirmImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/confirm-fish-specimens": {
         parameters: {
             query?: never;
@@ -429,8 +451,9 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Atomically confirm a fish/specimen-only import draft
-         * @description Requires an active site with time zone per fish sheet and active donor cell per source label.
+         * Deprecated alias to confirm a fish/specimen-only import draft
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
          */
         post: operations["confirmFishSpecimenImport"];
         delete?: never;
@@ -450,7 +473,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Atomically confirm V1, MSU, or QC historical count sheets */
+        /**
+         * Deprecated alias to confirm V1, MSU, or QC historical count sheets
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
         post: operations["confirmAggregateImport"];
         delete?: never;
         options?: never;
@@ -469,7 +496,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirm V2 embryos and historical observations without inventing operational lot data */
+        /**
+         * Deprecated alias to confirm V2 embryos and historical observations
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
         post: operations["confirmV2EmbryoImport"];
         delete?: never;
         options?: never;
@@ -488,7 +519,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Confirm selected data sheets atomically and retain summary sheets as references */
+        /**
+         * Deprecated alias to confirm selected data sheets atomically
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
         post: operations["confirmMixedImport"];
         delete?: never;
         options?: never;
@@ -4302,6 +4337,88 @@ export interface operations {
             };
         };
     };
+    confirmImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings?: {
+                        [key: string]: string;
+                    };
+                    donorMappings?: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                    aggregateWarningBypassReason?: string;
+                    embryoWarningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Data committed atomically; only the counts of the path taken are present */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        jobId: string;
+                        status: string;
+                        revision: number;
+                        fishCount?: number;
+                        specimenCount?: number;
+                        historicalCountRows?: number;
+                        historicalEmbryoCount?: number;
+                        historicalObservationCount?: number;
+                        historicalControlCount?: number;
+                        components?: {
+                            [key: string]: unknown;
+                        };
+                        reconciliationReferenceCount?: number;
+                    } & {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Missing revision */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unsupported job */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     confirmFishSpecimenImport: {
         parameters: {
             query?: never;
@@ -4333,7 +4450,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Canonical fish/specimen and historical observation counts */
+            /** @description Same result the old endpoint returned */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4381,7 +4498,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Historical count rows created with source provenance */
+            /** @description Same result the old endpoint returned */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4432,7 +4549,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Historical embryo identities and observations with provenance */
+            /** @description Same result the old endpoint returned */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4488,7 +4605,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Data committed atomically; reconciliation sheets retained without canonical writes */
+            /** @description Same result the old endpoint returned */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4502,7 +4619,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Any unresolved issue or validation failure rolls back the whole job */
+            /** @description Stale draft */
             409: {
                 headers: {
                     [name: string]: unknown;
