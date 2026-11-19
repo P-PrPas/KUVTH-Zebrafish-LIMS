@@ -246,3 +246,84 @@ it("notifies subscribers on state change", () => {
   t.workflow.setStep(3);
   expect(listener).toHaveBeenCalledTimes(1);
 });
+
+// Job-scoped reads: `/imports/<id>` detail and historical-structure can be held until released.
+function gated() {
+  const gates = new Map<string, () => void>();
+  const request: RequestFn = async (path) => {
+    const url = new URL(path, "http://x");
+    const m = url.pathname.match(/^\/imports\/(job-\w+)(\/historical-structure)?$/);
+    if (m) {
+      const key = m[1] + (m[2] ?? "");
+      if (!m[2] || url.searchParams.get("offset") === "50")
+        await new Promise<void>((resolve) => gates.set(`${key}?${url.searchParams.get("offset")}`, resolve));
+      if (m[2]) return { json: async () => ({ total: 0, items: [{ id: `${m[1]}-s` }] }) };
+      return {
+        json: async () => ({
+          job: { ...job, id: m[1] },
+          files: [],
+          recordCount: 120,
+          issueCount: 0,
+          deferredFieldCount: 0,
+        }),
+      };
+    }
+    if (url.pathname.endsWith("/mapping-requirements"))
+      return { json: async () => ({ canConfirmMixed: true, recordKinds: [] }) };
+    if (
+      url.pathname.endsWith("/records") ||
+      url.pathname.endsWith("/issues") ||
+      url.pathname.endsWith("/fish-status") ||
+      url.pathname === "/sites" ||
+      url.pathname === "/donor-cell-lines"
+    )
+      return { json: async () => ({ items: [] }) };
+    return { json: async () => ({ total: 0, items: [] }) };
+  };
+  const workflow = createImportWorkflow(request, {
+    onNewJob: vi.fn(),
+    onJobLoaded: vi.fn(),
+    onDeferredLoaded: vi.fn(),
+  });
+  const release = async (key: string) => {
+    await vi.waitFor(() => expect(gates.has(key)).toBe(true));
+    gates.get(key)?.();
+  };
+  return { workflow, release };
+}
+
+it("keeps the latest opened job when an older response arrives last", async () => {
+  const { workflow, release } = gated();
+  const a = workflow.openJob("job-a");
+  const b = workflow.openJob("job-b");
+  await release("job-b?null");
+  await b;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+  await release("job-a?null");
+  await a;
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+});
+
+it("does not reopen a job that was closed while loading", async () => {
+  const { workflow, release } = gated();
+  const a = workflow.openJob("job-a");
+  workflow.closeJob();
+  await release("job-a?null");
+  await a;
+  expect(workflow.getState().detail).toBeNull();
+});
+
+it("ignores a structure page for a job that is no longer open", async () => {
+  const { workflow, release } = gated();
+  const a = workflow.openJob("job-a");
+  await release("job-a?null");
+  await a;
+  const page = workflow.loadStructure("job-a", 50);
+  const b = workflow.openJob("job-b");
+  await release("job-b?null");
+  await b;
+  await release("job-a/historical-structure?50");
+  await page;
+  expect(workflow.getState().structureOffset).toBe(0);
+  expect(workflow.getState().detail?.job.id).toBe("job-b");
+});

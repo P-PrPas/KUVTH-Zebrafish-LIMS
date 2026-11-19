@@ -221,6 +221,9 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     return (await (await request(path, init)).json()) as T;
   }
   const jobId = () => state.detail?.job.id as string;
+  // Bumped by every openJob and by closeJob; a job-scoped response applies only if it is still the latest.
+  let generation = 0;
+  const stillOpen = (id: string) => state.detail?.job.id === id;
 
   async function reloadJobs() {
     set({ jobs: (await json<{ items: Job[] }>("/imports")).items });
@@ -233,16 +236,21 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     set({ deferredFields: result.items, deferredTotal: result.total, deferredOffset: offset });
   }
   async function loadStructure(id: string, offset = 0) {
+    const mine = generation;
     const result = await json<HistoricalStructure>(
       `/imports/${id}/historical-structure?offset=${offset}&limit=${PAGE}`,
     );
+    if (mine !== generation || !stillOpen(id)) return;
     set({ historicalStructure: result, structureOffset: offset });
   }
   async function loadResult(id: string, offset = 0) {
+    const mine = generation;
     const result = await json<ImportResult>(`/imports/${id}/result?offset=${offset}&limit=${PAGE}`);
+    if (mine !== generation || !stillOpen(id)) return;
     set({ importResult: result, resultOffset: offset });
   }
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
+    const mine = ++generation;
     const newJob = state.detail?.job.id !== id;
     if (newJob) hooks.onNewJob();
     const [
@@ -270,6 +278,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       json<HistoricalStructure>(`/imports/${id}/historical-structure?offset=0&limit=${PAGE}`),
       json<ImportResult>(`/imports/${id}/result?offset=0&limit=${PAGE}`),
     ]);
+    if (mine !== generation) return;
     const patch: Partial<ImportWorkflowState> = {
       detail: nextDetail,
       records: nextRecordPage.items,
@@ -305,9 +314,9 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
   }
   // Re-read the open job and the job list; the write that preceded it is never repeated.
   async function refreshAfterWrite(id: string) {
-    await openJob(id);
+    if (stillOpen(id)) await openJob(id);
     await reloadJobs();
-    set({ refreshNeeded: null });
+    if (stillOpen(id)) set({ refreshNeeded: null });
   }
   const reloadCurrent = () => openJob(jobId(), state.recordOffset, state.issueOffset);
 
@@ -322,7 +331,10 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     loadStructure,
     loadResult,
     openJob,
-    closeJob: () => set({ detail: null }),
+    closeJob: () => {
+      generation++;
+      set({ detail: null });
+    },
     setStep: (importStep: number) => set({ importStep }),
     setConfirmationMode: (confirmationMode: string) => set({ confirmationMode }),
     // The pager buttons are disabled at the ends; these guards keep the same limits for any other caller.
@@ -353,6 +365,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         body: JSON.stringify({ revision: detail.job.revision, ...fields }),
       });
       onWritten(result);
+      if (!stillOpen(detail.job.id)) return void (await reloadJobs().catch(() => undefined));
       set({
         detail: {
           ...detail,
@@ -365,9 +378,9 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       try {
         await reloadJobs();
         await reloadCurrent();
-        set({ refreshNeeded: null });
+        if (stillOpen(detail.job.id)) set({ refreshNeeded: null });
       } catch {
-        set({ refreshNeeded: "committed" });
+        if (stillOpen(detail.job.id)) set({ refreshNeeded: "committed" });
       }
     },
     // onWritten runs right after the write succeeds, before the follow-up reads.
@@ -378,7 +391,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
       );
       onWritten(result);
-      if (!commit) return;
+      if (!commit || !stillOpen(detail.job.id)) return;
       set({
         detail: { ...detail, job: { ...detail.job, status: "committed", revision: result.revision } },
         importStep: 5,
@@ -393,12 +406,14 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, reason }),
       });
-      set({
-        detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
-        importStep: 5,
-        historicalSummary: null,
-        importResult: null,
-      });
+      if (stillOpen(detail.job.id)) {
+        set({
+          detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
+          importStep: 5,
+          historicalSummary: null,
+          importResult: null,
+        });
+      }
       onWritten();
       await refreshAfterWrite(detail.job.id).catch(() => set({ refreshNeeded: "reverted" }));
     },
