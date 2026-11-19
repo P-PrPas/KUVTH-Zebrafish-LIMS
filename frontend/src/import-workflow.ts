@@ -215,6 +215,10 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
   // Bumped by every openJob and by closeJob; a job-scoped response applies only if it is still the latest.
   let generation = 0;
   const stillOpen = (id: string) => state.detail?.job.id === id;
+  // Bumped when the user picks another job or closes it. A write captures it when it starts and may update
+  // the screen (detail, refresh, result notice) only while that same pick is still current.
+  let selection = 0;
+  const owns = (id: string, picked: number) => picked === selection && stillOpen(id);
 
   async function reloadJobs() {
     set({ jobs: (await json<{ items: Job[] }>("/imports")).items });
@@ -237,7 +241,10 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
   async function openJob(id: string, nextRecords = 0, nextIssues = 0) {
     const mine = ++generation;
     const newJob = state.detail?.job.id !== id;
-    if (newJob) hooks.onNewJob();
+    if (newJob) {
+      selection++;
+      hooks.onNewJob();
+    }
     const [
       nextDetail,
       nextRecordPage,
@@ -294,11 +301,15 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     set(patch);
   }
   // Re-read the open job and the job list; the write that preceded it is never repeated.
-  async function refreshAfterWrite(id: string) {
-    if (stillOpen(id)) await openJob(id);
+  async function refreshAfterWrite(id: string, picked: number) {
+    if (owns(id, picked)) await openJob(id);
     await reloadJobs();
-    if (stillOpen(id)) set({ refreshNeeded: null });
+    if (owns(id, picked)) set({ refreshNeeded: null });
   }
+  // Failed follow-up reads mark the written job for a read-only retry, unless the user has moved on.
+  const markRefresh = (id: string, picked: number, refreshNeeded: "committed" | "reverted") => () => {
+    if (owns(id, picked)) set({ refreshNeeded });
+  };
   const reloadCurrent = () => openJob(jobId(), state.recordOffset, state.issueOffset);
 
   return {
@@ -313,6 +324,7 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     openJob,
     closeJob: () => {
       generation++;
+      selection++;
       set({ detail: null });
     },
     setStep: (importStep: number) => set({ importStep }),
@@ -330,8 +342,9 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     },
     // Edit/decision/bypass/fish-status writes: send, then reload the current page of the open job.
     async writeAndReload(path: string, body: unknown, method = "POST") {
+      const [id, picked] = [jobId(), selection];
       await json(path, { method, body: JSON.stringify(body) });
-      await reloadCurrent();
+      if (owns(id, picked)) await reloadCurrent();
     },
     async applyDeferred(id: string, body: unknown) {
       await json(`/imports/deferred-fields/${id}/apply`, { method: "POST", body: JSON.stringify(body) });
@@ -339,13 +352,13 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
     },
     // Like submitTemplate(commit): once the write succeeds the job is committed; failing reads only set refreshNeeded.
     async confirm<T extends { revision?: number }>(fields: Record<string, unknown>, onWritten: (result: T) => void) {
-      const detail = state.detail as Detail;
+      const [detail, picked] = [state.detail as Detail, selection];
       const result = await json<T>(`/imports/${detail.job.id}/confirm`, {
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, ...fields }),
       });
       onWritten(result);
-      if (!stillOpen(detail.job.id)) return void (await reloadJobs().catch(() => undefined));
+      if (!owns(detail.job.id, picked)) return void (await reloadJobs().catch(() => undefined));
       set({
         detail: {
           ...detail,
@@ -356,35 +369,36 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
       });
       try {
         await reloadJobs();
-        await reloadCurrent();
-        if (stillOpen(detail.job.id)) set({ refreshNeeded: null });
+        if (owns(detail.job.id, picked)) await reloadCurrent();
+        if (owns(detail.job.id, picked)) set({ refreshNeeded: null });
       } catch {
-        if (stillOpen(detail.job.id)) set({ refreshNeeded: "committed" });
+        markRefresh(detail.job.id, picked, "committed")();
       }
     },
     // onWritten runs right after the write succeeds, before the follow-up reads.
     async submitTemplate(commit: boolean, onWritten: (result: { recordCount: number }) => void) {
-      const detail = state.detail as Detail;
+      const [detail, picked] = [state.detail as Detail, selection];
       const result = await json<{ recordCount: number; revision: number }>(
         `/imports/${detail.job.id}/${commit ? "confirm-template" : "validate-template"}`,
         { method: "POST", body: JSON.stringify({ revision: detail.job.revision }) },
       );
       onWritten(result);
-      if (!commit || !stillOpen(detail.job.id)) return;
+      if (!commit) return;
+      if (!owns(detail.job.id, picked)) return void (await reloadJobs().catch(() => undefined));
       set({
         detail: { ...detail, job: { ...detail.job, status: "committed", revision: result.revision } },
         importStep: 5,
         historicalSummary: null,
       });
-      await refreshAfterWrite(detail.job.id).catch(() => set({ refreshNeeded: "committed" }));
+      await refreshAfterWrite(detail.job.id, picked).catch(markRefresh(detail.job.id, picked, "committed"));
     },
     async revert(reason: string, onWritten: () => void) {
-      const detail = state.detail as Detail;
+      const [detail, picked] = [state.detail as Detail, selection];
       const result = await json<{ revision: number }>(`/imports/${detail.job.id}/revert`, {
         method: "POST",
         body: JSON.stringify({ revision: detail.job.revision, reason }),
       });
-      if (stillOpen(detail.job.id)) {
+      if (owns(detail.job.id, picked)) {
         set({
           detail: { ...detail, job: { ...detail.job, status: "reverted", revision: result.revision } },
           importStep: 5,
@@ -392,10 +406,10 @@ export function createImportWorkflow(request: RequestFn, hooks: ImportWorkflowHo
         });
       }
       onWritten();
-      await refreshAfterWrite(detail.job.id).catch(() => set({ refreshNeeded: "reverted" }));
+      await refreshAfterWrite(detail.job.id, picked).catch(markRefresh(detail.job.id, picked, "reverted"));
     },
     // Read-only retry after a committed/reverted write whose follow-up reads failed.
-    retryRefresh: () => refreshAfterWrite(jobId()),
+    retryRefresh: () => refreshAfterWrite(jobId(), selection),
   };
 }
 

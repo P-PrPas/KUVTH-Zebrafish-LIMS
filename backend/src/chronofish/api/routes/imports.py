@@ -276,16 +276,17 @@ def build_import_router(store: Any) -> APIRouter:
         revision = body.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        values = [body.get(name) for name in names]
+        # Like the old endpoints: a missing reason is empty, an explicit null is rejected.
+        values = [body.get(name, None if name.endswith("Mappings") else "") for name in names]
         for name, value in zip(names, values, strict=True):
             if name.endswith("Mappings"):
                 if not isinstance(value, dict) or not all(
                     isinstance(k, str) and isinstance(v, str) for k, v in value.items()
                 ):
                     raise APIError(400, "invalid_mapping", "Provide site and donor ID mappings")
-            elif value is not None and not isinstance(value, str):
+            elif not isinstance(value, str):
                 raise APIError(400, "invalid_reason", "Bypass reasons must be text")
-        return revision, [v if v is not None else "" for v in values]
+        return revision, values
 
     @router.post("/{job_id}/confirm-fish-specimens", deprecated=True)
     def confirm_fish_specimens(
