@@ -973,9 +973,13 @@ class ImportRepository:
                         "lease_token": key,
                     },
                 )
+                from .import_revert import created_ids
+
                 audit = {
                     "templateVersion": 5 if extra else 1,
                     "recordCount": len(targets),
+                    # Recorded even when revert is impossible (pre-existing rows changed) so the result stays complete.
+                    "createdIds": created_ids(before, working),
                     "rollbackManifest": self._template_manifest(connection, before, working, job_id),
                 }
                 return targets, audit, outcome(targets)
@@ -2271,7 +2275,9 @@ class ImportRepository:
             counts = {table: len(ids) for table, ids in created.items()}
         else:
             with self.engine.connect() as connection:
-                rollback = self._rollback_manifest(connection, job_id)
+                # Older jobs lack createdIds; fall back to the revert manifest, then to record targets.
+                recorded = self._rollback_manifest(connection, job_id, "createdIds")
+                rollback = recorded or self._rollback_manifest(connection, job_id)
                 if rollback is not None:
                     created = {table: sorted(rows) for table, rows in rollback.items()}
                 else:
@@ -2495,15 +2501,15 @@ class ImportRepository:
         return manifest(connection, before, working, job_id)
 
     @staticmethod
-    def _rollback_manifest(connection, job_id: str) -> dict[str, Any] | None:
+    def _rollback_manifest(connection, job_id: str, key: str = "rollbackManifest") -> dict[str, Any] | None:
         audits = connection.execute(
             text("SELECT new_values FROM audit_log WHERE table_name = 'import_job' AND record_id = :id"),
             {"id": job_id},
         ).scalars()
         for raw in audits:
             values = json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(values, dict) and values.get("rollbackManifest"):
-                return values["rollbackManifest"]
+            if isinstance(values, dict) and values.get(key):
+                return values[key]
         return None
 
     def revert_fish_specimens(self, job_id: str, revision: int, actor: dict[str, Any], reason: str) -> dict[str, Any]:
