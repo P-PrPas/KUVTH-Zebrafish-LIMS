@@ -439,6 +439,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports/{jobId}/confirm-fish-specimens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deprecated alias to confirm a fish/specimen-only import draft
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
+        post: operations["confirmFishSpecimenImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-aggregate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deprecated alias to confirm V1, MSU, or QC historical count sheets
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
+        post: operations["confirmAggregateImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-v2-embryos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deprecated alias to confirm V2 embryos and historical observations
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
+        post: operations["confirmV2EmbryoImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/imports/{jobId}/confirm-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deprecated alias to confirm selected data sheets atomically
+         * @deprecated
+         * @description Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm. Will be removed in a later release.
+         */
+        post: operations["confirmMixedImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{jobId}/fish-status": {
         parameters: {
             query?: never;
@@ -4319,6 +4411,215 @@ export interface operations {
                 content?: never;
             };
             /** @description Unsupported job */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmFishSpecimenImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Same result the old endpoint returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmAggregateImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Same result the old endpoint returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmV2EmbryoImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    warningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Same result the old endpoint returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    confirmMixedImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable per-device identifier generated on first use and kept in local storage. */
+                "X-Device-Id": components["parameters"]["DeviceId"];
+                /** @description Stable key for one logical mutation. Replays return the original result. */
+                "X-Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Account id for this write; must match the authenticated session. */
+                "X-Actor-User-Id": components["parameters"]["ActorUserId"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    siteMappings: {
+                        [key: string]: string;
+                    };
+                    donorMappings: {
+                        [key: string]: string;
+                    };
+                    zeroBypassReason?: string;
+                    aggregateWarningBypassReason?: string;
+                    embryoWarningBypassReason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Same result the old endpoint returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stale draft */
             409: {
                 headers: {
                     [name: string]: unknown;
