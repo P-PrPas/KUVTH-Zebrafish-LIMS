@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import text
 
 from ..runtime.errors import APIError
-from ..runtime.mutations import WriteContext
+from ..runtime.mutations import WriteContext, require_active_operator
 from ..runtime.values import uuid7
 from ..services.import_deferred import deferred_cells
 from ..services.import_interpret import embryo_validation_errors, interpret
@@ -891,7 +891,10 @@ class ImportRepository:
                         {"id": job_id},
                     ).mappings()
                 ]
-                return records, self.store.load_state(connection)
+                before = self.store.load_state(connection)
+                # Checked on state read under the commit lock so a concurrent deactivation cannot slip in.
+                require_active_operator(before, ctx.operator_id)
+                return records, before
 
             def apply(connection: Any, collected: tuple[list[dict], Any]) -> tuple[dict, dict, dict]:
                 records, before = collected
@@ -991,6 +994,7 @@ class ImportRepository:
             memory = self.store.idempotency
             if not validate_only and (previous := memory.get(f"{scope}:{key}")):
                 return replay({"request_hash": previous.request_hash, "response_body": previous.body})
+            require_active_operator(self.store.state, ctx.operator_id)
             records = [dict(r) for r in self.store.import_records.values() if r["job_id"] == job_id]
             self._check_draft(job, revision)
             if any(
