@@ -150,7 +150,7 @@ def build_import_router(store: Any) -> APIRouter:
         revision = body.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        ctx = validate_write_context(request, store.snapshot(), body, write_kind(request))
+        ctx = validate_write_context(request, None, body, write_kind(request))
         return repository.confirm_template(
             job_id, revision, ctx, request_fingerprint(request, body), validate_only=True
         )
@@ -161,7 +161,7 @@ def build_import_router(store: Any) -> APIRouter:
         revision = body.get("revision")
         if not isinstance(revision, int) or isinstance(revision, bool):
             raise APIError(400, "invalid_revision", "Provide the import revision")
-        ctx = validate_write_context(request, store.snapshot(), body, write_kind(request))
+        ctx = validate_write_context(request, None, body, write_kind(request))
         return repository.confirm_template(job_id, revision, ctx, request_fingerprint(request, body))
 
     @router.post("/inspect")
