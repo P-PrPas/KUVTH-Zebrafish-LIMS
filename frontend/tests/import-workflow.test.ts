@@ -31,6 +31,12 @@ function setup(options: { status?: string; issueCount?: number; recordCount?: nu
     if (p.endsWith("/fish-status")) return { items: [] };
     if (p === "/sites" || p === "/donor-cell-lines") return { items: [] };
     if (p.endsWith("/historical-structure")) return { total: 0, items: [] };
+    if (p.endsWith("/result"))
+      return {
+        counts: [{ entity: "experiment_batch", count: 1 }],
+        total: 1,
+        items: [{ kind: "batch", id: "b1", code: `B${offset}` }],
+      };
     return {};
   };
   const request: RequestFn = async (path, init) => {
@@ -71,6 +77,7 @@ it("opens a job and loads every related read", async () => {
     "/imports/job-1/historical-summary",
     "/imports/job-1/comparison?offset=0&limit=50",
     "/imports/job-1/historical-structure?offset=0&limit=50",
+    "/imports/job-1/result?offset=0&limit=50",
   ]);
   const state = workflow.getState();
   expect(state.detail?.job.id).toBe("job-1");
@@ -82,12 +89,26 @@ it("opens a job and loads every related read", async () => {
   expect(hooks.onNewJob).toHaveBeenCalledTimes(1);
 });
 
+it("loads the import result with the job, pages it, and keeps it across a commit whose reads fail", async () => {
+  const t = setup();
+  await t.workflow.openJob("job-1");
+  expect(t.workflow.getState().importResult?.counts).toEqual([{ entity: "experiment_batch", count: 1 }]);
+  await t.workflow.loadResult("job-1", 50);
+  expect(t.workflow.getState()).toMatchObject({ resultOffset: 50, importResult: { items: [{ code: "B50" }] } });
+  t.failReads(true);
+  await t.workflow.submitTemplate(true, () => {});
+  expect(t.workflow.getState()).toMatchObject({ importResult: null, refreshNeeded: "committed" });
+  t.failReads(false);
+  await t.workflow.retryRefresh();
+  expect(t.workflow.getState().importResult?.total).toBe(1);
+});
+
 it("pages issues and records within bounds and handles an empty issue page", async () => {
   const { workflow, calls } = setup({ issueCount: 60, recordCount: 0 });
   await workflow.openJob("job-1");
   await workflow.pageIssues(-1);
   await workflow.pageRecords(1);
-  expect(calls).toHaveLength(10);
+  expect(calls).toHaveLength(11);
   await workflow.pageIssues(1);
   expect(workflow.getState().issueOffset).toBe(50);
   expect(workflow.getState().recordOffset).toBe(0);

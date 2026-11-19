@@ -28,6 +28,34 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
   return (await (await request(path, init)).json()) as T;
 }
 
+// [Thai, English] label per created table reported by GET /imports/{jobId}/result.
+const resultLabels: Record<string, [string, string]> = {
+  experiment_batch: ["การทดลอง (batch)", "Batches"],
+  injection_lot: ["lot ฉีด", "Injection lots"],
+  embryo: ["ตัวอ่อน", "Embryos"],
+  embryo_observation: ["การสังเกตตัวอ่อน", "Embryo observations"],
+  control_arm_count: ["จำนวนกลุ่มควบคุม", "Control arm counts"],
+  clone_fish: ["ปลา", "Fish"],
+  fish_observation: ["การสังเกตปลา", "Fish observations"],
+  specimen: ["ตัวอย่าง", "Specimens"],
+  site: ["สถานที่", "Sites"],
+  operator: ["ผู้ปฏิบัติงาน", "Operators"],
+  donor_cell_line: ["สายเซลล์ผู้ให้", "Donor cell lines"],
+  recipient_egg_lot: ["lot ไข่ผู้รับ", "Recipient egg lots"],
+  csof_lot: ["lot CSOF", "CSOF lots"],
+  experiment_group: ["กลุ่มการทดลอง", "Experiment groups"],
+  treatment_group: ["กลุ่มทรีตเมนต์", "Treatment groups"],
+  fish_box: ["กล่องปลา", "Fish boxes"],
+  protocol: ["โปรโตคอล", "Protocols"],
+  stage_timing_profile: ["โปรไฟล์เวลาระยะ", "Stage timing profiles"],
+  historical_experiment: ["การทดลองย้อนหลัง", "Historical experiments"],
+  historical_lot: ["lot ย้อนหลัง", "Historical lots"],
+  historical_stage_count: ["จำนวนนับย้อนหลัง", "Historical counts"],
+  historical_embryo: ["ตัวอ่อนย้อนหลัง", "Historical embryos"],
+  historical_observation: ["การสังเกตย้อนหลัง", "Historical observations"],
+};
+const resultKinds = { batch: ["batch", "batch"], fish: ["ปลา", "fish"], specimen: ["ตัวอย่าง", "specimen"] } as const;
+
 export function Imports({ language }: { language: Language }) {
   const th = language === "th";
   const [files, setFiles] = useState<File[]>([]);
@@ -122,6 +150,8 @@ export function Imports({ language }: { language: Language }) {
     historicalSummary,
     historicalStructure,
     structureOffset,
+    importResult,
+    resultOffset,
     comparison,
     refreshNeeded,
     importStep,
@@ -1450,125 +1480,173 @@ export function Imports({ language }: { language: Language }) {
                       : "This job was reverted. Source files and history remain available."}
                   </p>
                 )}
-                {detail.job.status === "committed" && historicalSummary && (
+                {detail.job.status === "committed" && importResult && importResult.counts.length > 0 && (
                   <div className="import-page__mapping">
-                    <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
-                    <p className="muted">
-                      {th
-                        ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing"
-                        : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}
-                    </p>
-                    {historicalStructure && (
+                    <h3>{th ? "ผลนำเข้า: สิ่งที่งานนี้สร้าง" : "Import result: what this job created"}</h3>
+                    <ul>
+                      {importResult.counts.map(({ entity, count }) => (
+                        <li key={entity}>
+                          {resultLabels[entity]?.[th ? 0 : 1] ?? entity}: {count}
+                        </li>
+                      ))}
+                    </ul>
+                    {importResult.items.length > 0 && (
                       <div>
-                        <h4>{th ? "การทดลองและ lot จากต้นฉบับ" : "Source experiments and lots"}</h4>
-                        {historicalStructure.items.map((experiment) => (
-                          <details key={experiment.id} className="import-page__experiment">
-                            <summary>
-                              <strong>{experiment.sourceSheet}</strong> ·{" "}
-                              {experiment.experimentDate ?? (th ? "ไม่ทราบวันที่" : "unknown date")} ·{" "}
-                              {experiment.sourceKind} · {experiment.groupSource ?? "—"} · {experiment.lots.length} lot
-                            </summary>
-                            <p>
-                              {th ? "ไข่" : "Egg"}: {experiment.eggCodeSource ?? "—"} · {th ? "ไข่รับ" : "Recipient"}:{" "}
-                              {experiment.recipientSource ?? "—"} · CSOF: {experiment.csofSource ?? "—"}
-                            </p>
-                            {experiment.lots.map((lot) => (
-                              <p key={lot.id}>
-                                {th ? "lot" : "Lot"} {lot.lotNoSource ?? "—"} · {th ? "เซลล์" : "Cell"}{" "}
-                                {lot.donorSource ?? "—"} · {th ? "ฉีด" : "Injection"} {lot.injectionSource ?? "—"} ·{" "}
-                                {th ? "เวลาเริ่ม" : "Activation"} {lot.activationLocalTime ?? "—"}
-                              </p>
-                            ))}
-                          </details>
-                        ))}
+                        <h4>{th ? "รหัสที่สร้าง" : "Created codes"}</h4>
+                        <ul>
+                          {importResult.items.map((item) => (
+                            <li key={item.id}>
+                              <a href={item.kind === "batch" ? "/#batches" : "/#fish"}>{item.code}</a>{" "}
+                              <span className="muted">
+                                {th ? resultKinds[item.kind][0] : resultKinds[item.kind][1]}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
                         <div className="import-page__pager">
                           <button
-                            disabled={structureOffset === 0}
-                            onClick={() =>
-                              void workflow.loadStructure(detail.job.id, Math.max(0, structureOffset - 50))
-                            }
+                            disabled={resultOffset === 0}
+                            onClick={() => void workflow.loadResult(detail.job.id, Math.max(0, resultOffset - 50))}
                           >
                             ←
                           </button>
                           <span>
-                            {structureOffset + 1}–{structureOffset + historicalStructure.items.length} /{" "}
-                            {historicalStructure.total}
+                            {resultOffset + 1}–{resultOffset + importResult.items.length} / {importResult.total}
                           </span>
                           <button
-                            disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total}
-                            onClick={() => void workflow.loadStructure(detail.job.id, structureOffset + 50)}
+                            disabled={resultOffset + importResult.items.length >= importResult.total}
+                            onClick={() => void workflow.loadResult(detail.job.id, resultOffset + 50)}
                           >
                             →
                           </button>
                         </div>
                       </div>
                     )}
-                    <div className="import-page__summary">
-                      <div>
-                        <h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th>
-                              <th>N</th>
-                              <th>{th ? "รอด" : "Alive"}</th>
-                              <th>{th ? "ปกติ" : "Normal"}</th>
-                              <th>{th ? "ผิดปกติ" : "Abnormal"}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {historicalSummary.stageCounts
-                              .slice(0, summaryExpanded ? undefined : 30)
-                              .map((row, index) => (
-                                <tr key={index}>
-                                  <td>
-                                    {row.stageLabel}
-                                    {row.armType ? ` · ${row.armType}` : ""}
-                                  </td>
-                                  <td>{row.nTotal ?? "—"}</td>
-                                  <td>{row.nAlive ?? "—"}</td>
-                                  <td>{row.nNormal ?? "—"}</td>
-                                  <td>{row.nAbnormal ?? "—"}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div>
-                        <h4>{th ? "ผลการสังเกต" : "Observed outcomes"}</h4>
-                        <table>
-                          <thead>
-                            <tr>
-                              <th>{th ? "ชนิด / ระยะ" : "Subject / stage"}</th>
-                              <th>{th ? "ผล" : "Outcome"}</th>
-                              <th>{th ? "ความแม่นของเวลา" : "Time precision"}</th>
-                              <th>{th ? "จำนวน" : "Count"}</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {historicalSummary.observations
-                              .slice(0, summaryExpanded ? undefined : 30)
-                              .map((row, index) => (
-                                <tr key={index}>
-                                  <td>
-                                    {row.subjectType} · {row.stageLabel ?? "—"}
-                                  </td>
-                                  <td>{row.outcome ?? "—"}</td>
-                                  <td>{row.timePrecision}</td>
-                                  <td>{row.count}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    {(historicalSummary.stageCounts.length > 30 || historicalSummary.observations.length > 30) && (
-                      <button type="button" onClick={() => setSummaryExpanded(!summaryExpanded)}>
-                        {summaryExpanded ? (th ? "แสดงน้อยลง" : "Show less") : th ? "แสดงทั้งหมด" : "Show all"}
-                      </button>
-                    )}
                   </div>
                 )}
+                {detail.job.status === "committed" &&
+                  historicalSummary &&
+                  (historicalSummary.stageCounts.length > 0 ||
+                    historicalSummary.observations.length > 0 ||
+                    (historicalStructure?.total ?? 0) > 0) && (
+                    <div className="import-page__mapping">
+                      <h3>{th ? "สรุปข้อมูลย้อนหลัง" : "Historical data summary"}</h3>
+                      <p className="muted">
+                        {th
+                          ? "แสดงข้อมูลย้อนหลังแยกจากตัวชี้วัดการทดลองปัจจุบัน เวลาแบบวันที่อย่างเดียวไม่ถูกนำไปคำนวณ timing"
+                          : "Historical data stays separate from current experiment metrics. Date-only observations do not enter timing calculations."}
+                      </p>
+                      {historicalStructure && (
+                        <div>
+                          <h4>{th ? "การทดลองและ lot จากต้นฉบับ" : "Source experiments and lots"}</h4>
+                          {historicalStructure.items.map((experiment) => (
+                            <details key={experiment.id} className="import-page__experiment">
+                              <summary>
+                                <strong>{experiment.sourceSheet}</strong> ·{" "}
+                                {experiment.experimentDate ?? (th ? "ไม่ทราบวันที่" : "unknown date")} ·{" "}
+                                {experiment.sourceKind} · {experiment.groupSource ?? "—"} · {experiment.lots.length} lot
+                              </summary>
+                              <p>
+                                {th ? "ไข่" : "Egg"}: {experiment.eggCodeSource ?? "—"} · {th ? "ไข่รับ" : "Recipient"}:{" "}
+                                {experiment.recipientSource ?? "—"} · CSOF: {experiment.csofSource ?? "—"}
+                              </p>
+                              {experiment.lots.map((lot) => (
+                                <p key={lot.id}>
+                                  {th ? "lot" : "Lot"} {lot.lotNoSource ?? "—"} · {th ? "เซลล์" : "Cell"}{" "}
+                                  {lot.donorSource ?? "—"} · {th ? "ฉีด" : "Injection"} {lot.injectionSource ?? "—"} ·{" "}
+                                  {th ? "เวลาเริ่ม" : "Activation"} {lot.activationLocalTime ?? "—"}
+                                </p>
+                              ))}
+                            </details>
+                          ))}
+                          <div className="import-page__pager">
+                            <button
+                              disabled={structureOffset === 0}
+                              onClick={() =>
+                                void workflow.loadStructure(detail.job.id, Math.max(0, structureOffset - 50))
+                              }
+                            >
+                              ←
+                            </button>
+                            <span>
+                              {structureOffset + 1}–{structureOffset + historicalStructure.items.length} /{" "}
+                              {historicalStructure.total}
+                            </span>
+                            <button
+                              disabled={structureOffset + historicalStructure.items.length >= historicalStructure.total}
+                              onClick={() => void workflow.loadStructure(detail.job.id, structureOffset + 50)}
+                            >
+                              →
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div className="import-page__summary">
+                        <div>
+                          <h4>{th ? "จำนวนนับตามระยะ" : "Counts by stage"}</h4>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{th ? "ระยะ / กลุ่ม" : "Stage / arm"}</th>
+                                <th>N</th>
+                                <th>{th ? "รอด" : "Alive"}</th>
+                                <th>{th ? "ปกติ" : "Normal"}</th>
+                                <th>{th ? "ผิดปกติ" : "Abnormal"}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {historicalSummary.stageCounts
+                                .slice(0, summaryExpanded ? undefined : 30)
+                                .map((row, index) => (
+                                  <tr key={index}>
+                                    <td>
+                                      {row.stageLabel}
+                                      {row.armType ? ` · ${row.armType}` : ""}
+                                    </td>
+                                    <td>{row.nTotal ?? "—"}</td>
+                                    <td>{row.nAlive ?? "—"}</td>
+                                    <td>{row.nNormal ?? "—"}</td>
+                                    <td>{row.nAbnormal ?? "—"}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div>
+                          <h4>{th ? "ผลการสังเกต" : "Observed outcomes"}</h4>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>{th ? "ชนิด / ระยะ" : "Subject / stage"}</th>
+                                <th>{th ? "ผล" : "Outcome"}</th>
+                                <th>{th ? "ความแม่นของเวลา" : "Time precision"}</th>
+                                <th>{th ? "จำนวน" : "Count"}</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {historicalSummary.observations
+                                .slice(0, summaryExpanded ? undefined : 30)
+                                .map((row, index) => (
+                                  <tr key={index}>
+                                    <td>
+                                      {row.subjectType} · {row.stageLabel ?? "—"}
+                                    </td>
+                                    <td>{row.outcome ?? "—"}</td>
+                                    <td>{row.timePrecision}</td>
+                                    <td>{row.count}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                      {(historicalSummary.stageCounts.length > 30 || historicalSummary.observations.length > 30) && (
+                        <button type="button" onClick={() => setSummaryExpanded(!summaryExpanded)}>
+                          {summaryExpanded ? (th ? "แสดงน้อยลง" : "Show less") : th ? "แสดงทั้งหมด" : "Show all"}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 {detail.job.status === "committed" && (
                   <div className="import-page__mapping">
                     {fishStatuses.length > 0 && (
