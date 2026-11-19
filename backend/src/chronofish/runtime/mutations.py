@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import re
@@ -11,8 +10,9 @@ from uuid import UUID
 from fastapi import Request
 
 from ..domain.state import JSON, State
+from .audit import audit_entry
 from .errors import APIError
-from .values import iso_now, normalize, uuid7
+from .values import normalize
 
 WriteKind = Literal["operator", "operator_bootstrap", "account"]
 
@@ -125,19 +125,7 @@ def audit(
     state: State, ctx: WriteContext, action: str, table: str, record_id: str, old: JSON | None, new: JSON | None
 ) -> None:
     state.audits.append(
-        {
-            "id": uuid7(),
-            "tableName": table,
-            "recordId": record_id,
-            "action": action,
-            "oldValues": copy.deepcopy(old),
-            "newValues": copy.deepcopy(new),
-            "operatorId": ctx.operator_id or None,
-            "deviceId": ctx.device_id,
-            "actorUserId": ctx.actor.get("id"),
-            "actorEmail": ctx.actor.get("email"),
-            "occurredAt": iso_now(),
-        }
+        audit_entry(ctx.actor, action, table, record_id, old, new, operator_id=ctx.operator_id, device_id=ctx.device_id)
     )
 
 

@@ -973,3 +973,41 @@ def test_standalone_embryo_commit_refuses_stale_revision_and_open_issues_then_co
     assert (job["status"], job["revision"]) == ("committed", 2)
     reverted = client.post(f"/api/v1/imports/{job_id}/revert", json={"revision": 2, "reason": "Fixture cleanup"})
     assert reverted.status_code == 200, reverted.text
+
+
+def test_mutation_auth_and_import_audit_rows_share_one_shape(import_client):
+    client = import_client
+    sql_required(client)
+    created = create_job(client, workbook())
+    body = confirm_body(client, created)  # also records a normal site mutation
+    job_id = created["job"]["id"]
+    assert client.post(f"/api/v1/imports/{job_id}/confirm", json=body).status_code == 200
+    invited = client.post("/api/v1/auth/admin/users", json={"email": f"audit-{uuid7()}@ku.th"})
+    assert invited.status_code == 201, invited.text
+
+    def latest(table, record_id):
+        response = client.get("/api/v1/audit-log", params={"table": table, "recordId": record_id, "limit": 1})
+        assert response.status_code == 200, response.text
+        return response.json()["items"][0]
+
+    rows = {
+        "mutation": latest("sites", next(iter(body["siteMappings"].values()))),
+        "auth": latest("auth_user", invited.json()["user"]["id"]),
+        "import": latest("import_job", job_id),
+    }
+    assert len({tuple(sorted(row)) for row in rows.values()}) == 1
+    for row in rows.values():
+        assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z", row["occurredAt"])
+        assert row["actorUserId"] and row["actorEmail"] and row["newValues"]
+    if getattr(client.app.state.store, "engine", None):
+        with client.app.state.store.engine.connect() as connection:
+            stored = {
+                name: connection.execute(text("SELECT * FROM audit_log WHERE id = :id"), {"id": row["id"]})
+                .mappings()
+                .one()
+                for name, row in rows.items()
+            }
+        for name, row in stored.items():
+            assert row["actor_user_id"] and row["actor_email"] and row["new_values"], name
+            assert row["occurred_at"].tzinfo is None, name
+            json.loads(row["new_values"]) if isinstance(row["new_values"], str) else None
