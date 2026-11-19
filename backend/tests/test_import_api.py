@@ -237,6 +237,43 @@ def test_confirm_template_replays_the_original_result_for_the_same_idempotency_k
     assert (fresh.status_code, fresh.json()["error"]["code"]) == (409, "import_not_draft")
 
 
+def test_confirm_template_rejects_operator_deactivated_after_route_validation(import_client, monkeypatch):
+    from test_import_v5 import registry
+
+    from chronofish.api.routes import imports as routes
+    from chronofish.services.import_v5 import FISH, SPECIMENS
+
+    client = import_client
+    book = registry()
+    v5_master_data(client, book)
+    job_id = v5_job(client, book, [FISH, SPECIMENS])["job"]["id"]
+    created = client.post("/api/v1/operators", headers={"X-Idempotency-Key": uuid7()}, json={"name": f"Gone {uuid7()}"})
+    assert created.status_code == 201, created.text
+    operator_id = created.json()["id"]
+    store = client.app.state.store
+    original = routes.request_fingerprint
+
+    def deactivate_after_route_check(request, body):
+        # Runs after validate_write_context and before the repository takes its lock.
+        if getattr(store, "engine", None):
+            with store.engine.begin() as connection:
+                connection.execute(text("UPDATE operator SET active = FALSE WHERE id = :id"), {"id": operator_id})
+        else:
+            store.state.entities["operators"][operator_id]["active"] = False
+        return original(request, body)
+
+    monkeypatch.setattr(routes, "request_fingerprint", deactivate_after_route_check)
+    url = f"/api/v1/imports/{job_id}/confirm-template"
+    fish_before = client.get("/api/v1/fish").json()["items"]
+    headers = {"X-Operator-Id": operator_id, "X-Idempotency-Key": uuid7()}
+    for path in (url, url.replace("confirm", "validate")):
+        rejected = client.post(path, headers=headers, json={"revision": 1})
+        assert (rejected.status_code, rejected.json()["error"]["code"]) == (400, "invalid_context"), rejected.text
+    job = client.get(f"/api/v1/imports/{job_id}").json()["job"]
+    assert job["revision"] == 1 and job["status"] != "committed"
+    assert client.get("/api/v1/fish").json()["items"] == fish_before
+
+
 def test_v5_aggregate_sql_transaction_and_unknown_treatment(import_client):
     from test_import_v5 import experiment
 

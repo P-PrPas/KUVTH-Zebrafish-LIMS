@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import text
 
 from ..runtime.errors import APIError
-from ..runtime.mutations import WriteContext
+from ..runtime.mutations import WriteContext, require_active_operator
 from ..runtime.values import uuid7
 from ..services.import_deferred import deferred_cells
 from ..services.import_interpret import embryo_validation_errors, interpret
@@ -870,6 +870,8 @@ class ImportRepository:
                 job = self.store.import_jobs.get(job_id)
                 if job is None:
                     raise APIError(404, "not_found", "Import job was not found")
+                # Checked under the lock so a concurrent deactivation cannot slip in; before replay, like other writes.
+                require_active_operator(self.store.state, ctx.operator_id)
                 memory = self.store.idempotency
                 if not validate_only and (previous := memory.get(f"{scope}:{key}")):
                     return replay({"request_hash": previous.request_hash, "response_body": previous.body})
@@ -905,6 +907,10 @@ class ImportRepository:
                 )
                 if job is None:
                     raise APIError(404, "not_found", "Import job was not found")
+                # Same serialization lock used by normal application writes, including fish sequence allocation.
+                connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
+                before = self.store._load_state(connection)
+                require_active_operator(before, ctx.operator_id)
                 if not validate_only:
                     previous = (
                         connection.execute(
@@ -919,8 +925,6 @@ class ImportRepository:
                     )
                     if previous:
                         return replay(previous)
-                # Same serialization lock used by normal application writes, including fish sequence allocation.
-                connection.execute(text("UPDATE fish_running_sequence SET next_running_no = next_running_no"))
                 records = [
                     dict(r)
                     for r in connection.execute(
@@ -937,7 +941,6 @@ class ImportRepository:
                         {"id": job_id},
                     ).scalar_one()
                 )
-                before = self.store._load_state(connection)
                 working, targets, extra = build(dict(job), records, before, unresolved)
                 if not validate_only:
                     self.store._persist(connection, before, working)
