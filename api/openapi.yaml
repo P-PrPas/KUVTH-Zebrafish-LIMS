@@ -611,6 +611,133 @@ paths:
         '400': { description: Missing revision, site/donor mapping, or non-text bypass reason }
         '403': { description: Admin access required }
         '409': { description: Unsupported job, stale draft, unresolved issue, duplicate, missing master mapping, or warnings without bypass reason }
+  /imports/{jobId}/confirm-fish-specimens:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      deprecated: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Deprecated alias to confirm a fish/specimen-only import draft
+      operationId: confirmFishSpecimenImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+      responses:
+        '200': { description: Same result the old endpoint returned }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
+  /imports/{jobId}/confirm-aggregate:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      deprecated: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Deprecated alias to confirm V1, MSU, or QC historical count sheets
+      operationId: confirmAggregateImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Same result the old endpoint returned }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
+  /imports/{jobId}/confirm-v2-embryos:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      deprecated: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Deprecated alias to confirm V2 embryos and historical observations
+      operationId: confirmV2EmbryoImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                warningBypassReason: { type: string }
+      responses:
+        '200': { description: Same result the old endpoint returned }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
+  /imports/{jobId}/confirm-all:
+    parameters:
+      - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      x-account-write: true
+      deprecated: true
+      parameters:
+        - { $ref: '#/components/parameters/DeviceId' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/ActorUserId' }
+      tags: [Imports]
+      summary: Deprecated alias to confirm selected data sheets atomically
+      operationId: confirmMixedImport
+      description: >-
+        Compatibility alias for clients loaded before the single-confirm deploy; use POST /imports/{jobId}/confirm.
+        Will be removed in a later release.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, siteMappings, donorMappings]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                siteMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                donorMappings: { type: object, additionalProperties: { type: string, format: uuid } }
+                zeroBypassReason: { type: string }
+                aggregateWarningBypassReason: { type: string }
+                embryoWarningBypassReason: { type: string }
+      responses:
+        '200': { description: Same result the old endpoint returned }
+        '403': { description: Admin access required }
+        '409': { description: Stale draft, wrong job kind, or failed validation }
   /imports/{jobId}/fish-status:
     parameters:
       - { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
