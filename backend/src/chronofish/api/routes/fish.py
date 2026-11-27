@@ -241,8 +241,8 @@ def build_fish_router(store: Store) -> APIRouter:
                 recompute_fish(state, fish_id)
                 old_embryo = copy.deepcopy(embryo)
                 embryo.update({"exitReason": "PROMOTED", "exitAt": iso_now(), "updatedAt": iso_now()})
-                audit(state, request, "INSERT", "clone_fish", fish_id, None, fish)
-                audit(state, request, "UPDATE", "embryo", embryo["id"], old_embryo, embryo)
+                audit(state, request.state.write_context, "INSERT", "clone_fish", fish_id, None, fish)
+                audit(state, request.state.write_context, "UPDATE", "embryo", embryo["id"], old_embryo, embryo)
                 results.append({"clientUuid": client_id, "id": fish_id, "status": "created", "fish": fish})
             return 201, {"items": results}
 
@@ -379,7 +379,7 @@ def build_fish_router(store: Store) -> APIRouter:
             state.entities["fish"][fish_id] = fish
             audit(
                 state,
-                request,
+                request.state.write_context,
                 "INSERT",
                 "clone_fish",
                 fish_id,
@@ -451,7 +451,7 @@ def build_fish_router(store: Store) -> APIRouter:
             old, fish = apply_fish_update(state, fish_id, changes)
             audit(
                 state,
-                request,
+                request.state.write_context,
                 "UPDATE",
                 "clone_fish",
                 fish_id,
@@ -526,11 +526,11 @@ def build_fish_router(store: Store) -> APIRouter:
                 "createdAt": iso_now(),
             }
             state.entities["specimens"][item_id] = specimen
-            audit(state, request, "INSERT", "specimen", item_id, None, specimen)
+            audit(state, request.state.write_context, "INSERT", "specimen", item_id, None, specimen)
             if body.get("markFinClipped"):
                 old = copy.deepcopy(fish)
                 fish.update({"finClipped": True, "updatedAt": iso_now()})
-                audit(state, request, "UPDATE", "clone_fish", fish_id, old, fish)
+                audit(state, request.state.write_context, "UPDATE", "clone_fish", fish_id, old, fish)
             return 201, specimen
 
         return store.execute_mutation(request, body, operation)
@@ -709,9 +709,11 @@ def build_fish_router(store: Store) -> APIRouter:
                 state.fish_observations[observation_id] = observation
                 old_fish = copy.deepcopy(fish)
                 recompute_fish(state, fish["id"])
-                audit(state, request, "INSERT", "fish_observation", observation_id, None, observation)
+                audit(
+                    state, request.state.write_context, "INSERT", "fish_observation", observation_id, None, observation
+                )
                 if old_fish != fish:
-                    audit(state, request, "UPDATE", "clone_fish", fish["id"], old_fish, fish)
+                    audit(state, request.state.write_context, "UPDATE", "clone_fish", fish["id"], old_fish, fish)
                 results.append(
                     {
                         "clientUuid": client_id,
@@ -808,9 +810,17 @@ def build_fish_router(store: Store) -> APIRouter:
             fish_id = str(observation["cloneFishId"])
             old_fish = copy.deepcopy(state.entities["fish"].get(fish_id, {}))
             recompute_fish(state, fish_id)
-            audit(state, request, action, "fish_observation", observation_id, old, observation)
+            audit(state, request.state.write_context, action, "fish_observation", observation_id, old, observation)
             if old_fish != state.entities["fish"].get(fish_id):
-                audit(state, request, "UPDATE", "clone_fish", fish_id, old_fish, state.entities["fish"][fish_id])
+                audit(
+                    state,
+                    request.state.write_context,
+                    "UPDATE",
+                    "clone_fish",
+                    fish_id,
+                    old_fish,
+                    state.entities["fish"][fish_id],
+                )
             return status, result
 
         return store.execute_mutation(request, payload, operation)

@@ -14,7 +14,7 @@ from ...domain.rules import enu_window, stage_label, stage_number
 from ...domain.state import State
 from ...runtime.edit_policy import recent_creator
 from ...runtime.errors import APIError
-from ...runtime.mutations import audit
+from ...runtime.mutations import WriteContext, audit
 from ...runtime.values import iso_now, normalize, parse_datetime, uuid7
 from ...services.experiments import lot_number_sort_key, next_lot_number
 from ...store import Store
@@ -124,7 +124,7 @@ def _validate_batch(state: State, body: dict[str, Any], current_id: str = "") ->
         raise APIError(409, "conflict", "batchCode ซ้ำกับรายการที่มีอยู่แล้ว")
 
 
-def _create_batch(state: State, request: Request, body: dict[str, Any], source_id: str = "") -> dict[str, Any]:
+def _create_batch(state: State, ctx: WriteContext, body: dict[str, Any], source_id: str = "") -> dict[str, Any]:
     body = {key: value for key, value in body.items() if key in BATCH_INPUT_FIELDS}
     _validate_batch(state, body)
     profile_id = next(
@@ -168,7 +168,7 @@ def _create_batch(state: State, request: Request, body: dict[str, Any], source_i
         "updatedAt": now,
     }
     state.entities["batches"][batch_id] = batch
-    audit(state, request, "INSERT", "experiment_batch", batch_id, None, batch)
+    audit(state, ctx, "INSERT", "experiment_batch", batch_id, None, batch)
     return batch
 
 
@@ -239,7 +239,7 @@ def _create_embryos(
         }
         state.entities["embryos"][embryo_id] = embryo
         embryos.append(embryo)
-        audit(state, request, "INSERT", "embryo", embryo_id, None, embryo)
+        audit(state, request.state.write_context, "INSERT", "embryo", embryo_id, None, embryo)
     return embryos
 
 
@@ -354,7 +354,7 @@ def build_experiments_router(store: Store) -> APIRouter:
         body = normalize(body)
 
         def operation(state: State):
-            return 201, _create_batch(state, request, body)
+            return 201, _create_batch(state, request.state.write_context, body)
 
         return store.execute_mutation(request, body, operation)
 
@@ -434,7 +434,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             state.entities["batches"][batch_id] = updated
             audit(
                 state,
-                request,
+                request.state.write_context,
                 "UPDATE",
                 "experiment_batch",
                 batch_id,
@@ -460,7 +460,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             duplicate.update({"experimentDate": body.get("experimentDate"), "dayNo": body.get("dayNo")})
             if request.state.user["role"] == "member":
                 duplicate["operatorId"] = request.state.user["operatorId"]
-            created = _create_batch(state, request, duplicate, batch_id)
+            created = _create_batch(state, request.state.write_context, duplicate, batch_id)
             if body.get("copyInjectionLots"):
                 for old_lot in list(state.entities["injection-lots"].values()):
                     if old_lot.get("batchId") != batch_id or old_lot.get("deletedAt") is not None:
@@ -480,7 +480,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                         }
                     )
                     state.entities["injection-lots"][lot["id"]] = lot
-                    audit(state, request, "INSERT", "injection_lot", lot["id"], None, lot)
+                    audit(state, request.state.write_context, "INSERT", "injection_lot", lot["id"], None, lot)
             return 201, created
 
         return store.execute_mutation(request, body, operation)
@@ -507,7 +507,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             }
             state.entities["injection-lots"][lot_id] = lot
             embryos = _create_embryos(state, request, batch, lot, count, positions)
-            audit(state, request, "INSERT", "injection_lot", lot_id, None, lot)
+            audit(state, request.state.write_context, "INSERT", "injection_lot", lot_id, None, lot)
             result = {**lot, "embryos": embryos}
             if warning:
                 result["warnings"] = [warning]
@@ -551,7 +551,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             updated.update({"nActivated": count, "updatedAt": now})
             state.entities["injection-lots"][lot_id] = updated
             embryos = _create_embryos(state, request, batch, updated, count, positions)
-            audit(state, request, "UPDATE", "injection_lot", lot_id, old, updated)
+            audit(state, request.state.write_context, "UPDATE", "injection_lot", lot_id, old, updated)
             result = {**updated, "embryos": embryos}
             if warning:
                 result["warnings"] = [warning]
@@ -618,7 +618,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                 }
                 state.entities["embryos"][item_id] = embryo
                 created.append(embryo)
-                audit(state, request, "INSERT", "embryo", item_id, None, embryo)
+                audit(state, request.state.write_context, "INSERT", "embryo", item_id, None, embryo)
             return 201, {"items": created}
 
         return store.execute_mutation(request, body, operation)
@@ -661,7 +661,7 @@ def build_experiments_router(store: Store) -> APIRouter:
             state.entities["embryos"][embryo_id] = updated
             audit(
                 state,
-                request,
+                request.state.write_context,
                 "UPDATE",
                 "embryo",
                 embryo_id,
@@ -682,7 +682,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                 raise APIError(404, "not_found", "ไม่พบ embryo")
             old = copy.deepcopy(embryo)
             embryo.update({"active": False, "deletedAt": iso_now(), "updatedAt": iso_now()})
-            audit(state, request, "UPDATE", "embryo", embryo_id, old, embryo)
+            audit(state, request.state.write_context, "UPDATE", "embryo", embryo_id, old, embryo)
             return 204, b""
 
         return store.execute_mutation(request, {}, operation)
@@ -749,7 +749,9 @@ def build_experiments_router(store: Store) -> APIRouter:
                 if existing:
                     old = copy.deepcopy(existing)
                     existing.update({**item, "active": True, "deletedAt": None, "updatedAt": iso_now()})
-                    audit(state, request, "UPDATE", "control_arm_count", existing["id"], old, existing)
+                    audit(
+                        state, request.state.write_context, "UPDATE", "control_arm_count", existing["id"], old, existing
+                    )
                     result.append(copy.deepcopy(existing))
                 else:
                     item_id, now = uuid7(), iso_now()
@@ -762,7 +764,7 @@ def build_experiments_router(store: Store) -> APIRouter:
                         "updatedAt": now,
                     }
                     state.entities["control-arm-counts"][item_id] = created
-                    audit(state, request, "INSERT", "control_arm_count", item_id, None, created)
+                    audit(state, request.state.write_context, "INSERT", "control_arm_count", item_id, None, created)
                     result.append(created)
             for existing in state.entities["control-arm-counts"].values():
                 if existing.get("batchId") != batch_id or existing.get("deletedAt") is not None:
@@ -770,7 +772,9 @@ def build_experiments_router(store: Store) -> APIRouter:
                 if (existing.get("armType"), existing.get("stageCode")) not in keys:
                     old = copy.deepcopy(existing)
                     existing.update({"active": False, "deletedAt": iso_now(), "updatedAt": iso_now()})
-                    audit(state, request, "UPDATE", "control_arm_count", existing["id"], old, existing)
+                    audit(
+                        state, request.state.write_context, "UPDATE", "control_arm_count", existing["id"], old, existing
+                    )
             return 200, {"items": _control_items(result)}
 
         return store.execute_mutation(request, body, operation)

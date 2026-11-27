@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { load } from "js-yaml";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiBase, deviceId, mutationHeaders, operatorId, request } from "../src/api/client";
+import { apiBase, deviceId, mutationHeaders, operatorId, request, WRITE_KINDS, writeKind } from "../src/api/client";
 
 describe("API write context", () => {
   afterEach(() => {
@@ -61,21 +65,57 @@ describe("API write context", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("requires and sends the selected operator for template validation and confirmation only", async () => {
+  it.each([
+    ["POST", "/imports/job-1/validate-template", "operator"],
+    ["POST", "/imports/job-1/confirm-template", "operator"],
+    ["PATCH", "/batches/b-1?x=1", "operator"],
+    ["POST", "/corrections/c-1/decide", "account"],
+    ["POST", "/imports/inspect", "account"],
+    ["POST", "/imports/job-1/confirm-all", "account"],
+    ["POST", "/auth/logout", "none"],
+  ] as const)("sends %s %s with %s write context", async (method, path, kind) => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
-    await request("/imports/inspect", { method: "POST", body: new FormData() });
-    for (const action of ["validate-template", "confirm-template"]) {
-      await expect(request(`/imports/job-1/${action}`, { method: "POST", body: "{}" })).rejects.toThrow(
-        "OPERATOR_REQUIRED",
-      );
-    }
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(writeKind(method, path)).toBe(kind);
+    if (kind === "operator") await expect(request(path, { method, body: "{}" })).rejects.toThrow("OPERATOR_REQUIRED");
     sessionStorage.setItem("chronofish.operator_id", "operator-a");
-    for (const action of ["validate-template", "confirm-template"]) {
-      await request(`/imports/job-1/${action}`, { method: "POST", body: "{}" });
-      expect(fetchMock.mock.calls.at(-1)?.[1].headers).toMatchObject({ "X-Operator-Id": "operator-a" });
-    }
+    await request(path, { method, body: "{}" });
+    const sent = fetchMock.mock.calls.at(-1)?.[1].headers;
+    expect(sent["X-Operator-Id"]).toBe(kind === "operator" ? "operator-a" : undefined);
+    expect(sent["X-Idempotency-Key"] === undefined).toBe(kind === "none");
+  });
+
+  it("refuses a mutation whose write kind is not declared", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(request("/unknown", { method: "POST", body: "{}" })).rejects.toThrow("No write kind declared");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("declares the same write kind as api/openapi.yaml for every mutating operation", () => {
+    const document = load(readFileSync(resolve(__dirname, "../../api/openapi.yaml"), "utf8")) as {
+      paths: Record<string, Record<string, { parameters?: Param[] }> & { parameters?: Param[] }>;
+      components: { parameters: Record<string, { name: string }> };
+    };
+    type Param = { $ref?: string; name?: string };
+    const names = (parameters: Param[] = []) =>
+      parameters.map((p) => (p.$ref ? document.components.parameters[p.$ref.split("/").pop() as string].name : p.name));
+    const expected: Record<string, string> = {};
+    for (const [path, item] of Object.entries(document.paths))
+      for (const [method, operation] of Object.entries(item))
+        if (["post", "put", "patch", "delete"].includes(method)) {
+          const declared = [...names(item.parameters), ...names(operation.parameters)];
+          expected[`${method.toUpperCase()} ${path}`] = declared.includes("X-Operator-Id")
+            ? "operator"
+            : path.startsWith("/auth/")
+              ? "none"
+              : "account";
+          // Every declared operation must resolve to itself from a concrete path.
+          expect(writeKind(method.toUpperCase(), path.replace(/\{[^/]+\}/g, "id"))).toBe(
+            expected[`${method.toUpperCase()} ${path}`],
+          );
+        }
+    expect(WRITE_KINDS).toEqual(expected);
   });
 
   it("honors supplied context without requiring a session operator", async () => {

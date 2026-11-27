@@ -4,6 +4,7 @@ import ipaddress
 import time
 from collections import deque
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -93,7 +94,8 @@ def test_idempotency_replay_preserves_no_content_status(store, write_headers):
     scope = {
         "type": "http",
         "method": "DELETE",
-        "path": "/api/v1/review-target",
+        "path": "/api/v1/embryos/e-1",
+        "route": SimpleNamespace(path="/api/v1/embryos/{id}"),
         "query_string": b"",
         "state": {"user": {"role": "admin", "id": "test-admin"}},
         "headers": [(name.lower().encode(), value.encode()) for name, value in write_headers.items()],

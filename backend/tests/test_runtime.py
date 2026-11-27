@@ -8,7 +8,7 @@ from starlette.requests import Request
 
 from chronofish.domain.state import State
 from chronofish.runtime.errors import APIError, error_response
-from chronofish.runtime.mutations import audit, encode_result, request_fingerprint, validate_write_context
+from chronofish.runtime.mutations import WriteContext, audit, encode_result, request_fingerprint, validate_write_context
 from chronofish.runtime.values import iso_now, normalize, parse_datetime, uuid7
 
 
@@ -90,7 +90,7 @@ def test_operator_header_must_be_uuid(client, write_headers):
 def test_device_id_length_and_control_characters(device, write_headers):
     headers = {**write_headers, "X-Device-Id": device}
     with pytest.raises(APIError, match="X-Device-Id ต้องมีความยาว 1-64 ตัวอักษร"):
-        validate_write_context(request_with_headers(headers=headers), State.seeded(), {})
+        validate_write_context(request_with_headers(headers=headers), State.seeded(), {}, "operator")
 
 
 def test_unknown_or_inactive_operator_is_rejected(client, write_headers):
@@ -151,7 +151,15 @@ def test_request_fingerprint_ignores_key_order_and_whitespace():
 def test_audit_entry_captures_operator_device_and_deep_copies(write_headers):
     state = State.seeded()
     old, new = {"value": [1]}, {"value": [2]}
-    audit(state, request_with_headers(headers=write_headers), "UPDATE", "site", "site-1", old, new)
+    audit(
+        state,
+        WriteContext({"id": "u", "email": "e"}, write_headers["X-Operator-Id"], write_headers["X-Device-Id"], "k"),
+        "UPDATE",
+        "site",
+        "site-1",
+        old,
+        new,
+    )
     old["value"].append(3)
     new["value"].append(4)
 

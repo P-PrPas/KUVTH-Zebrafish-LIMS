@@ -7,12 +7,12 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..runtime.errors import APIError
-from ..runtime.mutations import audit
+from ..runtime.mutations import WriteContext, audit
 from ..runtime.values import iso_now, uuid7
 from .import_template import ENUMS, REQUIRED, SHEETS
 
 
-def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -> dict[str, tuple[str, str]]:
+def apply_template(state: Any, records: list[dict], ctx: WriteContext, job_id: str) -> dict[str, tuple[str, str]]:
     from ..api.routes.experiments import _create_batch
 
     targets: dict[str, tuple[str, str]] = {}
@@ -125,7 +125,7 @@ def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -
     def insert(resource: str, table: str, item: dict, record: dict) -> dict:
         item = {"id": uuid7(), "active": True, "createdAt": now, "updatedAt": now, **item}
         state.entities[resource][item["id"]] = item
-        audit(state, request, "INSERT", table, item["id"], None, item)
+        audit(state, ctx, "INSERT", table, item["id"], None, item)
         targets[record["id"]] = (table, item["id"])
         return item
 
@@ -202,7 +202,7 @@ def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -
                     record,
                 )
             else:
-                batch = _create_batch(state, request, body)
+                batch = _create_batch(state, ctx, body)
             batch_inputs[code.casefold()] = (body, batch)
         lot_no = text(row["lot_no"])
         if len(lot_no) > 20 or any(
@@ -485,12 +485,12 @@ def apply_template(state: Any, records: list[dict], request: Any, job_id: str) -
                 clientUuid=uuid7(),
                 condition=enum(row, "biological_condition"),
                 operatorId=lookup("operators", "name", row["observer"])["id"],
-                deviceId=request.headers.get("X-Device-Id"),
+                deviceId=ctx.device_id,
                 isBackdated=True,
                 createdAt=now,
                 updatedAt=now,
             )
             collection[item["id"]] = item
-            audit(state, request, "INSERT", name, item["id"], None, item)
+            audit(state, ctx, "INSERT", name, item["id"], None, item)
             targets[record["id"]] = (name, item["id"])
     return targets
