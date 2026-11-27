@@ -525,7 +525,7 @@ def test_embryo_patch_only_changes_a_unique_valid_well(client, write_headers):
     assert duplicate.status_code == 409
     assert invalid.status_code == 422
     items = client.get(f"/api/v1/injection-lots/{lot['id']}/embryos").json()["items"]
-    assert [item.get("wellPosition") for item in items] == ["A1", None]
+    assert [item.get("wellPosition") for item in items] == ["A1", "A2"]
     assert client.delete(f"/api/v1/embryos/{first['id']}", headers=headers(write_headers, 232)).status_code == 204
     reused = client.patch(
         f"/api/v1/embryos/{second['id']}",
@@ -616,3 +616,21 @@ def test_control_counts_return_canonical_labels_in_deterministic_order(client, w
     ]
     assert invalid.status_code == 422
     assert client.get(path).json()["items"] == saved.json()["items"]
+
+
+def test_embryos_without_chosen_wells_are_assigned_in_plate_order(client, write_headers):
+    batch, donor = create_batch(client, write_headers)
+    path = f"/api/v1/batches/{batch['id']}/injection-lots"
+    body = {"donorCellLineId": donor["id"], "activatedAt": "2026-08-20T00:00:00Z", "nActivated": 3}
+    auto = client.post(path, headers=headers(write_headers, 910), json=body)
+    mixed = client.post(path, headers=headers(write_headers, 911), json={**body, "wellPositions": ["A2"]})
+    assert auto.status_code == mixed.status_code == 201
+    assert [e["wellPosition"] for e in auto.json()["embryos"]] == ["A1", "A2", "A3"]
+    # A chosen well stays with its embryo; the rest fill the first free wells.
+    assert [e["wellPosition"] for e in mixed.json()["embryos"]] == ["A2", "A1", "A3"]
+
+    added = client.post(
+        f"/api/v1/injection-lots/{auto.json()['id']}/embryos", headers=headers(write_headers, 912), json={"count": 2}
+    )
+    assert added.status_code == 201, added.text
+    assert [e["wellPosition"] for e in added.json()["items"]] == ["A4", "A5"]

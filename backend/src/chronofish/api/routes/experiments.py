@@ -210,6 +210,8 @@ def _lot_inputs(state: State, body: dict[str, Any], batch: dict[str, Any]) -> tu
     ):
         raise APIError(422, "validation_error", "wellPositions must be unique and inside the selected Well Plate")
     body.pop("wellPositions", None)
+    # Wells not chosen by the caller are assigned in plate order (A1, A2, ...), so every embryo starts in a well.
+    positions += [well for well in allowed_wells if well not in positions][: count - len(positions)]
     return count, positions, warning
 
 
@@ -596,13 +598,20 @@ def build_experiments_router(store: Store) -> APIRouter:
             if count < 1 or max_sequence + count > len(plate_wells(batch.get("wellPlateSize", 96))):
                 raise APIError(422, "validation_error", "Embryos exceed the selected Well Plate capacity")
             created = []
-            for sequence in range(max_sequence + 1, max_sequence + count + 1):
+            taken = {
+                item.get("wellPosition")
+                for item in existing
+                if item.get("active") is not False and item.get("deletedAt") is None
+            }
+            free = [well for well in plate_wells(batch.get("wellPlateSize", 96)) if well not in taken]
+            for sequence, well in zip(range(max_sequence + 1, max_sequence + count + 1), free, strict=False):
                 item_id, now = uuid7(), iso_now()
                 embryo = {
                     "id": item_id,
                     "injectionLotId": lot_id,
                     "seqInLot": sequence,
                     "embryoCode": embryo_code(batch, lot, sequence),
+                    "wellPosition": well,
                     "active": True,
                     "createdAt": now,
                     "updatedAt": now,
